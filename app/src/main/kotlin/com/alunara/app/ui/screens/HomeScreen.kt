@@ -1,5 +1,7 @@
 package com.alunara.app.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -38,6 +40,7 @@ import com.alunara.app.R
 import com.alunara.app.ui.components.TvArtwork
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvMediaCard
+import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.Track
@@ -190,20 +193,19 @@ private fun ContinueQueueCard(
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(12.dp)
-    val border =
-        if (focused) {
-            BorderStroke(2.dp, AlunaraPalette.FocusOutline)
-        } else {
-            BorderStroke(1.dp, Color.Transparent)
-        }
+    val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) AlunaraPalette.FocusOutline else Color.Transparent,
+        animationSpec = tween(150),
+        label = "continue_border",
+    )
 
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .background(AlunaraPalette.SecondarySurface, shape)
-                .border(border, shape)
+                .border(BorderStroke(AlunaraDimens.FocusBorderWidth, borderColor), shape)
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(onClick = onClick)
                 .padding(12.dp),

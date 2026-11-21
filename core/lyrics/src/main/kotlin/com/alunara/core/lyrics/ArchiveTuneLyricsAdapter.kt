@@ -15,8 +15,8 @@ import kotlinx.coroutines.sync.withPermit
 
 /**
  * Orchestrates selectively approved ArchiveTune Lyrics providers (`simpmusic`, `lrclib`, `kugou`)
- * with bounded concurrency (max 2 concurrent requests per PRD §7.1) and strict priority:
- * word-sync -> line-sync -> plain.
+ * with bounded concurrency (max 2 concurrent requests per PRD §7.1), syllable-to-word repair against
+ * clean reference lyrics, and strict priority: word-sync -> line-sync -> plain.
  */
 class ArchiveTuneLyricsAdapter(
     private val providers: List<LyricsProviderClient> =
@@ -41,26 +41,46 @@ class ArchiveTuneLyricsAdapter(
             val target =
                 providers.firstOrNull { it.id == preferredProvider }
                     ?: return LyricsDocument.Unavailable("Provider ${preferredProvider.name} not configured")
-            return fetchSingleProvider(target, track)
+            val primaryDoc = fetchSingleProvider(target, track)
+            if (primaryDoc is LyricsDocument.Synced &&
+                (primaryDoc.isWordSynced || LrcParser.isSyllableFragmented(primaryDoc)) &&
+                target.id != LyricsProviderId.LRCLIB
+            ) {
+                val refProvider = providers.firstOrNull { it.id == LyricsProviderId.LRCLIB }
+                val refDocs = if (refProvider != null) listOf(fetchSingleProvider(refProvider, track)) else emptyList()
+                val refTexts = extractCleanReferenceTexts(refDocs)
+                return LrcParser.repairWordBoundaries(primaryDoc, refTexts)
+            }
+            return primaryDoc
         }
 
         val semaphore = Semaphore(concurrencyLimit)
         val primaryBatch = providers.take(concurrencyLimit)
         val primaryDocs = fetchBatch(primaryBatch, track, semaphore)
         val primaryBest = selectBestDocument(primaryDocs)
-        if (primaryBest is LyricsDocument.Synced && primaryBest.isWordSynced) {
-            return primaryBest
-        }
-
-        val fallbackBatch = providers.drop(concurrencyLimit)
-        val fallbackDocs =
-            if (fallbackBatch.isNotEmpty()) {
-                fetchBatch(fallbackBatch, track, semaphore)
+        val allDocs =
+            if (primaryBest is LyricsDocument.Synced && primaryBest.isWordSynced && !LrcParser.isSyllableFragmented(primaryBest)) {
+                primaryDocs
             } else {
-                emptyList()
+                val fallbackBatch = providers.drop(concurrencyLimit)
+                if (fallbackBatch.isNotEmpty()) {
+                    primaryDocs + fetchBatch(fallbackBatch, track, semaphore)
+                } else {
+                    primaryDocs
+                }
             }
 
-        return selectBestDocument(primaryDocs + fallbackDocs)
+        val refTexts = extractCleanReferenceTexts(allDocs)
+        val repairedDocs =
+            allDocs.map { doc ->
+                if (doc is LyricsDocument.Synced && (doc.isWordSynced || LrcParser.isSyllableFragmented(doc))) {
+                    LrcParser.repairWordBoundaries(doc, refTexts)
+                } else {
+                    doc
+                }
+            }
+
+        return selectBestDocument(repairedDocs)
             ?: LyricsDocument.Unavailable("No matching lyrics from configured providers")
     }
 
@@ -98,11 +118,36 @@ class ArchiveTuneLyricsAdapter(
             LyricsDocument.Unavailable(t.message ?: "Provider error")
         }
 
+    private fun extractCleanReferenceTexts(docs: List<LyricsDocument>): List<String> =
+        docs.flatMap { doc ->
+            when (doc) {
+                is LyricsDocument.Synced ->
+                    if (!LrcParser.isSyllableFragmented(doc)) {
+                        doc.lines.map { it.text }
+                    } else {
+                        emptyList()
+                    }
+                is LyricsDocument.Plain -> doc.text.lines()
+                is LyricsDocument.Unavailable -> emptyList()
+            }
+        }
+
     private fun selectBestDocument(candidates: List<LyricsDocument>): LyricsDocument? {
-        val wordSynced = candidates.firstOrNull { it is LyricsDocument.Synced && it.isWordSynced }
-        if (wordSynced != null) return wordSynced
-        val lineSynced = candidates.firstOrNull { it is LyricsDocument.Synced }
-        if (lineSynced != null) return lineSynced
-        return candidates.firstOrNull { it is LyricsDocument.Plain }
+        val cleanWordSynced =
+            candidates.firstOrNull {
+                it is LyricsDocument.Synced && it.isWordSynced && !LrcParser.isSyllableFragmented(it)
+            }
+        if (cleanWordSynced != null) return cleanWordSynced
+
+        val cleanLineSynced =
+            candidates.firstOrNull {
+                it is LyricsDocument.Synced && !it.isWordSynced && !LrcParser.isSyllableFragmented(it)
+            }
+        if (cleanLineSynced != null) return cleanLineSynced
+
+        val plain = candidates.firstOrNull { it is LyricsDocument.Plain }
+        if (plain != null) return plain
+
+        return candidates.firstOrNull { it is LyricsDocument.Synced }
     }
 }

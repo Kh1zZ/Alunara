@@ -120,6 +120,34 @@ class ArchiveTuneLyricsAdapterTest {
         }
 
     @Test
+    fun fetchLyrics_repairsSyllableFragmentedWordSyncUsingLrcLibReference() =
+        runTest {
+            val active = AtomicInteger(0)
+            val maxObserved = AtomicInteger(0)
+            val adapter =
+                ArchiveTuneLyricsAdapter(
+                    providers =
+                        listOf(
+                            FakeProvider(LyricsProviderId.SIMPMUSIC, 0L, active, maxObserved) {
+                                Result.success(
+                                    "[00:04.54] <00:04.54>Ha <00:04.77>ri- <00:04.87>ha <00:05.18>ri <00:05.50>ber <00:05.80>u <00:06.07>lang\n" +
+                                        "[00:06.90] <00:06.90>Mis <00:07.12>te <00:07.30>ri <00:07.57>le <00:07.83>nyap <00:08.09>se <00:08.41>nang",
+                                )
+                            },
+                            FakeProvider(LyricsProviderId.LRCLIB, 0L, active, maxObserved) {
+                                Result.success("[00:04.46] Hari-hari berulang\n[00:06.76] Misteri lenyap senang")
+                            },
+                        ),
+                )
+
+            val doc = adapter.fetchLyrics(sampleTrack) as LyricsDocument.Synced
+            assertEquals(LyricsProviderId.SIMPMUSIC, doc.provider)
+            assertTrue(doc.isWordSynced)
+            assertEquals("Hari-hari berulang", doc.lines[0].text)
+            assertEquals(listOf("Hari-hari ", "berulang"), doc.lines[0].words.map { it.text })
+        }
+
+    @Test
     fun fetchLyrics_fallsBackToPlainWhenNoProviderHasSynced() =
         runTest {
             val active = AtomicInteger(0)

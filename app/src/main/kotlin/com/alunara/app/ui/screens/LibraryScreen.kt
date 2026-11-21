@@ -27,6 +27,7 @@ import com.alunara.app.R
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvIconButton
 import com.alunara.app.ui.components.TvSongRow
+import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.core.domain.model.QueueState
 
@@ -70,7 +71,7 @@ fun LibraryScreen(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(10.dp))
+                    .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
                     .padding(12.dp),
         )
 

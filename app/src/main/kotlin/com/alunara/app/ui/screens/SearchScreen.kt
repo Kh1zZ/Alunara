@@ -1,5 +1,7 @@
 package com.alunara.app.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,7 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -45,6 +46,7 @@ import com.alunara.app.R
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvMediaCard
 import com.alunara.app.ui.components.TvSongRow
+import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
@@ -80,21 +82,20 @@ fun SearchScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            val shape = RoundedCornerShape(10.dp)
+            val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+            val fieldBorderColor by animateColorAsState(
+                targetValue = if (fieldFocused) AlunaraPalette.FocusOutline else AlunaraPalette.SecondarySurface,
+                animationSpec = tween(150),
+                label = "search_border",
+            )
             Box(
                 modifier =
                     Modifier
                         .weight(1f)
-                        .height(44.dp)
-                        .background(AlunaraPalette.Background, shape)
-                        .border(
-                            if (fieldFocused) {
-                                BorderStroke(2.dp, AlunaraPalette.FocusOutline)
-                            } else {
-                                BorderStroke(1.dp, AlunaraPalette.SecondarySurface)
-                            },
-                            shape,
-                        ).padding(horizontal = 14.dp),
+                        .height(AlunaraDimens.ControlHeight)
+                        .background(AlunaraPalette.Surface, shape)
+                        .border(BorderStroke(AlunaraDimens.FocusBorderWidth, fieldBorderColor), shape)
+                        .padding(horizontal = 14.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 if (query.isEmpty()) {

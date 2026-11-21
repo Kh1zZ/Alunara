@@ -78,4 +78,28 @@ class LrcParserTest {
         assertFalse(result.isWordSynced)
         assertFalse(result.lines.single().hasWordSync)
     }
+
+    @Test
+    fun repairWordBoundaries_mergesSyllableFragmentsIntoWholeWordsUsingReference() {
+        val fragmentedRaw =
+            "[00:04.54] <00:04.54>Ha <00:04.77>ri- <00:04.87>ha <00:05.18>ri <00:05.50>ber <00:05.80>u <00:06.07>lang\n" +
+                "[00:06.90] <00:06.90>Mis <00:07.12>te <00:07.30>ri <00:07.57>le <00:07.83>nyap <00:08.09>se <00:08.41>nang"
+        val parsed = LrcParser.parse(LyricsProviderId.SIMPMUSIC, fragmentedRaw) as LyricsDocument.Synced
+        assertTrue(LrcParser.isSyllableFragmented(parsed))
+
+        val repaired =
+            LrcParser.repairWordBoundaries(
+                parsed,
+                listOf("Hari-hari berulang", "Misteri lenyap senang"),
+            )
+        assertFalse(LrcParser.isSyllableFragmented(repaired))
+        assertEquals("Hari-hari berulang", repaired.lines[0].text)
+        assertEquals(2, repaired.lines[0].words.size)
+        assertEquals(4_540L, repaired.lines[0].words[0].startTimeMs)
+        assertEquals("Hari-hari ", repaired.lines[0].words[0].text)
+        assertEquals(5_500L, repaired.lines[0].words[1].startTimeMs)
+        assertEquals("berulang", repaired.lines[0].words[1].text)
+        assertEquals("Misteri lenyap senang", repaired.lines[1].text)
+        assertEquals(3, repaired.lines[1].words.size)
+    }
 }

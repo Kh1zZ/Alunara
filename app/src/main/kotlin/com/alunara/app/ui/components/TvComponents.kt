@@ -1,5 +1,7 @@
 package com.alunara.app.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,10 +46,13 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.alunara.app.R
 import com.alunara.app.playback.PlaybackSessionUiState
+import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.Track
 import java.util.Locale
+
+private const val FOCUS_ANIM_MS = 150
 
 @Composable
 fun TvArtwork(
@@ -94,33 +99,40 @@ fun TvFocusableButton(
     enabled: Boolean = true,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(20.dp)
-    val bgColor =
-        when {
-            !enabled -> AlunaraPalette.Surface
-            highlighted -> AlunaraPalette.PrimaryAccent
-            focused -> AlunaraPalette.SecondarySurface
-            else -> AlunaraPalette.SecondarySurface.copy(alpha = 0.72f)
-        }
-    val contentColor =
-        when {
-            !enabled -> AlunaraPalette.DimmedLyrics
-            highlighted -> AlunaraPalette.Background
-            else -> AlunaraPalette.PrimaryText
-        }
-    val border =
-        if (focused) {
-            BorderStroke(2.dp, AlunaraPalette.FocusOutline)
-        } else {
-            BorderStroke(1.dp, Color.Transparent)
-        }
+    val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+    val bgColor by animateColorAsState(
+        targetValue =
+            when {
+                !enabled -> AlunaraPalette.Surface
+                highlighted -> AlunaraPalette.PrimaryAccent
+                focused -> AlunaraPalette.SecondarySurface
+                else -> AlunaraPalette.SecondarySurface.copy(alpha = 0.72f)
+            },
+        animationSpec = tween(FOCUS_ANIM_MS),
+        label = "btn_bg",
+    )
+    val contentColor by animateColorAsState(
+        targetValue =
+            when {
+                !enabled -> AlunaraPalette.DimmedLyrics
+                highlighted -> AlunaraPalette.Background
+                else -> AlunaraPalette.PrimaryText
+            },
+        animationSpec = tween(FOCUS_ANIM_MS),
+        label = "btn_fg",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) AlunaraPalette.FocusOutline else Color.Transparent,
+        animationSpec = tween(FOCUS_ANIM_MS),
+        label = "btn_border",
+    )
 
     Row(
         modifier =
             modifier
-                .height(40.dp)
+                .height(AlunaraDimens.ControlHeight)
                 .background(bgColor, shape)
-                .border(border, shape)
+                .border(BorderStroke(AlunaraDimens.FocusBorderWidth, borderColor), shape)
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 16.dp),
@@ -152,31 +164,38 @@ fun TvIconButton(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    size: Dp = 44.dp,
-    iconSize: Dp = 24.dp,
+    size: Dp = AlunaraDimens.ControlHeight,
+    iconSize: Dp = 22.dp,
     highlighted: Boolean = false,
     enabled: Boolean = true,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val bgColor =
-        when {
-            !enabled -> AlunaraPalette.Surface.copy(alpha = 0.7f)
-            highlighted -> AlunaraPalette.PrimaryAccent
-            focused -> AlunaraPalette.SecondarySurface
-            else -> AlunaraPalette.Surface.copy(alpha = 0.85f)
-        }
-    val tintColor =
-        when {
-            !enabled -> AlunaraPalette.DimmedLyrics
-            highlighted -> AlunaraPalette.Background
-            else -> AlunaraPalette.PrimaryText
-        }
-    val border =
-        if (focused) {
-            BorderStroke(2.dp, AlunaraPalette.FocusOutline)
-        } else {
-            BorderStroke(1.dp, Color.Transparent)
-        }
+    val bgColor by animateColorAsState(
+        targetValue =
+            when {
+                !enabled -> AlunaraPalette.Surface.copy(alpha = 0.7f)
+                highlighted -> AlunaraPalette.PrimaryAccent
+                focused -> AlunaraPalette.SecondarySurface
+                else -> AlunaraPalette.Surface.copy(alpha = 0.85f)
+            },
+        animationSpec = tween(FOCUS_ANIM_MS),
+        label = "icon_btn_bg",
+    )
+    val tintColor by animateColorAsState(
+        targetValue =
+            when {
+                !enabled -> AlunaraPalette.DimmedLyrics
+                highlighted -> AlunaraPalette.Background
+                else -> AlunaraPalette.PrimaryText
+            },
+        animationSpec = tween(FOCUS_ANIM_MS),
+        label = "icon_btn_tint",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) AlunaraPalette.FocusOutline else Color.Transparent,
+        animationSpec = tween(FOCUS_ANIM_MS),
+        label = "icon_btn_border",
+    )
 
     Box(
         modifier =
@@ -184,7 +203,7 @@ fun TvIconButton(
                 .size(size)
                 .clip(CircleShape)
                 .background(bgColor, CircleShape)
-                .border(border, CircleShape)
+                .border(BorderStroke(AlunaraDimens.FocusBorderWidth, borderColor), CircleShape)
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -209,22 +228,25 @@ fun TvSongRow(
     modifier: Modifier = Modifier,
 ) {
     var rowFocused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(10.dp)
-    val bgColor =
-        when {
-            isActive -> AlunaraPalette.SecondarySurface
-            rowFocused -> AlunaraPalette.SecondarySurface.copy(alpha = 0.85f)
-            else -> AlunaraPalette.Surface.copy(alpha = 0.7f)
-        }
-    val border =
-        if (rowFocused) {
-            BorderStroke(2.dp, AlunaraPalette.FocusOutline)
-        } else {
-            BorderStroke(1.dp, Color.Transparent)
-        }
+    val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+    val bgColor by animateColorAsState(
+        targetValue =
+            when {
+                isActive -> AlunaraPalette.SecondarySurface
+                rowFocused -> AlunaraPalette.SecondarySurface.copy(alpha = 0.85f)
+                else -> AlunaraPalette.Surface.copy(alpha = 0.72f)
+            },
+        animationSpec = tween(FOCUS_ANIM_MS),
+        label = "row_bg",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (rowFocused) AlunaraPalette.FocusOutline else Color.Transparent,
+        animationSpec = tween(FOCUS_ANIM_MS),
+        label = "row_border",
+    )
 
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().height(AlunaraDimens.SongRowHeight),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -232,15 +254,16 @@ fun TvSongRow(
             modifier =
                 Modifier
                     .weight(1f)
+                    .height(AlunaraDimens.SongRowHeight)
                     .background(bgColor, shape)
-                    .border(border, shape)
+                    .border(BorderStroke(AlunaraDimens.FocusBorderWidth, borderColor), shape)
                     .onFocusChanged { rowFocused = it.isFocused }
                     .clickable(onClick = onPlayClick)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            TvArtwork(url = track.thumbnailUrl, contentDescription = null, size = 42.dp)
+            TvArtwork(url = track.thumbnailUrl, contentDescription = null, size = 44.dp)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = track.title,
@@ -295,22 +318,25 @@ fun TvMediaCard(
     modifier: Modifier = Modifier,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(12.dp)
-    val border =
-        if (focused) {
-            BorderStroke(2.dp, AlunaraPalette.FocusOutline)
-        } else {
-            BorderStroke(1.dp, Color.Transparent)
-        }
+    val shape = RoundedCornerShape(AlunaraDimens.RadiusCard)
+    val bgColor by animateColorAsState(
+        targetValue = if (focused) AlunaraPalette.SecondarySurface else AlunaraPalette.Surface.copy(alpha = 0.72f),
+        animationSpec = tween(FOCUS_ANIM_MS),
+        label = "card_bg",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) AlunaraPalette.FocusOutline else Color.Transparent,
+        animationSpec = tween(FOCUS_ANIM_MS),
+        label = "card_border",
+    )
 
     Column(
         modifier =
             modifier
-                .width(136.dp)
-                .background(
-                    if (focused) AlunaraPalette.SecondarySurface else AlunaraPalette.Surface.copy(alpha = 0.72f),
-                    shape,
-                ).border(border, shape)
+                .width(AlunaraDimens.CardWidth)
+                .height(AlunaraDimens.CardHeight)
+                .background(bgColor, shape)
+                .border(BorderStroke(AlunaraDimens.FocusBorderWidth, borderColor), shape)
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(onClick = onClick)
                 .padding(10.dp),
@@ -320,7 +346,7 @@ fun TvMediaCard(
         TvArtwork(
             url = thumbnailUrl,
             contentDescription = null,
-            size = 116.dp,
+            size = AlunaraDimens.CardArtworkSize,
             circular = circular,
         )
         Text(
@@ -330,10 +356,11 @@ fun TvMediaCard(
             fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
             minLines = 2,
             maxLines = 2,
+            lineHeight = 18.sp,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = subtitle,
+            text = subtitle.ifBlank { " " },
             color = AlunaraPalette.MutedText,
             fontSize = 12.sp,
             maxLines = 1,
@@ -373,7 +400,7 @@ fun DockedMiniPlayer(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(64.dp)
+                    .height(AlunaraDimens.MiniPlayerHeight)
                     .padding(horizontal = 24.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),

@@ -1,5 +1,8 @@
 package com.alunara.app.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -9,7 +12,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -68,9 +71,9 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.alunara.app.R
 import com.alunara.app.playback.PlaybackSessionUiState
-import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvIconButton
 import com.alunara.app.ui.components.formatDurationMs
+import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.core.domain.lyrics.LyricsSyncResolver
 import com.alunara.core.domain.model.LyricsDocument
@@ -96,7 +99,7 @@ fun NowPlayingScreen(
             Text(
                 text = stringResource(R.string.queue_empty),
                 color = AlunaraPalette.MutedText,
-                fontSize = 16.sp,
+                fontSize = 18.sp,
             )
         }
         return
@@ -117,7 +120,7 @@ fun NowPlayingScreen(
         Box(
             modifier =
                 Modifier
-                    .weight(1.05f)
+                    .weight(1.0f)
                     .fillMaxHeight(),
         ) {
             if (!track.thumbnailUrl.isNullOrBlank()) {
@@ -144,7 +147,7 @@ fun NowPlayingScreen(
                 }
             }
 
-            // Vertical scrim ensuring crisp legibility over bright/saturated album art
+            // Vertical scrim ensuring crisp contrast over bright/saturated album art
             Box(
                 modifier =
                     Modifier
@@ -167,14 +170,14 @@ fun NowPlayingScreen(
                         .fillMaxSize()
                         .background(
                             Brush.horizontalGradient(
-                                0.58f to Color.Transparent,
-                                0.86f to AlunaraPalette.Background.copy(alpha = 0.72f),
+                                0.56f to Color.Transparent,
+                                0.85f to AlunaraPalette.Background.copy(alpha = 0.75f),
                                 1.0f to AlunaraPalette.Background,
                             ),
                         ),
             )
 
-            // Foreground track metadata, status, timeline & Material 3 transport controls
+            // Foreground track metadata, status, zero-shift seek timeline & Material 3 transport controls
             Column(
                 modifier =
                     Modifier
@@ -306,7 +309,7 @@ fun NowPlayingScreen(
             }
         }
 
-        // Right pane: strictly read-only lyrics viewport + compact source attribution & provider switcher
+        // Right pane: 32-inch TV large lyrics viewport + compact source attribution & 32dp switcher button
         PersistentReadOnlyLyricsPanel(
             lyrics = sessionState.lyrics,
             isLoading = sessionState.lyricsLoading,
@@ -316,10 +319,10 @@ fun NowPlayingScreen(
             onSwitchLyricsProvider = onSwitchLyricsProvider,
             modifier =
                 Modifier
-                    .weight(0.95f)
+                    .weight(1.0f)
                     .fillMaxHeight()
                     .background(AlunaraPalette.Background)
-                    .padding(start = 24.dp, end = 36.dp, top = 28.dp, bottom = 28.dp),
+                    .padding(start = 20.dp, end = 36.dp, top = 26.dp, bottom = 28.dp),
         )
     }
 }
@@ -339,20 +342,45 @@ private fun SeekableProgressBar(
             0f
         }
     val shape = RoundedCornerShape(10.dp)
+    val bgColor by animateColorAsState(
+        targetValue = if (focused) AlunaraPalette.Background.copy(alpha = 0.72f) else Color.Transparent,
+        animationSpec = tween(150),
+        label = "seek_bg",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) AlunaraPalette.FocusOutline else Color.Transparent,
+        animationSpec = tween(150),
+        label = "seek_border",
+    )
+    val barThicknessFactor by animateFloatAsState(
+        targetValue = if (focused) 6f else 4f,
+        animationSpec = tween(150),
+        label = "seek_bar_h",
+    )
+    val thumbRadiusDp by animateFloatAsState(
+        targetValue = if (focused) 6.5f else 5f,
+        animationSpec = tween(150),
+        label = "seek_thumb",
+    )
+    val hintAlpha by animateFloatAsState(
+        targetValue = if (focused) 1f else 0f,
+        animationSpec = tween(150),
+        label = "seek_hint_alpha",
+    )
     val trackBg = AlunaraPalette.SecondarySurface
     val trackFill = AlunaraPalette.PrimaryAccent
-    val thumbColor = if (focused) AlunaraPalette.FocusOutline else AlunaraPalette.PrimaryAccent
+    val thumbColor by animateColorAsState(
+        targetValue = if (focused) AlunaraPalette.FocusOutline else AlunaraPalette.PrimaryAccent,
+        animationSpec = tween(150),
+        label = "seek_thumb_color",
+    )
 
     Column(
         modifier =
             modifier
-                .background(
-                    if (focused) AlunaraPalette.Background.copy(alpha = 0.72f) else Color.Transparent,
-                    shape,
-                ).border(
-                    if (focused) BorderStroke(2.dp, AlunaraPalette.FocusOutline) else BorderStroke(1.dp, Color.Transparent),
-                    shape,
-                ).onFocusChanged { focused = it.isFocused }
+                .background(bgColor, shape)
+                .border(BorderStroke(AlunaraDimens.FocusBorderWidth, borderColor), shape)
+                .onFocusChanged { focused = it.isFocused }
                 .focusable()
                 .onPreviewKeyEvent { event ->
                     // Seek happens strictly when progress bar is focused (UI/UX Spec §5.2 / UX-16)
@@ -371,7 +399,7 @@ private fun SeekableProgressBar(
                     } else {
                         false
                     }
-                }.padding(horizontal = if (focused) 10.dp else 2.dp, vertical = 6.dp),
+                }.padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Canvas(
@@ -380,7 +408,7 @@ private fun SeekableProgressBar(
                     .fillMaxWidth()
                     .height(14.dp),
         ) {
-            val barHeight = if (focused) 6.dp.toPx() else 4.dp.toPx()
+            val barHeight = barThicknessFactor.dp.toPx()
             val barTop = (size.height - barHeight) / 2f
             val corner = CornerRadius(barHeight / 2f, barHeight / 2f)
             drawRoundRect(
@@ -398,7 +426,7 @@ private fun SeekableProgressBar(
                     cornerRadius = corner,
                 )
             }
-            val thumbRadius = if (focused) 6.5.dp.toPx() else 5.dp.toPx()
+            val thumbRadius = thumbRadiusDp.dp.toPx()
             val thumbX = activeWidth.coerceIn(thumbRadius, (size.width - thumbRadius).coerceAtLeast(thumbRadius))
             drawCircle(
                 color = thumbColor,
@@ -418,15 +446,14 @@ private fun SeekableProgressBar(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
             )
-            if (focused) {
-                Text(
-                    text = stringResource(R.string.seek_bar_label),
-                    color = AlunaraPalette.FocusOutline,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Text(
+                text = stringResource(R.string.seek_bar_label),
+                color = AlunaraPalette.FocusOutline,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.alpha(hintAlpha),
+            )
             Text(
                 text = formatDurationMs(durationMs),
                 color = AlunaraPalette.MutedText,
@@ -470,7 +497,7 @@ private fun PersistentReadOnlyLyricsPanel(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -497,7 +524,7 @@ private fun PersistentReadOnlyLyricsPanel(
                     Text(
                         text = stringResource(R.string.lyrics_heading),
                         color = AlunaraPalette.PrimaryAccent,
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -512,14 +539,16 @@ private fun PersistentReadOnlyLyricsPanel(
                 }
             }
 
-            TvFocusableButton(
-                text = stringResource(R.string.lyrics_switch_provider),
+            TvIconButton(
                 icon = Icons.Rounded.SwapHoriz,
+                contentDescription = stringResource(R.string.lyrics_switch_provider),
+                size = 32.dp,
+                iconSize = 18.dp,
                 onClick = onSwitchLyricsProvider,
             )
         }
 
-        // Strictly read-only lyrics viewport: never focusable/clickable (UI/UX Spec §5.3 / UX-13)
+        // Strictly read-only lyrics viewport tailored for 32-inch 10-foot viewing distance
         Box(
             modifier =
                 Modifier
@@ -532,7 +561,7 @@ private fun PersistentReadOnlyLyricsPanel(
                     Text(
                         text = stringResource(R.string.lyrics_loading),
                         color = AlunaraPalette.MutedText,
-                        fontSize = 16.sp,
+                        fontSize = 19.sp,
                     )
                 }
 
@@ -540,7 +569,7 @@ private fun PersistentReadOnlyLyricsPanel(
                     val listState = rememberLazyListState()
                     LaunchedEffect(activeLineIndex) {
                         if (activeLineIndex >= 0) {
-                            listState.animateScrollToItem((activeLineIndex - 2).coerceAtLeast(0))
+                            listState.animateScrollToItem((activeLineIndex - 1).coerceAtLeast(0))
                         }
                     }
                     LazyColumn(
@@ -550,7 +579,7 @@ private fun PersistentReadOnlyLyricsPanel(
                             Modifier
                                 .fillMaxSize()
                                 .focusProperties { canFocus = false },
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         itemsIndexed(lyrics.lines) { idx, line ->
                             val isActive = idx == activeLineIndex
@@ -573,7 +602,7 @@ private fun PersistentReadOnlyLyricsPanel(
                                                         )
                                                     else ->
                                                         SpanStyle(
-                                                            color = AlunaraPalette.MutedText.copy(alpha = 0.5f),
+                                                            color = AlunaraPalette.MutedText.copy(alpha = 0.50f),
                                                             fontWeight = FontWeight.Medium,
                                                         )
                                                 }
@@ -584,16 +613,16 @@ private fun PersistentReadOnlyLyricsPanel(
                                     }
                                 Text(
                                     text = annotated,
-                                    fontSize = 20.sp,
-                                    lineHeight = 28.sp,
+                                    fontSize = 26.sp,
+                                    lineHeight = 36.sp,
                                 )
                             } else {
                                 Text(
                                     text = line.text,
                                     color = if (isActive) AlunaraPalette.PrimaryText else AlunaraPalette.DimmedLyrics,
-                                    fontSize = if (isActive) 20.sp else 16.sp,
-                                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                                    lineHeight = 26.sp,
+                                    fontSize = if (isActive) 26.sp else 19.sp,
+                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                                    lineHeight = if (isActive) 36.sp else 28.sp,
                                 )
                             }
                         }
@@ -608,14 +637,15 @@ private fun PersistentReadOnlyLyricsPanel(
                             Modifier
                                 .fillMaxSize()
                                 .focusProperties { canFocus = false },
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         itemsIndexed(plainLines) { _, line ->
                             Text(
                                 text = line,
-                                color = AlunaraPalette.MutedText,
-                                fontSize = 16.sp,
-                                lineHeight = 24.sp,
+                                color = AlunaraPalette.PrimaryText.copy(alpha = 0.88f),
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Medium,
+                                lineHeight = 30.sp,
                             )
                         }
                     }
@@ -629,8 +659,8 @@ private fun PersistentReadOnlyLyricsPanel(
                     Text(
                         text = emptyMsg,
                         color = AlunaraPalette.MutedText,
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp,
+                        fontSize = 18.sp,
+                        lineHeight = 26.sp,
                     )
                 }
             }

@@ -94,3 +94,29 @@ Updated and verified on Changhong `AI PONT` (`192.168.100.124:5555`) after UI, i
 | **Branding Assets** | Wired `1:1` universal launcher icons (`mipmap-mdpi`..`xxxhdpi` `48..192` + `alunara_logo_square.png`) and `16:9` Leanback banners (`drawable-xhdpi/tv_banner.png` `320x180`, `xxhdpi` `480x270` + `alunara_logo_wide.png`) |
 | **Word-Sync Priority (`Word -> Line -> Plain`) & Switcher** | `SimpMusic richSyncLyrics` prioritized first with Room ELRC lossless round-trip serialization. Verified live word-by-word highlight on `Teh Hijau` (`0:06 / 3:32`, `Sumber: SimpMusic · Sinkron kata`) and in-player `Ganti sumber` toggle (`SimpMusic -> LrcLib` on `Negoro Angin`, `0:20 / 5:12`) |
 | **Changhong Memory, Audio & Stop-on-Exit** | Cold launch `9742 ms` (`WaitTime: 9818 ms` after `pm clear`); active playback `TOTAL PSS: 121,568 KB` (`Java Heap: 11,532 KB`, `Native Heap: 10,236 KB`), AudioFlinger `1` active track @ `48000 Hz` (`Standby: no`), `KEYCODE_HOME` -> `0` active tracks, `0` crashes, `0` ANRs, `0` `AlunaraPlayback` errors |
+
+---
+
+## 7. M2.2 Android TV 10-Foot Audit, Whole-Word Sync & UI/UX Consistency Polish
+
+Refined and re-verified on physical Changhong `AI PONT` (`192.168.100.124:5555`, `1280x720`, 32-inch 10-foot viewing distance) after addressing five M2.1 polish items:
+
+| Check | Measured M2.2 Outcome |
+|---|---|
+| **Gradle Unit Tests (5 modules, 12 suites)** | **`44 / 44` passed** (`0` failed, `0` errors, `0` skipped): `:core:domain` `22/22`, `:core:music` `8/8`, `:core:lyrics` `6/6`, `:core:data` `5/5`, `:app` `3/3` |
+| **Lint & Debug APK Size** | `:app:lintDebug` passed (`0` errors; 1 minor non-blocking Kotlin deprecation warning on `Icons.Rounded.PlaylistAdd` in `SearchScreen.kt:212`); `app-debug.apk` = `78,070,377` bytes (`74.45 MiB`) |
+| **Seamless Transparent Emblem (`ic_alunara_mark`)** | Extracted `256x256` RGBA transparent cutout (`29,203` bytes) from `.production/logo/logo alunara 1_1.png` (`1254x1254`); removed boxed `alunara_logo_square.png` / `alunara_logo_wide.png` while retaining `mipmap-*` & Leanback `tv_banner.png`. Visually verified seamless blend on rail header with zero box background |
+| **UI/UX Consistency & Restrained TV Motion (`AlunaraDimens`)** | Unified layout tokens (`RailCollapsedWidth = 76.dp`, `RailExpandedWidth = 216.dp`, `RailItemHeight = 48.dp`, `ControlHeight = 44.dp`, `SongRowHeight = 60.dp`, `MiniPlayerHeight = 68.dp`, `CardWidth = 152.dp`, `CardHeight = 216.dp`, `CardArtworkSize = 132.dp`, `RadiusControl = 12.dp`, `RadiusCard = 14.dp`, `FocusBorderWidth = 2.dp`). Switched navigation rail to overlay (`220ms` width animation) over stationary `padding(start = 76.dp)` content, constant `2.dp` animated focus borders (`150ms`), zero-shift `SeekableProgressBar` (`alpha`-faded hint), and `Crossfade` navigation (`220ms` / `160ms`). Confirmed zero card jump between collapsed and expanded rail screenshots |
+| **32-Inch TV Lyrics & Compact Source Switcher** | Replaced oversized text button with `32.dp` circular `SwapHoriz` button (`18.dp` icon) in Lyrics header. Scaled lyrics typography to `26.sp` active bold (`lineHeight = 36.sp`), `19.sp` inactive (`lineHeight = 28.sp`), and `20.sp` plain (`lineHeight = 30.sp`) with `16.dp` spacing |
+| **Whole-Word Sync Reconstruction** | Added hyphen-continuation merge + `LrcParser.isSyllableFragmented` + `LrcParser.repairWordBoundaries` (greedy lookahead up to 6 syllables aligned with clean reference words such as `LrcLib`) inside `LrcParser` and `ArchiveTuneLyricsAdapter`. Verified live on `Teh Hijau` (`0:06 / 3:32`, `Sumber: SimpMusic · Sinkron kata`) displaying intact highlighted words (`Hari-hari berulang`, `Misteri lenyap senang`, `Ada saran kudengar`) |
+| **Changhong Memory, Audio & Stop-on-Exit** | Cold launch after `pm clear`: `LaunchState: COLD`, `TotalTime: 9769 ms`, `WaitTime: 9793 ms`; playback `TOTAL PSS: 129,995 KB` (`Java Heap: 16,844 KB`, `Native Heap: 11,392 KB`, `Code: 67,376 KB`, `Stack: 1,900 KB`, `Graphics: 12,700 KB`, `TOTAL RSS: 178,456 KB`, `TOTAL SWAP PSS: 221 KB`), AudioFlinger `1` active track of `3` @ `48000 Hz` (`Standby: no`), `KEYCODE_HOME` + `3s` -> `0` active tracks of `2`, `0` crashes, `0` ANRs, `0` `AlunaraPlayback` errors |
+
+### Android TV 10-Foot UI/UX Audit Summary (`19.0 / 20`)
+
+Evaluated strictly for a **32-inch Android TV (`1280x720 @ 213 dpi`, D-pad navigation)** rather than phone/tablet/desktop targets:
+
+1. **Accessibility & D-Pad Ergonomics (`3.5 / 4`):** Clear focus rings (`2.dp` `#9EDBB3`), high-contrast `#101813` surface + large `26.sp`/`19.sp` TV lyrics, `48.dp` rail items, `44.dp` buttons, and `60.dp` rows. The compact `32.dp` provider switcher button is intentionally sized as a secondary D-pad action to keep the Lyrics header uncluttered; additional `contentDescription` / semantics labels can be polished in M3.
+2. **Performance & Stability (`4.0 / 4`):** Overlay rail eliminates horizontal relayout during focus transitions; constant focus borders prevent vertical jitter; zero crashes/ANRs and immediate AudioFlinger release on `KEYCODE_HOME`.
+3. **Appearance & Theming (`4.0 / 4`):** Cohesive Dark Forest Green palette (fixed TV-first dark surface per PRD), transparent `ic_alunara_mark` emblem, full-bleed left artwork fade in Now Playing, uniform `12.dp`/`14.dp` radii.
+4. **Platform Conformance (`3.5 / 4`):** Fullscreen edge-to-edge Leanback experience with Material 3 `Icons.Rounded.*` and D-pad seek support; 1 non-blocking Kotlin deprecation warning remains on `Icons.Rounded.PlaylistAdd` (`SearchScreen.kt:212`).
+5. **Adaptivity & Spatial Consistency (`4.0 / 4`):** Fixed `76.dp` content anchor under `216.dp` overlay rail and locked `152.dp x 216.dp` 2-line media cards keep rows aligned across Home, Search, and Library.

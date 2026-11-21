@@ -2,6 +2,7 @@ package com.alunara.app.ui.theme
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
 
@@ -31,6 +32,24 @@ object AlunaraPalette {
     val FocusOutline = Color(FOCUS_OUTLINE_HEX)
     val ErrorSurface = Color(ERROR_SURFACE_HEX)
     val ErrorText = Color(ERROR_TEXT_HEX)
+}
+
+/**
+ * Shared 10-foot Android TV layout & geometry tokens (960x540 dp logical 720p grid).
+ */
+object AlunaraDimens {
+    val RailCollapsedWidth = 76.dp
+    val RailExpandedWidth = 216.dp
+    val RailItemHeight = 48.dp
+    val ControlHeight = 44.dp
+    val SongRowHeight = 60.dp
+    val MiniPlayerHeight = 68.dp
+    val CardWidth = 152.dp
+    val CardHeight = 216.dp
+    val CardArtworkSize = 132.dp
+    val RadiusControl = 12.dp
+    val RadiusCard = 14.dp
+    val FocusBorderWidth = 2.dp
 }
 
 private val AlunaraColorScheme =

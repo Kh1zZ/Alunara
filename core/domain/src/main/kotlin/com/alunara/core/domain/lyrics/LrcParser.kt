@@ -8,11 +8,13 @@ import com.alunara.core.domain.model.SyncedLyricWord
 /**
  * Parses standard line-synced LRC (`[mm:ss.xx]`) and Enhanced LRC word-synced (`<mm:ss.xx>`)
  * payloads with safe fallback to plain lyrics or unavailable status.
+ * Includes syllable-boundary reconstruction when ELRC/KRC feeds split words into spaced syllables.
  */
 object LrcParser {
     private val TIMESTAMP_REGEX = Regex("""\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?]""")
     private val WORD_TIMESTAMP_REGEX = Regex("""<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>""")
     private val METADATA_TAG_REGEX = Regex("""^\[(ti|ar|al|au|length|by|offset|re|ve):.*]$""", RegexOption.IGNORE_CASE)
+    private val WHITESPACE_REGEX = Regex("""\s+""")
 
     fun parse(
         provider: LyricsProviderId,
@@ -82,11 +84,127 @@ object LrcParser {
         }
     }
 
+    /**
+     * Detects syllable-fragmented lyrics where words were broken into 1–3 char tokens
+     * (e.g., "Ha ri- ha ri ber u lang" -> average token length < 3.4).
+     */
+    fun isSyllableFragmented(doc: LyricsDocument.Synced): Boolean {
+        var totalChars = 0
+        var totalTokens = 0
+        doc.lines.forEach { line ->
+            val tokens = line.text.trim().split(WHITESPACE_REGEX).filter { it.isNotEmpty() }
+            if (tokens.size >= 4) {
+                totalTokens += tokens.size
+                totalChars += tokens.sumOf { it.length }
+            }
+        }
+        if (totalTokens < 8) return false
+        return (totalChars.toDouble() / totalTokens.toDouble()) < 3.4
+    }
+
+    /**
+     * Reconstructs whole words (preserving each merged word's earliest syllable timestamp)
+     * by matching concatenated syllable runs against clean reference lyrics vocabulary.
+     */
+    fun repairWordBoundaries(
+        doc: LyricsDocument.Synced,
+        referenceTexts: List<String>,
+    ): LyricsDocument.Synced {
+        if (referenceTexts.isEmpty()) return doc
+        val refVocab = buildReferenceVocabulary(referenceTexts)
+        if (refVocab.isEmpty()) return doc
+
+        val repairedLines =
+            doc.lines.map { line ->
+                if (line.hasWordSync) {
+                    val trimmedWords =
+                        line.words
+                            .mapNotNull { w ->
+                                val t = w.text.trim()
+                                if (t.isEmpty()) null else SyncedLyricWord(w.startTimeMs, t)
+                            }
+                    val merged = mergeTokensWithVocab(trimmedWords, refVocab)
+                    val spaced =
+                        merged.mapIndexed { idx, word ->
+                            if (idx < merged.lastIndex) word.copy(text = "${word.text} ") else word
+                        }
+                    val rebuiltText = spaced.joinToString(separator = "") { it.text }.trim()
+                    line.copy(text = rebuiltText, words = spaced)
+                } else if (isSyllableFragmented(doc)) {
+                    val rawTokens =
+                        line.text
+                            .trim()
+                            .split(WHITESPACE_REGEX)
+                            .filter { it.isNotEmpty() }
+                            .map { SyncedLyricWord(line.startTimeMs, it) }
+                    val merged = mergeTokensWithVocab(rawTokens, refVocab)
+                    val rebuiltText = merged.joinToString(separator = " ") { it.text }
+                    line.copy(text = rebuiltText)
+                } else {
+                    line
+                }
+            }
+
+        return doc.copy(lines = repairedLines)
+    }
+
+    private fun buildReferenceVocabulary(referenceTexts: List<String>): Set<String> {
+        val vocab = HashSet<String>()
+        referenceTexts.forEach { raw ->
+            val stripped = WORD_TIMESTAMP_REGEX.replace(TIMESTAMP_REGEX.replace(raw, " "), " ")
+            stripped.split(WHITESPACE_REGEX).forEach { token ->
+                val norm = normalizeToken(token)
+                if (norm.length >= 2) {
+                    vocab += norm
+                }
+            }
+        }
+        return vocab
+    }
+
+    private fun mergeTokensWithVocab(
+        tokens: List<SyncedLyricWord>,
+        refVocab: Set<String>,
+    ): List<SyncedLyricWord> {
+        if (tokens.size <= 1) return tokens
+        val out = ArrayList<SyncedLyricWord>(tokens.size)
+        var i = 0
+        val n = tokens.size
+        while (i < n) {
+            var bestK = 1
+            var bestWord = tokens[i].text
+            var accRaw = ""
+            var accNorm = ""
+            val maxLookahead = minOf(6, n - i)
+            for (k in 1..maxLookahead) {
+                val piece = tokens[i + k - 1].text
+                accRaw += piece
+                accNorm += normalizeToken(piece)
+                if (accNorm.isNotEmpty() && accNorm in refVocab) {
+                    bestK = k
+                    bestWord = accRaw
+                }
+            }
+            out += SyncedLyricWord(startTimeMs = tokens[i].startTimeMs, text = bestWord)
+            i += bestK
+        }
+        return out
+    }
+
+    private fun normalizeToken(token: String): String =
+        buildString(token.length) {
+            for (ch in token) {
+                if (ch.isLetterOrDigit()) {
+                    append(ch.lowercaseChar())
+                }
+            }
+        }
+
     private fun parseWordSegments(body: String): List<SyncedLyricWord> {
         val matches = WORD_TIMESTAMP_REGEX.findAll(body).toList()
         if (matches.isEmpty()) return emptyList()
 
-        val words = mutableListOf<SyncedLyricWord>()
+        val rawWords = mutableListOf<SyncedLyricWord>()
         for (i in matches.indices) {
             val current = matches[i]
             val startMs = parseTimestampMs(current) ?: continue
@@ -95,10 +213,21 @@ object LrcParser {
             if (sliceStart > sliceEnd) continue
             val wordText = decodeHtmlEntities(body.substring(sliceStart, sliceEnd))
             if (wordText.isNotEmpty()) {
-                words += SyncedLyricWord(startTimeMs = startMs, text = wordText)
+                rawWords += SyncedLyricWord(startTimeMs = startMs, text = wordText)
             }
         }
-        return words
+
+        if (rawWords.size <= 1) return rawWords
+        val merged = ArrayList<SyncedLyricWord>(rawWords.size)
+        rawWords.forEach { current ->
+            val prev = merged.lastOrNull()
+            if (prev != null && prev.text.trimEnd().endsWith("-")) {
+                merged[merged.lastIndex] = prev.copy(text = "${prev.text.trimEnd()}${current.text}")
+            } else {
+                merged += current
+            }
+        }
+        return merged
     }
 
     private fun decodeHtmlEntities(input: String): String =

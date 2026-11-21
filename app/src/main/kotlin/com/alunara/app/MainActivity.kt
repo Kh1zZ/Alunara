@@ -4,6 +4,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -62,6 +72,7 @@ import com.alunara.app.ui.screens.LibraryScreen
 import com.alunara.app.ui.screens.NowPlayingScreen
 import com.alunara.app.ui.screens.SearchScreen
 import com.alunara.app.ui.screens.SettingsScreen
+import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.app.ui.theme.AlunaraTheme
 import com.alunara.core.domain.contract.MusicEngine
@@ -187,13 +198,16 @@ private fun AlunaraTvApp(
             }
     }
 
-    Box(
+    Crossfade(
+        targetState = currentDestination == TvDestination.NOW_PLAYING,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
         modifier =
             Modifier
                 .fillMaxSize()
                 .background(AlunaraPalette.Background),
-    ) {
-        if (currentDestination == TvDestination.NOW_PLAYING) {
+        label = "root_destination",
+    ) { isNowPlaying ->
+        if (isNowPlaying) {
             NowPlayingScreen(
                 sessionState = sessionState,
                 onTogglePlayPause = { sessionManager.togglePlayPause() },
@@ -204,32 +218,26 @@ private fun AlunaraTvApp(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            Row(modifier = Modifier.fillMaxSize()) {
-                CollapsibleNavigationRail(
-                    selected = currentDestination,
-                    expanded = railFocused,
-                    firstItemRequester = railHomeFocusRequester,
-                    onRailFocusChanged = { railFocused = it },
-                    onSelect = { dest ->
-                        lastBrowseDestination = dest
-                        currentDestination = dest
-                    },
-                )
-
+            val browseDest = if (currentDestination == TvDestination.NOW_PLAYING) lastBrowseDestination else currentDestination
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Content reserves constant collapsed rail margin so expanding the overlay rail never shifts layout
                 Column(
                     modifier =
                         Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
+                            .fillMaxSize()
+                            .padding(start = AlunaraDimens.RailCollapsedWidth),
                 ) {
-                    Box(
+                    Crossfade(
+                        targetState = browseDest,
+                        animationSpec = tween(durationMillis = 160),
                         modifier =
                             Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
                                 .padding(horizontal = 28.dp, vertical = 20.dp),
-                    ) {
-                        when (currentDestination) {
+                        label = "browse_tab",
+                    ) { tab ->
+                        when (tab) {
                             TvDestination.HOME ->
                                 HomeScreen(
                                     sections = homeSections,
@@ -292,6 +300,17 @@ private fun AlunaraTvApp(
                         )
                     }
                 }
+
+                CollapsibleNavigationRail(
+                    selected = browseDest,
+                    expanded = railFocused,
+                    firstItemRequester = railHomeFocusRequester,
+                    onRailFocusChanged = { railFocused = it },
+                    onSelect = { dest ->
+                        lastBrowseDestination = dest
+                        currentDestination = dest
+                    },
+                )
             }
         }
     }
@@ -305,7 +324,12 @@ private fun CollapsibleNavigationRail(
     onRailFocusChanged: (Boolean) -> Unit,
     onSelect: (TvDestination) -> Unit,
 ) {
-    val railWidth = if (expanded) 204.dp else 74.dp
+    val railWidth by animateDpAsState(
+        targetValue = if (expanded) AlunaraDimens.RailExpandedWidth else AlunaraDimens.RailCollapsedWidth,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "rail_width",
+    )
+
     Row(modifier = Modifier.fillMaxHeight()) {
         Column(
             modifier =
@@ -316,25 +340,38 @@ private fun CollapsibleNavigationRail(
                     .padding(horizontal = 12.dp, vertical = 18.dp)
                     .onFocusChanged { onRailFocusChanged(it.hasFocus) },
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = if (expanded) Alignment.Start else Alignment.CenterHorizontally,
+            horizontalAlignment = Alignment.Start,
         ) {
-            if (expanded) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(AlunaraDimens.RailItemHeight)
+                        .padding(horizontal = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Image(
-                    painter = painterResource(R.drawable.alunara_logo_wide),
+                    painter = painterResource(R.drawable.ic_alunara_mark),
                     contentDescription = stringResource(R.string.app_name),
                     contentScale = ContentScale.Fit,
-                    modifier =
-                        Modifier
-                            .height(40.dp)
-                            .padding(horizontal = 4.dp),
+                    modifier = Modifier.size(26.dp),
                 )
-            } else {
-                Image(
-                    painter = painterResource(R.drawable.alunara_logo_square),
-                    contentDescription = stringResource(R.string.app_name),
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.size(38.dp),
-                )
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = fadeIn(tween(160)) + expandHorizontally(tween(200)),
+                    exit = fadeOut(tween(100)) + shrinkHorizontally(tween(180)),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = stringResource(R.string.app_name),
+                            color = AlunaraPalette.PrimaryText,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -386,28 +423,34 @@ private fun RailItem(
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(12.dp)
-    val bgColor = if (selected) AlunaraPalette.SecondarySurface else Color.Transparent
-    val borderStroke =
-        if (focused) {
-            BorderStroke(2.dp, AlunaraPalette.FocusOutline)
-        } else {
-            BorderStroke(1.dp, Color.Transparent)
-        }
-    val tintColor = if (selected || focused) AlunaraPalette.PrimaryAccent else AlunaraPalette.MutedText
+    val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+    val bgColor by animateColorAsState(
+        targetValue = if (selected) AlunaraPalette.SecondarySurface else Color.Transparent,
+        animationSpec = tween(150),
+        label = "rail_item_bg",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) AlunaraPalette.FocusOutline else Color.Transparent,
+        animationSpec = tween(150),
+        label = "rail_item_border",
+    )
+    val tintColor by animateColorAsState(
+        targetValue = if (selected || focused) AlunaraPalette.PrimaryAccent else AlunaraPalette.MutedText,
+        animationSpec = tween(150),
+        label = "rail_item_tint",
+    )
 
     Row(
         modifier =
             modifier
                 .fillMaxWidth()
-                .height(46.dp)
+                .height(AlunaraDimens.RailItemHeight)
                 .background(bgColor, shape)
-                .border(borderStroke, shape)
+                .border(BorderStroke(AlunaraDimens.FocusBorderWidth, borderColor), shape)
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(onClick = onClick)
-                .padding(horizontal = if (expanded) 14.dp else 0.dp),
+                .padding(horizontal = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = if (expanded) Arrangement.spacedBy(12.dp) else Arrangement.Center,
     ) {
         Icon(
             imageVector = icon,
@@ -415,15 +458,22 @@ private fun RailItem(
             tint = tintColor,
             modifier = Modifier.size(22.dp),
         )
-        if (expanded) {
-            Text(
-                text = label,
-                color = AlunaraPalette.PrimaryText,
-                fontSize = 15.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(tween(160)) + expandHorizontally(tween(200)),
+            exit = fadeOut(tween(100)) + shrinkHorizontally(tween(180)),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.width(14.dp))
+                Text(
+                    text = label,
+                    color = AlunaraPalette.PrimaryText,
+                    fontSize = 15.sp,
+                    fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
