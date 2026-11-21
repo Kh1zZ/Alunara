@@ -2,6 +2,7 @@ package com.alunara.app
 
 import androidx.media3.common.Player
 import com.alunara.app.playback.AudioPlayerControl
+import com.alunara.app.playback.InMemoryPlaybackPreferences
 import com.alunara.app.playback.PlaybackSessionManager
 import com.alunara.core.domain.contract.AccountSessionStore
 import com.alunara.core.domain.contract.CatalogStore
@@ -16,12 +17,15 @@ import com.alunara.core.domain.model.AuthSessionState
 import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.LyricsProviderId
+import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.QueueFilterChip
 import com.alunara.core.domain.model.QueueState
 import com.alunara.core.domain.model.RadioQueueResult
 import com.alunara.core.domain.model.SearchResults
+import com.alunara.core.domain.model.SyncedLyricLine
 import com.alunara.core.domain.model.Track
+import com.alunara.core.domain.policy.AudioQualityPreset
 import com.alunara.core.domain.policy.FailureCategory
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -37,6 +41,8 @@ class PlaybackSessionManagerTest {
     private class FakePlayerControl : AudioPlayerControl {
         override var hasActivePlayer: Boolean = false
         var preparedTracks = mutableListOf<String>()
+        var lastStartPositionMs: Long = 0L
+        var currentPositionValueMs: Long = 0L
         var playingState: Boolean = false
         var listenerRef: Player.Listener? = null
 
@@ -45,9 +51,12 @@ class PlaybackSessionManagerTest {
             startPositionMs: Long,
             playWhenReady: Boolean,
             listener: Player.Listener,
+            track: Track?,
         ) {
             hasActivePlayer = true
             playingState = playWhenReady
+            lastStartPositionMs = startPositionMs
+            currentPositionValueMs = startPositionMs
             listenerRef = listener
             preparedTracks += source.trackId
         }
@@ -60,9 +69,11 @@ class PlaybackSessionManagerTest {
             playingState = false
         }
 
-        override fun seekTo(positionMs: Long) = Unit
+        override fun seekTo(positionMs: Long) {
+            currentPositionValueMs = positionMs
+        }
 
-        override fun currentPositionMs(): Long = 0L
+        override fun currentPositionMs(): Long = currentPositionValueMs
 
         override fun durationMs(): Long = 180_000L
 
@@ -157,23 +168,39 @@ class PlaybackSessionManagerTest {
         var radioFetchCalls = mutableListOf<String>()
         var accountClearedCount = 0
         var remoteLikes = mutableListOf<Pair<String, Boolean>>()
+        var resolvedQualities = mutableListOf<AudioQualityPreset>()
 
         override suspend fun searchGuest(query: String): Result<SearchResults> = Result.success(SearchResults())
 
         override suspend fun fetchGuestHome(): Result<List<HomeSection>> = Result.success(emptyList())
 
         override suspend fun resolveAudioStream(trackId: String): Result<AudioStreamSource> =
-            Result.success(
+            resolveAudioStream(trackId, AudioQualityPreset.AUTO)
+
+        override suspend fun resolveAudioStream(
+            trackId: String,
+            quality: AudioQualityPreset,
+        ): Result<AudioStreamSource> {
+            resolvedQualities += quality
+            val (mime, bps) =
+                when (quality) {
+                    AudioQualityPreset.LOW -> "audio/webm; codecs=\"opus\"" to 64_000
+                    AudioQualityPreset.MEDIUM -> "audio/mp4; codecs=\"mp4a.40.2\"" to 128_000
+                    AudioQualityPreset.AUTO -> "audio/webm; codecs=\"opus\"" to 160_000
+                    AudioQualityPreset.HIGH -> "audio/mp4; codecs=\"mp4a.40.2\"" to 256_000
+                }
+            return Result.success(
                 AudioStreamSource(
                     trackId = trackId,
-                    streamUrl = "https://cdn/$trackId.m4a",
+                    streamUrl = "https://cdn/$trackId-${quality.name}.m4a",
                     userAgent = "TestAgent",
-                    mimeType = "audio/mp4",
-                    bitrateBps = 128_000,
+                    mimeType = mime,
+                    bitrateBps = bps,
                     expiresAtEpochMs = Long.MAX_VALUE,
                     clientProfile = "VISIONOS",
                 ),
             )
+        }
 
         override suspend fun fetchRadioTracks(
             seedTrackId: String,
@@ -447,5 +474,139 @@ class PlaybackSessionManagerTest {
             assertFalse(manager.uiState.value.favoriteIds.contains("rf1"))
             assertTrue(manager.uiState.value.remoteFavorites.isEmpty())
             assertEquals(listOf("rf1" to false), music.remoteLikes)
+        }
+
+    @Test
+    fun setAudioQuality_persistsAndReloadsPlayingTrackAtCurrentPositionWithUpdatedBadge() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val track = Track(id = "q1", title = "Quality Song")
+            val prefs = InMemoryPlaybackPreferences()
+            val music = FakeMusicEngine()
+            val player = FakePlayerControl()
+
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = music,
+                    lyricsEngine = emptyLyricsEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = player,
+                    playbackPreferences = prefs,
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+
+            manager.playTracks(listOf(track))
+            advanceUntilIdle()
+            assertEquals(AudioQualityPreset.AUTO, manager.uiState.value.audioQuality)
+            assertEquals("Opus · 160 kbps", manager.uiState.value.activeStreamCodecLabel)
+
+            player.currentPositionValueMs = 42_500L
+            manager.setAudioQuality(AudioQualityPreset.HIGH)
+            advanceUntilIdle()
+
+            assertEquals(AudioQualityPreset.HIGH, manager.uiState.value.audioQuality)
+            assertEquals(AudioQualityPreset.HIGH, prefs.getAudioQuality())
+            assertEquals(42_500L, player.lastStartPositionMs)
+            assertEquals("AAC · 256 kbps", manager.uiState.value.activeStreamCodecLabel)
+            assertEquals(listOf(AudioQualityPreset.AUTO, AudioQualityPreset.HIGH), music.resolvedQualities)
+        }
+
+    @Test
+    fun adjustAndResetLyricsSyncOffset_persistsPerTrackAndShiftsActiveLine() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val t1 = Track(id = "l1", title = "Synced Track 1")
+            val t2 = Track(id = "l2", title = "Synced Track 2")
+            val prefs = InMemoryPlaybackPreferences()
+            val syncedLyricsEngine =
+                object : LyricsEngine {
+                    override suspend fun fetchLyrics(
+                        track: Track,
+                        preferredProvider: LyricsProviderId?,
+                    ): LyricsDocument =
+                        LyricsDocument.Synced(
+                            provider = LyricsProviderId.SIMPMUSIC,
+                            lines =
+                                listOf(
+                                    SyncedLyricLine(startTimeMs = 0L, text = "Line 0"),
+                                    SyncedLyricLine(startTimeMs = 1_020L, text = "Line 1"),
+                                ),
+                        )
+                }
+            val player = FakePlayerControl()
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = FakeMusicEngine(),
+                    lyricsEngine = syncedLyricsEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = player,
+                    playbackPreferences = prefs,
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+
+            manager.playTracks(listOf(t1, t2), startIndex = 0)
+            advanceUntilIdle()
+            player.playingState = false
+            manager.seekTo(1_005L)
+            assertEquals(0, manager.uiState.value.activeLyricIndex)
+
+            manager.adjustLyricsSyncOffset(10L)
+            manager.adjustLyricsSyncOffset(10L)
+            assertEquals(20L, manager.uiState.value.lyricsSyncOffsetMs)
+            assertEquals(20L, prefs.getLyricsSyncOffsetMs("l1"))
+            assertEquals(1, manager.uiState.value.activeLyricIndex)
+
+            manager.playTrackAt(1)
+            advanceUntilIdle()
+            assertEquals(0L, manager.uiState.value.lyricsSyncOffsetMs)
+
+            manager.playTrackAt(0)
+            advanceUntilIdle()
+            assertEquals(20L, manager.uiState.value.lyricsSyncOffsetMs)
+
+            manager.resetLyricsSyncOffset()
+            assertEquals(0L, manager.uiState.value.lyricsSyncOffsetMs)
+            assertEquals(0L, prefs.getLyricsSyncOffsetMs("l1"))
+        }
+
+    @Test
+    fun onAppBackgrounded_retainsActivePlaybackWhenQueuePresentAndStopsWhenCleared() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val serviceStates = mutableListOf<Boolean>()
+            val player = FakePlayerControl()
+            val track = Track(id = "bg1", title = "Background Song")
+
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = FakeMusicEngine(),
+                    lyricsEngine = emptyLyricsEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = player,
+                    onBackgroundServiceStateChanged = { serviceStates += it },
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+
+            manager.playTracks(listOf(track))
+            advanceUntilIdle()
+            player.currentPositionValueMs = 15_000L
+
+            manager.onAppBackgrounded()
+            advanceUntilIdle()
+
+            assertTrue(player.hasActivePlayer)
+            assertTrue(player.playingState)
+            assertEquals(15_000L, manager.uiState.value.positionMs)
+            assertTrue(serviceStates.last())
+
+            manager.clearQueue()
+            advanceUntilIdle()
+
+            assertFalse(player.hasActivePlayer)
+            assertEquals(PlaybackStatus.IDLE, manager.uiState.value.status)
+            assertFalse(serviceStates.last())
         }
 }

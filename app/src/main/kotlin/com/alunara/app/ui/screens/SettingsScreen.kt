@@ -18,6 +18,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Contrast
 import androidx.compose.material.icons.rounded.FormatSize
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MotionPhotosOff
 import androidx.compose.material.icons.rounded.Security
@@ -48,6 +49,7 @@ import com.alunara.app.ui.theme.AlunaraTypography
 import com.alunara.app.ui.theme.LocalAlunaraColors
 import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
 import com.alunara.core.domain.model.AuthSessionState
+import com.alunara.core.domain.policy.AudioQualityPreset
 
 @Composable
 fun SettingsScreen(
@@ -59,6 +61,8 @@ fun SettingsScreen(
     onOpenWebViewLogin: () -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
+    audioQuality: AudioQualityPreset = AudioQualityPreset.AUTO,
+    onSelectAudioQuality: (AudioQualityPreset) -> Unit = {},
     displayPrefs: AlunaraDisplayPrefs = AlunaraDisplayPrefs(),
     onUpdateDisplayPrefs: (AlunaraDisplayPrefs) -> Unit = {},
 ) {
@@ -97,6 +101,70 @@ fun SettingsScreen(
                 highlighted = autoplayEnabled,
                 onClick = onToggleAutoplay,
             )
+        }
+
+        item {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.focusProperties { canFocus = false },
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.GraphicEq,
+                        contentDescription = null,
+                        tint = colors.primaryAccent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.audio_quality_section_title),
+                        color = colors.primaryAccent,
+                        fontSize = AlunaraTypography.body(activePrefs.textScale),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                val qualityDescription =
+                    when (audioQuality) {
+                        AudioQualityPreset.AUTO -> stringResource(R.string.audio_quality_desc_auto)
+                        AudioQualityPreset.LOW -> stringResource(R.string.audio_quality_desc_low)
+                        AudioQualityPreset.MEDIUM -> stringResource(R.string.audio_quality_desc_medium)
+                        AudioQualityPreset.HIGH -> stringResource(R.string.audio_quality_desc_high)
+                    }
+                Text(
+                    text = "$qualityDescription · ${stringResource(R.string.audio_quality_subtitle)}",
+                    color = colors.mutedText,
+                    fontSize = AlunaraTypography.label(activePrefs.textScale),
+                    lineHeight = AlunaraTypography.label(activePrefs.textScale) * 1.4f,
+                    modifier = Modifier.focusProperties { canFocus = false },
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    val options =
+                        listOf(
+                            AudioQualityPreset.AUTO to stringResource(R.string.audio_quality_auto),
+                            AudioQualityPreset.LOW to stringResource(R.string.audio_quality_low),
+                            AudioQualityPreset.MEDIUM to stringResource(R.string.audio_quality_medium),
+                            AudioQualityPreset.HIGH to stringResource(R.string.audio_quality_high),
+                        )
+                    options.forEach { (preset, label) ->
+                        TvFocusableButton(
+                            text = label,
+                            highlighted = audioQuality == preset,
+                            onClick = { onSelectAudioQuality(preset) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
         }
 
         item {

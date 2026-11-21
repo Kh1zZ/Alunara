@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -59,6 +61,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -74,9 +77,12 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
@@ -87,6 +93,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.alunara.app.R
 import com.alunara.app.playback.PlaybackSessionUiState
 import com.alunara.app.ui.components.TvFocusableButton
@@ -99,6 +107,8 @@ import com.alunara.app.ui.theme.AlunaraTypography
 import com.alunara.app.ui.theme.LocalAlunaraColors
 import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
 import com.alunara.core.domain.lyrics.LyricsSyncResolver
+import com.alunara.core.domain.media.ArtworkTier
+import com.alunara.core.domain.media.ArtworkUrlResolver
 import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.LyricsProviderId
 import com.alunara.core.domain.model.PlaybackStatus
@@ -124,6 +134,8 @@ fun NowPlayingScreen(
     onStartRadio: () -> Unit,
     onSwitchLyricsProvider: () -> Unit,
     modifier: Modifier = Modifier,
+    onAdjustLyricsSync: (Long) -> Unit = {},
+    onResetLyricsSync: () -> Unit = {},
     onPlayQueueAt: (Int) -> Unit = {},
     onMoveQueueItem: (Int, Int) -> Unit = { _, _ -> },
     onRemoveQueueItem: (Int) -> Unit = {},
@@ -133,6 +145,7 @@ fun NowPlayingScreen(
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
+    val context = LocalContext.current
     val track = sessionState.currentTrack
     if (track == null) {
         Box(
@@ -177,18 +190,36 @@ fun NowPlayingScreen(
                     false
                 },
     ) {
-        // Full-bleed left pane: artwork + Forest Green scrim fade
+        // Full-bleed left pane: crisp 720px artwork + Forest Green scrim fade
         Box(
             modifier =
                 Modifier
                     .weight(1.0f)
                     .fillMaxHeight(),
         ) {
-            if (!track.thumbnailUrl.isNullOrBlank()) {
+            val rawThumb = track.thumbnailUrl
+            val heroUrl = remember(rawThumb) { ArtworkUrlResolver.resolve(rawThumb, ArtworkTier.HERO) }
+            var useFallbackArt by remember(rawThumb) { mutableStateOf(false) }
+            val activeArtUrl = if (useFallbackArt && !rawThumb.isNullOrBlank()) rawThumb else heroUrl
+            if (!activeArtUrl.isNullOrBlank()) {
+                val heroRequest =
+                    remember(activeArtUrl, prefs.reduceMotion) {
+                        ImageRequest
+                            .Builder(context)
+                            .data(activeArtUrl)
+                            .size(ArtworkTier.HERO.maxPx)
+                            .crossfade(!prefs.reduceMotion)
+                            .build()
+                    }
                 AsyncImage(
-                    model = track.thumbnailUrl,
+                    model = heroRequest,
                     contentDescription = track.title,
                     contentScale = ContentScale.Crop,
+                    onError = {
+                        if (!useFallbackArt && activeArtUrl != rawThumb && !rawThumb.isNullOrBlank()) {
+                            useFallbackArt = true
+                        }
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -299,6 +330,16 @@ fun NowPlayingScreen(
                             } else {
                                 colors.primaryAccent
                             }
+                        val showCodec =
+                            sessionState.status == PlaybackStatus.PLAYING ||
+                                sessionState.status == PlaybackStatus.PAUSED ||
+                                sessionState.status == PlaybackStatus.BUFFERING
+                        val statusWithCodec =
+                            if (showCodec && !sessionState.activeStreamCodecLabel.isNullOrBlank()) {
+                                "$statusLabel · ${sessionState.activeStreamCodecLabel}"
+                            } else {
+                                statusLabel
+                            }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -311,7 +352,7 @@ fun NowPlayingScreen(
                                 modifier = Modifier.size(16.dp),
                             )
                             Text(
-                                text = statusLabel,
+                                text = statusWithCodec,
                                 color = statusColor,
                                 fontSize = AlunaraTypography.label(prefs.textScale),
                                 maxLines = 1,
@@ -392,23 +433,6 @@ fun NowPlayingScreen(
                             onClick = onStartRadio,
                         )
                     }
-                    IdleDimmableControl(isIdleDimmed = isIdleDimmed) {
-                        TvIconButton(
-                            icon = Icons.AutoMirrored.Rounded.QueueMusic,
-                            contentDescription = stringResource(R.string.now_playing_tab_queue, sessionState.queueState.items.size),
-                            size = AlunaraDimens.ControlHeight,
-                            iconSize = 22.dp,
-                            highlighted = rightPanelMode == NowPlayingRightPanelMode.QUEUE,
-                            onClick = {
-                                rightPanelMode =
-                                    if (rightPanelMode == NowPlayingRightPanelMode.LYRICS) {
-                                        NowPlayingRightPanelMode.QUEUE
-                                    } else {
-                                        NowPlayingRightPanelMode.LYRICS
-                                    }
-                            },
-                        )
-                    }
                 }
             }
         }
@@ -461,8 +485,11 @@ fun NowPlayingScreen(
                             selectedProvider = sessionState.selectedLyricsProvider,
                             activeLineIndex = sessionState.activeLyricIndex,
                             positionMs = sessionState.positionMs,
+                            lyricsSyncOffsetMs = sessionState.lyricsSyncOffsetMs,
                             queueCount = sessionState.queueState.items.size,
                             onSwitchLyricsProvider = onSwitchLyricsProvider,
+                            onAdjustLyricsSync = onAdjustLyricsSync,
+                            onResetLyricsSync = onResetLyricsSync,
                             onOpenQueue = { rightPanelMode = NowPlayingRightPanelMode.QUEUE },
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -850,8 +877,11 @@ private fun PersistentReadOnlyLyricsPanel(
     selectedProvider: LyricsProviderId?,
     activeLineIndex: Int,
     positionMs: Long,
+    lyricsSyncOffsetMs: Long,
     queueCount: Int,
     onSwitchLyricsProvider: () -> Unit,
+    onAdjustLyricsSync: (Long) -> Unit,
+    onResetLyricsSync: () -> Unit,
     onOpenQueue: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -881,7 +911,7 @@ private fun PersistentReadOnlyLyricsPanel(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -909,7 +939,16 @@ private fun PersistentReadOnlyLyricsPanel(
             )
         }
 
+        if (lyrics is LyricsDocument.Synced) {
+            LyricSyncControlBar(
+                offsetMs = lyricsSyncOffsetMs,
+                onStep = onAdjustLyricsSync,
+                onReset = onResetLyricsSync,
+            )
+        }
+
         // Read-only lyrics viewport tailored for 32-inch 10-foot viewing distance
+        val effectivePositionMs = (positionMs + lyricsSyncOffsetMs).coerceAtLeast(0L)
         Box(
             modifier =
                 Modifier
@@ -950,7 +989,7 @@ private fun PersistentReadOnlyLyricsPanel(
                         itemsIndexed(lyrics.lines) { idx, line ->
                             val isActive = idx == activeLineIndex
                             if (isActive && line.hasWordSync) {
-                                val activeWordIdx = LyricsSyncResolver.findActiveWordIndex(line.words, positionMs)
+                                val activeWordIdx = LyricsSyncResolver.findActiveWordIndex(line.words, effectivePositionMs)
                                 val annotated =
                                     buildAnnotatedString {
                                         line.words.forEachIndexed { wIdx, word ->
@@ -1073,3 +1112,182 @@ private fun providerDisplayName(provider: LyricsProviderId): String =
         LyricsProviderId.LRCLIB -> "LrcLib"
         LyricsProviderId.KUGOU -> "KuGou"
     }
+
+@Composable
+private fun LyricSyncControlBar(
+    offsetMs: Long,
+    onStep: (Long) -> Unit,
+    onReset: () -> Unit,
+) {
+    val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
+    var resetFocused by remember { mutableStateOf(false) }
+    val offsetLabel =
+        when {
+            offsetMs == 0L -> stringResource(R.string.lyrics_sync_zero)
+            offsetMs > 0L -> "+${offsetMs} ms"
+            else -> "${offsetMs} ms"
+        }
+
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(colors.surface.copy(alpha = 0.65f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.lyrics_sync_label),
+            color = colors.mutedText,
+            fontSize = AlunaraTypography.label(prefs.textScale),
+            maxLines = 1,
+            modifier = Modifier.focusProperties { canFocus = false },
+        )
+        LyricSyncStepButton(
+            label = stringResource(R.string.lyrics_sync_minus_10),
+            deltaMs = -10L,
+            onStep = onStep,
+        )
+        val pillShape = RoundedCornerShape(8.dp)
+        val pillBg by animateColorAsState(
+            targetValue =
+                when {
+                    resetFocused -> colors.focusedButtonBg
+                    offsetMs != 0L -> colors.secondarySurface
+                    else -> colors.surface
+                },
+            animationSpec = tween(prefs.focusAnimMs),
+            label = "lyric_sync_reset_bg",
+        )
+        val pillBorder by animateColorAsState(
+            targetValue =
+                when {
+                    resetFocused -> colors.focusRingStrong
+                    offsetMs != 0L -> colors.primaryAccent.copy(alpha = 0.65f)
+                    else -> colors.secondarySurface
+                },
+            animationSpec = tween(prefs.focusAnimMs),
+            label = "lyric_sync_reset_border",
+        )
+        val resetCd = stringResource(R.string.lyrics_sync_reset_cd)
+        Box(
+            modifier =
+                Modifier
+                    .height(34.dp)
+                    .widthIn(min = 68.dp)
+                    .clip(pillShape)
+                    .background(pillBg, pillShape)
+                    .border(BorderStroke(colors.focusBorderWidth, pillBorder), pillShape)
+                    .semantics {
+                        role = Role.Button
+                        stateDescription = resetCd
+                    }
+                    .onFocusChanged { resetFocused = it.isFocused }
+                    .clickable(onClick = onReset)
+                    .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = offsetLabel,
+                color =
+                    when {
+                        resetFocused -> colors.focusedButtonContent
+                        offsetMs != 0L -> colors.primaryAccent
+                        else -> colors.primaryText
+                    },
+                fontSize = AlunaraTypography.label(prefs.textScale),
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+        }
+        LyricSyncStepButton(
+            label = stringResource(R.string.lyrics_sync_plus_10),
+            deltaMs = 10L,
+            onStep = onStep,
+        )
+        Text(
+            text = stringResource(R.string.lyrics_sync_hint),
+            color = colors.dimmedLyrics,
+            fontSize = AlunaraTypography.caption(prefs.textScale),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .focusProperties { canFocus = false },
+        )
+    }
+}
+
+@Composable
+private fun LyricSyncStepButton(
+    label: String,
+    deltaMs: Long,
+    onStep: (Long) -> Unit,
+) {
+    val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
+    var focused by remember { mutableStateOf(false) }
+    var didLongRepeat by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(8.dp)
+
+    val bg by animateColorAsState(
+        targetValue = if (focused) colors.focusedButtonBg else colors.secondarySurface,
+        animationSpec = tween(prefs.focusAnimMs),
+        label = "lyric_step_bg",
+    )
+    val border by animateColorAsState(
+        targetValue = if (focused) colors.focusRingStrong else colors.surface,
+        animationSpec = tween(prefs.focusAnimMs),
+        label = "lyric_step_border",
+    )
+
+    Box(
+        modifier =
+            Modifier
+                .height(34.dp)
+                .clip(shape)
+                .background(bg, shape)
+                .border(BorderStroke(colors.focusBorderWidth, border), shape)
+                .semantics { role = Role.Button }
+                .onFocusChanged { focused = it.isFocused }
+                .onPreviewKeyEvent { keyEvent ->
+                    val isSelectKey =
+                        keyEvent.key == Key.DirectionCenter ||
+                            keyEvent.key == Key.Enter ||
+                            keyEvent.key == Key.NumPadEnter
+                    if (!isSelectKey) return@onPreviewKeyEvent false
+                    if (keyEvent.type == KeyEventType.KeyDown) {
+                        if (keyEvent.nativeKeyEvent.repeatCount > 0) {
+                            didLongRepeat = true
+                            onStep(deltaMs * 10L)
+                            true
+                        } else {
+                            didLongRepeat = false
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
+                .clickable {
+                    if (didLongRepeat) {
+                        didLongRepeat = false
+                    } else {
+                        onStep(deltaMs)
+                    }
+                }
+                .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (focused) colors.focusedButtonContent else colors.primaryText,
+            fontSize = AlunaraTypography.label(prefs.textScale),
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+    }
+}

@@ -23,6 +23,7 @@ import com.alunara.core.domain.model.QueueFilterChip
 import com.alunara.core.domain.model.QueueItem
 import com.alunara.core.domain.model.QueueState
 import com.alunara.core.domain.model.Track
+import com.alunara.core.domain.policy.AudioQualityPreset
 import com.alunara.core.domain.policy.FailureCategory
 import com.alunara.core.domain.policy.RetryPolicy
 import com.alunara.core.domain.queue.QueueAction
@@ -69,6 +70,9 @@ data class PlaybackSessionUiState(
     val queueChips: List<QueueFilterChip> = emptyList(),
     val activeQueueChipLabel: String? = null,
     val radioLoading: Boolean = false,
+    val audioQuality: AudioQualityPreset = AudioQualityPreset.AUTO,
+    val activeStreamCodecLabel: String? = null,
+    val lyricsSyncOffsetMs: Long = 0L,
 ) {
     val currentTrack: Track?
         get() = queueState.currentItem?.track
@@ -95,12 +99,17 @@ class PlaybackSessionManager(
     private val playerController: AudioPlayerControl,
     private val catalogStore: CatalogStore = NoOpCatalogStore,
     private val accountSessionStore: AccountSessionStore = NoOpAccountSessionStore,
+    private val playbackPreferences: PlaybackPreferences = InMemoryPlaybackPreferences(),
+    private val onBackgroundServiceStateChanged: (shouldRunService: Boolean) -> Unit = {},
     private val retryPolicy: RetryPolicy = RetryPolicy(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     mainDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : PlaybackLifecycleController {
     private val scope = CoroutineScope(SupervisorJob() + mainDispatcher)
-    private val mutableUiState = MutableStateFlow(PlaybackSessionUiState())
+    private val mutableUiState =
+        MutableStateFlow(
+            PlaybackSessionUiState(audioQuality = playbackPreferences.getAudioQuality()),
+        )
     val uiState: StateFlow<PlaybackSessionUiState> = mutableUiState.asStateFlow()
 
     private var resolveJob: Job? = null
@@ -253,12 +262,14 @@ class PlaybackSessionManager(
             val history = withContext(ioDispatcher) { runCatching { catalogStore.getRecentHistory(scopeKey) }.getOrDefault(emptyList()) }
             val mergedFavoriteIds = (favorites.map { it.id } + librarySnapshot.likedTracks.map { it.id }).toSet()
 
+            val syncOffsetMs = item?.track?.id?.let { id -> playbackPreferences.getLyricsSyncOffsetMs(id) } ?: 0L
             mutableUiState.update {
                 it.copy(
                     queueState = normalized,
                     status = if (item != null) PlaybackStatus.PAUSED else PlaybackStatus.IDLE,
                     positionMs = normalized.positionMs,
                     durationMs = (item?.track?.durationSeconds ?: 0) * 1000L,
+                    lyricsSyncOffsetMs = syncOffsetMs,
                     errorMessage = null,
                     authSession = resolvedAuth,
                     favorites = favorites,
@@ -390,11 +401,19 @@ class PlaybackSessionManager(
             if (mutableUiState.value.status == PlaybackStatus.PLAYING || playerController.hasActivePlayer) {
                 applyQueueAndStartTrack(nextQueue, startPositionMs = 0L)
             } else {
+                val nextOffset =
+                    nextQueue.currentItem
+                        ?.track
+                        ?.id
+                        ?.let(playbackPreferences::getLyricsSyncOffsetMs)
+                        ?: 0L
                 mutableUiState.update {
                     it.copy(
                         queueState = nextQueue,
                         positionMs = 0L,
                         durationMs = (nextQueue.currentItem?.track?.durationSeconds ?: 0) * 1000L,
+                        lyricsSyncOffsetMs = nextOffset,
+                        activeStreamCodecLabel = null,
                     )
                 }
                 persistQueueAsync(nextQueue)
@@ -417,6 +436,7 @@ class PlaybackSessionManager(
     fun clearQueue() {
         cancelActiveWork()
         playerController.onAppBackgroundedOrStopped()
+        onBackgroundServiceStateChanged(false)
         cachedSource = null
         currentTrackAttempt = 0
         consecutiveTrackFailures = 0
@@ -432,6 +452,8 @@ class PlaybackSessionManager(
                 lyricsLoading = false,
                 selectedLyricsProvider = null,
                 activeLyricIndex = -1,
+                lyricsSyncOffsetMs = 0L,
+                activeStreamCodecLabel = null,
                 errorMessage = null,
                 queueChips = emptyList(),
                 activeQueueChipLabel = null,
@@ -664,6 +686,7 @@ class PlaybackSessionManager(
                 currentTrackAttempt = 0
                 resolveAndPlay(currentTrack, startPositionMs = state.positionMs)
             } else {
+                onBackgroundServiceStateChanged(true)
                 playerController.play()
             }
         } else {
@@ -745,7 +768,7 @@ class PlaybackSessionManager(
             state.copy(
                 queueState = updatedQueue,
                 positionMs = safePos,
-                activeLyricIndex = computeActiveLyricIndex(state.lyrics, safePos),
+                activeLyricIndex = computeActiveLyricIndex(state.lyrics, safePos, state.lyricsSyncOffsetMs),
             )
         }
     }
@@ -754,6 +777,105 @@ class PlaybackSessionManager(
         val nextQueue = QueueReducer.reduce(mutableUiState.value.queueState, QueueAction.SetAutoplay(enabled))
         mutableUiState.update { it.copy(queueState = nextQueue) }
         persistQueueAsync(nextQueue)
+    }
+
+    fun setAudioQuality(preset: AudioQualityPreset) {
+        val currentState = mutableUiState.value
+        playbackPreferences.setAudioQuality(preset)
+        if (currentState.audioQuality == preset) return
+
+        cachedSource = null
+        mutableUiState.update { it.copy(audioQuality = preset) }
+
+        val activeTrack = currentState.currentTrack ?: return
+        val shouldReloadStream =
+            playerController.hasActivePlayer ||
+                currentState.status == PlaybackStatus.PLAYING ||
+                currentState.status == PlaybackStatus.BUFFERING ||
+                currentState.status == PlaybackStatus.RESOLVING
+        if (shouldReloadStream) {
+            val resumePosMs =
+                if (playerController.hasActivePlayer) {
+                    playerController.currentPositionMs()
+                } else {
+                    currentState.positionMs
+                }
+            val shouldPlay =
+                playerController.isPlaying() ||
+                    currentState.status == PlaybackStatus.PLAYING ||
+                    currentState.status == PlaybackStatus.BUFFERING ||
+                    currentState.status == PlaybackStatus.RESOLVING
+            currentTrackAttempt = 0
+            resolveAndPlay(activeTrack, startPositionMs = resumePosMs, playWhenReady = shouldPlay)
+        }
+    }
+
+    fun adjustLyricsSyncOffset(deltaMs: Long) {
+        val state = mutableUiState.value
+        val trackId = state.currentTrack?.id ?: return
+        val updated =
+            (state.lyricsSyncOffsetMs + deltaMs).coerceIn(
+                InMemoryPlaybackPreferences.MIN_LYRICS_OFFSET_MS,
+                InMemoryPlaybackPreferences.MAX_LYRICS_OFFSET_MS,
+            )
+        applyLyricsSyncOffset(trackId, updated)
+    }
+
+    fun resetLyricsSyncOffset() {
+        val trackId = mutableUiState.value.currentTrack?.id ?: return
+        applyLyricsSyncOffset(trackId, 0L)
+    }
+
+    private fun applyLyricsSyncOffset(
+        trackId: String,
+        offsetMs: Long,
+    ) {
+        playbackPreferences.setLyricsSyncOffsetMs(trackId, offsetMs)
+        mutableUiState.update { state ->
+            if (state.currentTrack?.id != trackId) {
+                state
+            } else {
+                val currentPos =
+                    if (playerController.hasActivePlayer) {
+                        playerController.currentPositionMs()
+                    } else {
+                        state.positionMs
+                    }
+                state.copy(
+                    lyricsSyncOffsetMs = offsetMs,
+                    activeLyricIndex = computeActiveLyricIndex(state.lyrics, currentPos, offsetMs),
+                )
+            }
+        }
+    }
+
+    /**
+     * Persists playback progress when the UI leaves foreground while keeping active queued playback
+     * alive under [AlunaraPlaybackService]. Releases the player only if no track is queued.
+     */
+    fun onAppBackgrounded() {
+        val state = mutableUiState.value
+        if (state.queueState.currentItem == null) {
+            onAppBackgroundedOrStopped()
+            return
+        }
+        val capturedPosition =
+            if (playerController.hasActivePlayer) {
+                playerController.currentPositionMs()
+            } else {
+                state.positionMs
+            }
+        val updatedQueue = QueueReducer.reduce(state.queueState, QueueAction.UpdatePosition(capturedPosition))
+        mutableUiState.update { current ->
+            current.copy(
+                queueState = updatedQueue,
+                positionMs = capturedPosition,
+                radioLoading = false,
+            )
+        }
+        scope.launch(NonCancellable + ioDispatcher) {
+            runCatching { queueStore.saveQueue(updatedQueue) }
+        }
     }
 
     override fun onAppBackgroundedOrStopped() {
@@ -765,6 +887,7 @@ class PlaybackSessionManager(
                 mutableUiState.value.positionMs
             }
         playerController.onAppBackgroundedOrStopped()
+        onBackgroundServiceStateChanged(false)
 
         val updatedQueue = QueueReducer.reduce(mutableUiState.value.queueState, QueueAction.UpdatePosition(capturedPosition))
         mutableUiState.update { state ->
@@ -772,6 +895,7 @@ class PlaybackSessionManager(
                 queueState = updatedQueue,
                 positionMs = capturedPosition,
                 status = if (updatedQueue.currentItem != null) PlaybackStatus.PAUSED else PlaybackStatus.IDLE,
+                activeStreamCodecLabel = null,
                 radioLoading = false,
             )
         }
@@ -809,6 +933,7 @@ class PlaybackSessionManager(
             clearQueue()
             return
         }
+        val trackOffsetMs = playbackPreferences.getLyricsSyncOffsetMs(track.id)
         mutableUiState.update {
             it.copy(
                 queueState = nextQueue,
@@ -819,6 +944,8 @@ class PlaybackSessionManager(
                 lyricsLoading = true,
                 selectedLyricsProvider = null,
                 activeLyricIndex = -1,
+                lyricsSyncOffsetMs = trackOffsetMs,
+                activeStreamCodecLabel = null,
                 errorMessage = null,
             )
         }
@@ -830,11 +957,20 @@ class PlaybackSessionManager(
     private fun resolveAndPlay(
         track: Track,
         startPositionMs: Long,
+        playWhenReady: Boolean = true,
     ) {
         resolveJob?.cancel()
+        val requestedQuality = mutableUiState.value.audioQuality
+        val syncOffsetMs = playbackPreferences.getLyricsSyncOffsetMs(track.id)
         resolveJob =
             scope.launch {
-                mutableUiState.update { it.copy(status = PlaybackStatus.RESOLVING, errorMessage = null) }
+                mutableUiState.update {
+                    it.copy(
+                        status = PlaybackStatus.RESOLVING,
+                        lyricsSyncOffsetMs = syncOffsetMs,
+                        errorMessage = null,
+                    )
+                }
                 val cached =
                     cachedSource?.takeIf {
                         it.trackId == track.id && it.expiresAtEpochMs > System.currentTimeMillis() + 30_000L
@@ -843,7 +979,7 @@ class PlaybackSessionManager(
                     if (cached != null) {
                         Result.success(cached)
                     } else {
-                        withContext(ioDispatcher) { musicEngine.resolveAudioStream(track.id) }
+                        withContext(ioDispatcher) { musicEngine.resolveAudioStream(track.id, requestedQuality) }
                     }
 
                 if (!isActive || mutableUiState.value.currentTrack?.id != track.id) return@launch
@@ -851,11 +987,15 @@ class PlaybackSessionManager(
                 streamResult.fold(
                     onSuccess = { source ->
                         cachedSource = source
+                        val codecBadge = formatStreamBadge(source)
+                        mutableUiState.update { it.copy(activeStreamCodecLabel = codecBadge) }
+                        onBackgroundServiceStateChanged(true)
                         playerController.prepareAudioStream(
                             source = source,
                             startPositionMs = startPositionMs,
-                            playWhenReady = true,
+                            playWhenReady = playWhenReady,
                             listener = playerListener,
+                            track = track,
                         )
                     },
                     onFailure = { error ->
@@ -1030,7 +1170,7 @@ class PlaybackSessionManager(
                     state.copy(
                         lyrics = doc,
                         lyricsLoading = false,
-                        activeLyricIndex = computeActiveLyricIndex(doc, state.positionMs),
+                        activeLyricIndex = computeActiveLyricIndex(doc, state.positionMs, state.lyricsSyncOffsetMs),
                     )
                 }
             }
@@ -1047,7 +1187,7 @@ class PlaybackSessionManager(
                         state.copy(
                             positionMs = pos,
                             durationMs = dur,
-                            activeLyricIndex = computeActiveLyricIndex(state.lyrics, pos),
+                            activeLyricIndex = computeActiveLyricIndex(state.lyrics, pos, state.lyricsSyncOffsetMs),
                         )
                     }
                     delay(100L)
@@ -1089,11 +1229,28 @@ class PlaybackSessionManager(
     private fun computeActiveLyricIndex(
         lyrics: LyricsDocument,
         positionMs: Long,
+        syncOffsetMs: Long = 0L,
     ): Int =
         when (lyrics) {
-            is LyricsDocument.Synced -> LyricsSyncResolver.findActiveLineIndex(lyrics.lines, positionMs)
+            is LyricsDocument.Synced ->
+                LyricsSyncResolver.findActiveLineIndex(
+                    lyrics.lines,
+                    (positionMs + syncOffsetMs).coerceAtLeast(0L),
+                )
             else -> -1
         }
+
+    private fun formatStreamBadge(source: AudioStreamSource): String {
+        val mime = source.mimeType.lowercase()
+        val codec =
+            when {
+                "opus" in mime || "webm" in mime -> "Opus"
+                "mp4a" in mime || "mp4" in mime || "aac" in mime -> "AAC"
+                else -> "Audio"
+            }
+        val kbps = (source.bitrateBps ?: 0) / 1_000
+        return if (kbps > 0) "$codec · $kbps kbps" else codec
+    }
 }
 
 private object NoOpCatalogStore : CatalogStore {

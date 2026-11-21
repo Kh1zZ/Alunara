@@ -88,6 +88,23 @@
     <string name="lyrics_switch_provider">Switch source</string>
     <string name="lyrics_unavailable_provider">No lyrics available from %1$s. Select Switch source to try another provider.</string>
     <string name="lyrics_unavailable_generic">No lyrics available for this track.</string>
+    <string name="lyrics_sync_label">Lyric Sync</string>
+    <string name="lyrics_sync_minus_10">-10 ms</string>
+    <string name="lyrics_sync_plus_10">+10 ms</string>
+    <string name="lyrics_sync_reset_cd">Reset lyric sync offset to 0 ms</string>
+    <string name="lyrics_sync_zero">0 ms</string>
+    <string name="lyrics_sync_hint">Hold = ±100ms</string>
+    <string name="header_search_hint">Search songs, albums, or artists on YouTube Music…</string>
+    <string name="audio_quality_section_title">Audio Quality</string>
+    <string name="audio_quality_subtitle">Applies smoothly while playing. Lower presets conserve bandwidth on slow TV Wi-Fi.</string>
+    <string name="audio_quality_auto">Auto</string>
+    <string name="audio_quality_low">Low</string>
+    <string name="audio_quality_medium">Medium</string>
+    <string name="audio_quality_high">High</string>
+    <string name="audio_quality_desc_auto">Auto: Balanced Opus/AAC up to ~192 kbps</string>
+    <string name="audio_quality_desc_low">Low: ≤80 kbps (data saver / fast buffer)</string>
+    <string name="audio_quality_desc_medium">Medium: ≤160 kbps (standard TV audio)</string>
+    <string name="audio_quality_desc_high">High: Highest available bitrate &amp; codec</string>
     <string name="now_playing_tab_lyrics">Lyrics</string>
     <string name="now_playing_tab_queue">Queue (%1$d)</string>
     <string name="open_queue_action">Open Queue (%1$d)</string>
@@ -125,5 +142,5 @@
     <string name="login_verifying">Verifying YouTube Music session…</string>
     <string name="login_error_prefix">Sign-in verification failed: %1$s</string>
     <string name="attribution_text">Alunara is an independent YouTube Music client developed for Android TV. Its music integration is built on ArchiveTune Core (github.com/rukamori/core) and its lyrics integration is built on ArchiveTune Lyrics (github.com/rukamori/lyrics), open-source projects by rukamori. Alunara is not officially affiliated with or endorsed by ArchiveTune. Licensed under GNU GPL v3.0.</string>
-    <string name="compliance_summary">Audio Streaming Only (0 MB Audio Cache) · Max 2 Parallel Lyrics Requests · Stops Automatically on Exit</string>
+    <string name="compliance_summary">Audio Streaming Only (0 MB Audio Cache) · Max 2 Parallel Lyrics Requests · Android TV Background MediaSession</string>
 </resources>

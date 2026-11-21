@@ -1,5 +1,6 @@
 package com.alunara.app
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
@@ -116,14 +117,18 @@ private enum class TvDestination {
 private val RailDestinations =
     listOf(
         TvDestination.HOME,
-        TvDestination.SEARCH,
         TvDestination.LIBRARY,
         TvDestination.SETTINGS,
     )
 
 class MainActivity : ComponentActivity() {
+    private val openNowPlayingSignal = mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent?.getBooleanExtra(EXTRA_OPEN_NOW_PLAYING, false) == true) {
+            openNowPlayingSignal.intValue++
+        }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -138,6 +143,7 @@ class MainActivity : ComponentActivity() {
                     musicEngine = container.musicEngine,
                     sessionManager = container.playbackSessionManager,
                     displayPrefs = displayPrefs,
+                    openNowPlayingSignal = openNowPlayingSignal.intValue,
                     onUpdateDisplayPrefs = { updated ->
                         displayPrefs = updated
                         prefsStore.save(updated)
@@ -146,6 +152,18 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_NOW_PLAYING, false)) {
+            openNowPlayingSignal.intValue++
+        }
+    }
+
+    companion object {
+        const val EXTRA_OPEN_NOW_PLAYING = "com.alunara.app.EXTRA_OPEN_NOW_PLAYING"
+    }
 }
 
 @Composable
@@ -153,6 +171,7 @@ private fun AlunaraTvApp(
     musicEngine: MusicEngine,
     sessionManager: PlaybackSessionManager,
     displayPrefs: AlunaraDisplayPrefs,
+    openNowPlayingSignal: Int,
     onUpdateDisplayPrefs: (AlunaraDisplayPrefs) -> Unit,
 ) {
     val colors = LocalAlunaraColors.current
@@ -162,12 +181,14 @@ private fun AlunaraTvApp(
 
     var currentDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
     var lastBrowseDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
+    var returnDestBeforeSearch by rememberSaveable { mutableStateOf(TvDestination.HOME) }
     var catalogStack by remember { mutableStateOf<List<CatalogTarget>>(emptyList()) }
     var showWebViewLogin by rememberSaveable { mutableStateOf(false) }
     var railFocused by remember { mutableStateOf(false) }
     val railHomeFocusRequester = remember { FocusRequester() }
     val browsePaneFocusRequester = remember { FocusRequester() }
     var focusRestoreTick by remember { mutableIntStateOf(0) }
+    var searchFocusTick by remember { mutableIntStateOf(0) }
 
     // Home feed state (auto-refreshes when auth scope transitions Guest <-> Authenticated)
     var homeSections by remember { mutableStateOf<List<HomeSection>>(emptyList()) }
@@ -234,6 +255,19 @@ private fun AlunaraTvApp(
         }
     }
 
+    fun openHeaderSearch(fromDest: TvDestination) {
+        returnDestBeforeSearch =
+            if (fromDest == TvDestination.LIBRARY) {
+                TvDestination.LIBRARY
+            } else {
+                TvDestination.HOME
+            }
+        catalogStack = emptyList()
+        lastBrowseDestination = TvDestination.SEARCH
+        currentDestination = TvDestination.SEARCH
+        searchFocusTick++
+    }
+
     fun openAlbumTarget(album: AlbumRef) {
         catalogStack =
             catalogStack +
@@ -296,6 +330,13 @@ private fun AlunaraTvApp(
         }
     }
 
+    LaunchedEffect(openNowPlayingSignal, sessionState.currentTrack?.id) {
+        if (openNowPlayingSignal > 0 && sessionState.currentTrack != null) {
+            showWebViewLogin = false
+            openNowPlaying()
+        }
+    }
+
     BackHandler(enabled = showWebViewLogin || currentDestination != TvDestination.HOME || catalogStack.isNotEmpty()) {
         when {
             showWebViewLogin -> {
@@ -310,6 +351,12 @@ private fun AlunaraTvApp(
 
             catalogStack.isNotEmpty() -> {
                 catalogStack = catalogStack.dropLast(1)
+                focusRestoreTick++
+            }
+
+            currentDestination == TvDestination.SEARCH -> {
+                lastBrowseDestination = returnDestBeforeSearch
+                currentDestination = returnDestBeforeSearch
                 focusRestoreTick++
             }
 
@@ -383,6 +430,8 @@ private fun AlunaraTvApp(
                 onToggleFavorite = { sessionManager.toggleFavorite() },
                 onStartRadio = { sessionState.currentTrack?.let { sessionManager.startRadio(it) } },
                 onSwitchLyricsProvider = { sessionManager.cycleLyricsProvider() },
+                onAdjustLyricsSync = { delta -> sessionManager.adjustLyricsSyncOffset(delta) },
+                onResetLyricsSync = { sessionManager.resetLyricsSyncOffset() },
                 onPlayQueueAt = { idx -> sessionManager.playTrackAt(idx) },
                 onMoveQueueItem = { from, to -> sessionManager.moveQueueItem(from, to) },
                 onRemoveQueueItem = { idx -> sessionManager.removeFromQueue(idx) },
@@ -394,6 +443,10 @@ private fun AlunaraTvApp(
         } else {
             val browseDest = if (currentDestination == TvDestination.NOW_PLAYING) lastBrowseDestination else currentDestination
             val activeCatalogTarget = catalogStack.lastOrNull()
+            val showHeaderSearchBar =
+                activeCatalogTarget != null ||
+                    browseDest == TvDestination.HOME ||
+                    browseDest == TvDestination.LIBRARY
             Box(modifier = Modifier.fillMaxSize()) {
                 // Content reserves constant collapsed rail margin so expanding the overlay rail never shifts layout
                 Column(
@@ -402,6 +455,21 @@ private fun AlunaraTvApp(
                             .fillMaxSize()
                             .padding(start = AlunaraDimens.RailCollapsedWidth),
                 ) {
+                    if (showHeaderSearchBar) {
+                        TvHeaderSearchBar(
+                            currentQuery = searchQuery,
+                            onClick = { openHeaderSearch(browseDest) },
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        start = 28.dp,
+                                        end = AlunaraDimens.OverscanHorizontal,
+                                        top = AlunaraDimens.OverscanVertical,
+                                        bottom = 4.dp,
+                                    ),
+                        )
+                    }
                     Crossfade(
                         targetState = activeCatalogTarget ?: browseDest,
                         animationSpec = tween(durationMillis = prefs.focusAnimMs),
@@ -414,7 +482,7 @@ private fun AlunaraTvApp(
                                 .padding(
                                     start = 28.dp,
                                     end = AlunaraDimens.OverscanHorizontal,
-                                    top = AlunaraDimens.OverscanVertical,
+                                    top = if (showHeaderSearchBar) 8.dp else AlunaraDimens.OverscanVertical,
                                     bottom = AlunaraDimens.OverscanVertical,
                                 ),
                         label = "browse_tab",
@@ -476,6 +544,7 @@ private fun AlunaraTvApp(
                                     onOpenAlbum = { album -> openAlbumTarget(album) },
                                     onOpenArtist = { artist -> openArtistTarget(artist) },
                                     onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
+                                    requestInputFocusTick = searchFocusTick,
                                 )
 
                             TvDestination.LIBRARY ->
@@ -497,11 +566,7 @@ private fun AlunaraTvApp(
                                     onRefreshLibrary = { sessionManager.refreshAccountLibrary() },
                                     onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
                                     onOpenWebViewLogin = { showWebViewLogin = true },
-                                    onNavigateToSearch = {
-                                        catalogStack = emptyList()
-                                        lastBrowseDestination = TvDestination.SEARCH
-                                        currentDestination = TvDestination.SEARCH
-                                    },
+                                    onNavigateToSearch = { openHeaderSearch(TvDestination.LIBRARY) },
                                     onNavigateToSettings = {
                                         catalogStack = emptyList()
                                         lastBrowseDestination = TvDestination.SETTINGS
@@ -520,6 +585,8 @@ private fun AlunaraTvApp(
                                     },
                                     onOpenWebViewLogin = { showWebViewLogin = true },
                                     onLogout = { sessionManager.logoutAccount() },
+                                    audioQuality = sessionState.audioQuality,
+                                    onSelectAudioQuality = { preset -> sessionManager.setAudioQuality(preset) },
                                     displayPrefs = displayPrefs,
                                     onUpdateDisplayPrefs = onUpdateDisplayPrefs,
                                 )
@@ -747,5 +814,64 @@ private fun RailItem(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun TvHeaderSearchBar(
+    currentQuery: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+    val bgColor by animateColorAsState(
+        targetValue = if (focused) colors.focusedButtonBg else colors.surface,
+        animationSpec = tween(prefs.focusAnimMs),
+        label = "header_search_bg",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (focused) colors.focusRingStrong else colors.secondarySurface,
+        animationSpec = tween(prefs.focusAnimMs),
+        label = "header_search_border",
+    )
+    val iconTint = if (focused) colors.focusedButtonContent else colors.primaryAccent
+    val textColor =
+        when {
+            focused -> colors.focusedButtonContent
+            currentQuery.isNotBlank() -> colors.primaryText
+            else -> colors.mutedText
+        }
+
+    Row(
+        modifier =
+            modifier
+                .height(AlunaraDimens.ControlHeight)
+                .background(bgColor, shape)
+                .border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                .semantics { role = Role.Button }
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Search,
+            contentDescription = stringResource(R.string.nav_search),
+            tint = iconTint,
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            text = currentQuery.takeIf { it.isNotBlank() } ?: stringResource(R.string.header_search_hint),
+            color = textColor,
+            fontSize = AlunaraTypography.rowTitle(prefs.textScale),
+            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
     }
 }

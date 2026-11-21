@@ -31,10 +31,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -57,6 +60,7 @@ import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvMediaCard
 import com.alunara.app.ui.components.TvSongListSkeleton
 import com.alunara.app.ui.components.TvSongRow
+import com.alunara.app.ui.components.safeRequestFocus
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraTypography
 import com.alunara.app.ui.theme.LocalAlunaraColors
@@ -66,6 +70,7 @@ import com.alunara.core.domain.model.ArtistRef
 import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
+import kotlinx.coroutines.delay
 
 @Composable
 fun SearchScreen(
@@ -82,16 +87,27 @@ fun SearchScreen(
     onOpenArtist: (ArtistRef) -> Unit,
     onOpenPlaylist: (PlaylistSummary) -> Unit,
     modifier: Modifier = Modifier,
+    requestInputFocusTick: Int = 0,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val searchFieldRequester = remember { FocusRequester() }
     var fieldFocused by remember { mutableStateOf(false) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue(query, TextRange(query.length))) }
     LaunchedEffect(query) {
         if (textFieldValue.text != query) {
             textFieldValue = TextFieldValue(query, TextRange(query.length))
+        }
+    }
+    LaunchedEffect(requestInputFocusTick) {
+        if (requestInputFocusTick > 0) {
+            withFrameNanos { }
+            withFrameNanos { }
+            delay(60L)
+            searchFieldRequester.safeRequestFocus()
+            keyboardController?.show()
         }
     }
 
@@ -161,6 +177,7 @@ fun SearchScreen(
                     modifier =
                         Modifier
                             .fillMaxWidth()
+                            .focusRequester(searchFieldRequester)
                             .onFocusChanged { fieldFocused = it.isFocused }
                             .onPreviewKeyEvent { keyEvent ->
                                 if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false

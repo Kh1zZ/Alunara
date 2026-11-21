@@ -42,4 +42,20 @@ class AudioFormatSelectorTest {
             )
         assertEquals(992, result?.itag)
     }
+
+    @Test
+    fun selectBest_withAudioQualityPresetsRespectsBitrateAndCodecTargets() {
+        val mixed =
+            listOf(
+                AudioFormatCandidate(itag = 249, mimeType = "audio/webm; codecs=\"opus\"", bitrateBps = 52_000, isAudioOnly = true, hasDirectUrl = true),
+                AudioFormatCandidate(itag = 250, mimeType = "audio/webm; codecs=\"opus\"", bitrateBps = 72_000, isAudioOnly = true, hasDirectUrl = true),
+                AudioFormatCandidate(itag = 140, mimeType = "audio/mp4; codecs=\"mp4a.40.2\"", bitrateBps = 130_000, isAudioOnly = true, hasDirectUrl = true),
+                AudioFormatCandidate(itag = 251, mimeType = "audio/webm; codecs=\"opus\"", bitrateBps = 160_000, isAudioOnly = true, hasDirectUrl = true),
+                AudioFormatCandidate(itag = 141, mimeType = "audio/mp4; codecs=\"mp4a.40.2\"", bitrateBps = 256_000, isAudioOnly = true, hasDirectUrl = true),
+            )
+        assertEquals(250, AudioFormatSelector.selectBest(mixed, AudioQualityPreset.LOW)?.itag)
+        assertEquals(251, AudioFormatSelector.selectBest(mixed, AudioQualityPreset.MEDIUM)?.itag)
+        assertEquals(251, AudioFormatSelector.selectBest(mixed, AudioQualityPreset.AUTO)?.itag)
+        assertEquals(141, AudioFormatSelector.selectBest(mixed, AudioQualityPreset.HIGH)?.itag)
+    }
 }

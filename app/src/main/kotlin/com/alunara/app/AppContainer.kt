@@ -1,10 +1,18 @@
 package com.alunara.app
 
 import android.content.Context
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.room.Room
+import coil3.SingletonImageLoader
+import com.alunara.app.playback.AlunaraPlaybackService
+import com.alunara.app.playback.PlaybackPreferences
 import com.alunara.app.playback.PlaybackSessionManager
+import com.alunara.app.playback.SharedPreferencesPlaybackPreferencesStore
 import com.alunara.app.playback.SinglePlayerLifecycleController
 import com.alunara.core.data.db.AlunaraDatabase
 import com.alunara.core.data.store.CachedLyricsRepository
@@ -61,6 +69,10 @@ class AppContainer(
         KeystoreAccountSessionStore(appContext)
     }
 
+    val playbackPreferences: PlaybackPreferences by lazy {
+        SharedPreferencesPlaybackPreferencesStore(appContext)
+    }
+
     val musicEngine: MusicEngine by lazy {
         ArchiveTuneMusicAdapter()
     }
@@ -84,13 +96,34 @@ class AppContainer(
             playerController = playbackLifecycleController,
             catalogStore = catalogStore,
             accountSessionStore = accountSessionStore,
+            playbackPreferences = playbackPreferences,
+            onBackgroundServiceStateChanged = ::syncPlaybackServiceState,
         )
     }
 
     val playbackLifecycleObserver: DefaultLifecycleObserver by lazy {
         object : DefaultLifecycleObserver {
             override fun onStop(owner: LifecycleOwner) {
-                playbackSessionManager.onAppBackgroundedOrStopped()
+                playbackSessionManager.onAppBackgrounded()
+                // Free decoded artwork RAM immediately when leaving UI for Android TV launcher
+                runCatching { SingletonImageLoader.get(appContext).memoryCache?.clear() }
+            }
+        }
+    }
+
+    private fun syncPlaybackServiceState(shouldRunService: Boolean) {
+        val intent = Intent(appContext, AlunaraPlaybackService::class.java)
+        runCatching {
+            if (shouldRunService) {
+                val isForeground =
+                    ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+                if (isForeground) {
+                    appContext.startService(intent)
+                } else {
+                    ContextCompat.startForegroundService(appContext, intent)
+                }
+            } else {
+                appContext.stopService(intent)
             }
         }
     }

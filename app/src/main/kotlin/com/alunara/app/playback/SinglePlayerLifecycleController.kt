@@ -1,11 +1,14 @@
 package com.alunara.app.playback
 
 import android.content.Context
+import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -14,7 +17,10 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.alunara.core.domain.contract.PlaybackLifecycleController
+import com.alunara.core.domain.media.ArtworkTier
+import com.alunara.core.domain.media.ArtworkUrlResolver
 import com.alunara.core.domain.model.AudioStreamSource
+import com.alunara.core.domain.model.Track
 import okhttp3.Call
 import okhttp3.OkHttpClient
 
@@ -26,6 +32,7 @@ interface AudioPlayerControl : PlaybackLifecycleController {
         startPositionMs: Long,
         playWhenReady: Boolean,
         listener: Player.Listener,
+        track: Track? = null,
     )
 
     fun play()
@@ -46,7 +53,7 @@ interface AudioPlayerControl : PlaybackLifecycleController {
  * - At most one active audio-only ExoPlayer instance per process (video tracks disabled).
  * - Conservative buffering tuned for 1 GB RAM / 192 MB heap Android TV targets.
  * - No audio disk cache (FG-03).
- * - Immediate stop and release when the app leaves foreground.
+ * - AudioFocus + noisy-becoming handling for reliable background playback.
  */
 class SinglePlayerLifecycleController(
     context: Context,
@@ -89,11 +96,20 @@ class SinglePlayerLifecycleController(
                     /* bufferForPlaybackMs = */ 1_500,
                     /* bufferForPlaybackAfterRebufferMs = */ 3_000,
                 ).build()
+        val audioAttributes =
+            AudioAttributes
+                .Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                .build()
 
         return ExoPlayer
             .Builder(appContext)
             .setTrackSelector(trackSelector)
             .setLoadControl(loadControl)
+            .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .also { created ->
                 if (listener != null) {
@@ -111,19 +127,34 @@ class SinglePlayerLifecycleController(
         startPositionMs: Long,
         playWhenReady: Boolean,
         listener: Player.Listener,
+        track: Track?,
     ) {
         val activePlayer = obtainPlayer(listener)
         val dataSourceFactory =
             OkHttpDataSource
                 .Factory(okHttpClient as Call.Factory)
                 .setUserAgent(source.userAgent)
+        val mediaItem = buildMediaItem(source.streamUrl, source.trackId, track)
         val mediaSource =
             ProgressiveMediaSource
                 .Factory(dataSourceFactory)
-                .createMediaSource(MediaItem.fromUri(source.streamUrl))
+                .createMediaSource(mediaItem)
         activePlayer.setMediaSource(mediaSource, startPositionMs.coerceAtLeast(0L))
         activePlayer.playWhenReady = playWhenReady
         activePlayer.prepare()
+    }
+
+    @Synchronized
+    fun updateMediaMetadata(track: Track) {
+        val activePlayer = player ?: return
+        val currentItem = activePlayer.currentMediaItem ?: return
+        val updated =
+            currentItem
+                .buildUpon()
+                .setMediaId(track.id)
+                .setMediaMetadata(buildMediaMetadata(track))
+                .build()
+        activePlayer.replaceMediaItem(0, updated)
     }
 
     @Synchronized
@@ -164,5 +195,32 @@ class SinglePlayerLifecycleController(
         current.stop()
         current.release()
         player = null
+    }
+
+    private fun buildMediaItem(
+        streamUrl: String,
+        trackId: String,
+        track: Track?,
+    ): MediaItem {
+        val builder = MediaItem.Builder().setUri(streamUrl).setMediaId(trackId)
+        if (track != null) {
+            builder.setMediaMetadata(buildMediaMetadata(track))
+        }
+        return builder.build()
+    }
+
+    private fun buildMediaMetadata(track: Track): MediaMetadata {
+        val artistLine = track.artists.joinToString(", ") { it.name }.ifBlank { null }
+        val artworkUri =
+            ArtworkUrlResolver
+                .resolve(track.thumbnailUrl, ArtworkTier.CARD)
+                ?.let { raw -> runCatching { Uri.parse(raw) }.getOrNull() }
+        return MediaMetadata
+            .Builder()
+            .setTitle(track.title)
+            .setArtist(artistLine)
+            .setAlbumTitle(track.album?.title)
+            .setArtworkUri(artworkUri)
+            .build()
     }
 }

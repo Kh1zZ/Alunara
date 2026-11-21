@@ -15,6 +15,7 @@ import com.alunara.core.domain.model.QueueState
 import com.alunara.core.domain.model.RadioQueueResult
 import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
+import com.alunara.core.domain.policy.AudioQualityPreset
 
 interface MusicEngine {
     suspend fun searchGuest(query: String): Result<SearchResults>
@@ -22,6 +23,11 @@ interface MusicEngine {
     suspend fun fetchGuestHome(): Result<List<HomeSection>>
 
     suspend fun resolveAudioStream(trackId: String): Result<AudioStreamSource>
+
+    suspend fun resolveAudioStream(
+        trackId: String,
+        quality: AudioQualityPreset,
+    ): Result<AudioStreamSource> = resolveAudioStream(trackId)
 
     suspend fun fetchAlbumDetail(albumId: String): Result<AlbumDetail> =
         Result.failure(UnsupportedOperationException("Album detail not implemented"))

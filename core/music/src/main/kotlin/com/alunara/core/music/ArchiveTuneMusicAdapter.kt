@@ -17,6 +17,7 @@ import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
 import com.alunara.core.domain.policy.AudioFormatCandidate
 import com.alunara.core.domain.policy.AudioFormatSelector
+import com.alunara.core.domain.policy.AudioQualityPreset
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -378,7 +379,13 @@ class ArchiveTuneMusicAdapter internal constructor(
         val SYSTEM_PLAYLIST_IDS = setOf("LM", "SE")
     }
 
-    override suspend fun resolveAudioStream(trackId: String): Result<AudioStreamSource> {
+    override suspend fun resolveAudioStream(trackId: String): Result<AudioStreamSource> =
+        resolveAudioStream(trackId = trackId, quality = AudioQualityPreset.AUTO)
+
+    override suspend fun resolveAudioStream(
+        trackId: String,
+        quality: AudioQualityPreset,
+    ): Result<AudioStreamSource> {
         val normalizedId = trackId.trim()
         if (normalizedId.isEmpty()) {
             return Result.failure(IllegalArgumentException("Track id must not be blank"))
@@ -406,6 +413,7 @@ class ArchiveTuneMusicAdapter internal constructor(
                     authState = playbackAuth,
                     setLogin = useLoginContext,
                     requireDirectUrl = true,
+                    quality = quality,
                 )
             if (resolved.isSuccess) return resolved
             lastFailureReason = resolved.exceptionOrNull()?.message
@@ -428,6 +436,7 @@ class ArchiveTuneMusicAdapter internal constructor(
                 authState = playbackAuth,
                 setLogin = useLoginContext,
                 requireDirectUrl = false,
+                quality = quality,
             )
         if (webRemixResult.isSuccess) return webRemixResult
         lastFailureReason = webRemixResult.exceptionOrNull()?.message ?: lastFailureReason
@@ -471,6 +480,7 @@ class ArchiveTuneMusicAdapter internal constructor(
         authState: PlaybackAuthState,
         setLogin: Boolean,
         requireDirectUrl: Boolean,
+        quality: AudioQualityPreset,
     ): Result<AudioStreamSource> {
         val response =
             backend
@@ -511,7 +521,7 @@ class ArchiveTuneMusicAdapter internal constructor(
                 )
             }
         val chosenCandidate =
-            AudioFormatSelector.selectBest(candidates)
+            AudioFormatSelector.selectBest(candidates, quality = quality)
                 ?: return Result.failure(IllegalStateException("${client.clientName} had no audio-only formats"))
 
         val chosenFormat =

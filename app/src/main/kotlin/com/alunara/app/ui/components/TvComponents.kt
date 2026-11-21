@@ -62,6 +62,8 @@ import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraTypography
 import com.alunara.app.ui.theme.LocalAlunaraColors
 import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
+import com.alunara.core.domain.media.ArtworkTier
+import com.alunara.core.domain.media.ArtworkUrlResolver
 import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.Track
 import java.util.Locale
@@ -78,7 +80,11 @@ fun TvArtwork(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     val context = LocalContext.current
-    val pxSize = with(LocalDensity.current) { size.toPx().roundToInt().coerceAtLeast(64) }
+    val tier = if (size >= 110.dp) ArtworkTier.CARD else ArtworkTier.THUMBNAIL
+    val resolvedUrl = remember(url, tier) { ArtworkUrlResolver.resolve(url, tier) }
+    var useFallbackOriginal by remember(url, tier) { mutableStateOf(false) }
+    val activeUrl = if (useFallbackOriginal && !url.isNullOrBlank()) url else resolvedUrl
+    val pxSize = with(LocalDensity.current) { size.toPx().roundToInt().coerceAtLeast(tier.maxPx) }
     val shape: Shape = if (circular) CircleShape else RoundedCornerShape(10.dp)
 
     Box(
@@ -89,12 +95,12 @@ fun TvArtwork(
                 .background(colors.secondarySurface),
         contentAlignment = Alignment.Center,
     ) {
-        if (!url.isNullOrBlank()) {
+        if (!activeUrl.isNullOrBlank()) {
             val request =
-                remember(url, pxSize, prefs.reduceMotion) {
+                remember(activeUrl, pxSize, prefs.reduceMotion) {
                     ImageRequest
                         .Builder(context)
-                        .data(url)
+                        .data(activeUrl)
                         .size(pxSize)
                         .crossfade(!prefs.reduceMotion)
                         .build()
@@ -103,6 +109,11 @@ fun TvArtwork(
                 model = request,
                 contentDescription = contentDescription,
                 contentScale = ContentScale.Crop,
+                onError = {
+                    if (!useFallbackOriginal && activeUrl != url && !url.isNullOrBlank()) {
+                        useFallbackOriginal = true
+                    }
+                },
                 modifier = Modifier.matchParentSize(),
             )
         } else {
@@ -176,7 +187,7 @@ fun TvFocusableButton(
                 .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
         if (icon != null) {
             Icon(

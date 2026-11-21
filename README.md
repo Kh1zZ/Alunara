@@ -2,14 +2,14 @@
 
 **Alunara** (`com.alunara.app`) is an independent, audio-only YouTube Music client built specifically for entry-level **Android TV** devices running **Android 9 (API 28)+** with **1 GB RAM** (reference hardware: **Changhong L32G7N**).
 
-> **Current Status:** `Milestone M3.3 + Pre-M4 Android TV 10-Foot UI/UX Polish (0.1.0-alpha)`  
-> M3.3 builds on M3/M3.1/M3.2 with auth-reactive Personalized Home (`PlaylistItem` mixes, continuation shelves, and `ChartsPage`), QR Code Phone Companion WebView login (`QrCodeMatrix` + `LocalLoginCompanionServer` + direct D-pad DOM navigation), reordered 3-tab YouTube-synced `LibraryScreen` (`Playlist` > `Favorit` > `Riwayat` with `LM` & `FEmusic_history`), interactive `NowPlayingScreen` `Lirik <-> Antrean` radio queue, and full Pre-M4 Android TV 10-foot UI/UX polish (Display & TV Accessibility settings, `safeRequestFocus` & Search D-pad focus exit, inline destructive confirmations, HTML lyrics entity decoding, Coil downsampling, skeletons, idle control dim, hardware media keys, and localized user copy). Verified with `62 / 62` unit tests across `16` suites and live on physical Changhong `AI PONT` TV (`192.168.100.124:5555`); see [docs/M3_VERIFICATION_REPORT.md](docs/M3_VERIFICATION_REPORT.md).
+> **Current Status:** `Milestone M3.4 — Background MediaSession, Header Search, Crisp Artwork, Lyric Sync & Audio Quality (0.1.0-alpha)`  
+> M3.4 builds on M3.3 and the Pre-M4 UI/UX polish with a global Header Search Bar + 3-item Navigation Rail (`Beranda`, `Koleksi`, `Pengaturan`), tiered HD artwork resolution (`256px`/`360px`/`720px`) with automatic background Coil memory trim, per-track manual lyric sync (`±10 ms` / hold `±100 ms`), 4-preset Audio Quality switching (`Otomatis`/`Rendah`/`Sedang`/`Tinggi`) with live codec/bitrate badge, cleaned `NowPlayingScreen` transport row, and `AlunaraPlaybackService` (`MediaSessionService`) background playback for Android TV. Verified with `70 / 70` unit tests across `17` suites, `0` touched lint issues, and live on physical Changhong `AI PONT` TV (`192.168.100.124:5555`); see [docs/M3_VERIFICATION_REPORT.md](docs/M3_VERIFICATION_REPORT.md).
 
 ---
 
 ## Module Architecture (Modular-Lite)
 
-- `:app` — Android TV shell (`com.alunara.app`), Fixed Dark Forest Green Material 3 TV theme, collapsible D-pad rail, `SinglePlayerLifecycleController` (Media3 audio-only + stop-on-exit), ID/EN strings, and in-app open-source notices.
+- `:app` — Android TV shell (`com.alunara.app`), Fixed Dark Forest Green Material 3 TV theme, collapsible 3-item D-pad rail + Header Search Bar, `AlunaraPlaybackService` (`MediaSessionService`) + `SinglePlayerLifecycleController` (Media3 audio-only + audio focus), ID/EN strings, and in-app open-source notices.
 - `:core:domain` — Pure Kotlin models, `QueueReducer`, `RetryPolicy` (bounded backoff + skip-loop guard), `LrcParser`, `ResourceBudgetPolicy`, and engine contracts.
 - `:core:music` — Isolation adapter (`ArchiveTuneMusicAdapter`) over vendored `third_party/core/`, lazily unlocking `NetworkGatekeeperControl` and normalizing guest search results.
 - `:core:lyrics` — Isolation adapter (`ArchiveTuneLyricsAdapter`) over vendored `third_party/lyrics/{lrclib,simpmusic,kugou}` with max-2 bounded concurrency.
