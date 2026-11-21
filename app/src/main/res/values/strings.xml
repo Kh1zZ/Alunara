@@ -94,6 +94,11 @@
     <string name="logout_confirm_prompt">Confirm removing encrypted session credentials and account data?</string>
     <string name="logout_confirm_action">Confirm Log Out</string>
     <string name="cancel">Cancel</string>
+    <string name="login_webview_button">Sign In with YouTube Music (WebView)</string>
+    <string name="login_webview_title">YouTube Music Account Sign-In</string>
+    <string name="login_webview_hint">Use D-pad / OK / TV Keyboard to sign in with Google. Completes automatically when music.youtube.com loads.</string>
+    <string name="login_verifying">Verifying YouTube Music session…</string>
+    <string name="login_error_prefix">Sign-in verification failed: %1$s</string>
     <string name="attribution_text">Alunara is an independent YouTube Music client developed for Android TV. Its music integration is built on ArchiveTune Core (github.com/rukamori/core) and its lyrics integration is built on ArchiveTune Lyrics (github.com/rukamori/lyrics), open-source projects by rukamori. Alunara is not officially affiliated with or endorsed by ArchiveTune. Licensed under GNU GPL v3.0.</string>
     <string name="compliance_summary">Audio Disk Cache: Disabled (0 MB) · Dynamic Cache Cap: 128 MB · Lyrics Providers: lrclib, simpmusic, kugou (max 2 concurrent) · Stop-on-Exit: Active</string>
 </resources>

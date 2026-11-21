@@ -51,3 +51,16 @@ Executed under JDK 21 (`C:\Program Files\Java\jdk-21.0.12.1`):
 | **4-Tab Library (`Koleksi & Antrean`)** | Verified live tabs: `Antrean (19)`, `Favorit (1)` (`Teh Hijau`), `Riwayat (2)` (`Cinta Sudah Lewat` & `Teh Hijau`), and `Playlist Akun` (honest `FG-04` Guest Mode card + `Buka Cari` / `Status Akun` shortcuts) |
 | **Settings Account & Session Card** | Verified `Putar otomatis & rekomendasi radio di akhir antrean` (`AKTIF`), `Akun & Isolasi Sesi (FG-04)` (`Android Keystore AES-256-GCM · Tanpa rahasia plaintext di Room`), and GPL-3.0 open-source credits |
 | **Stop-on-Exit & Logcat Health** | `KEYCODE_HOME` + `3s` -> `dumpsys media.audio_flinger`: `2 Tracks of which 0 are active`; `logcat`: `0` crashes, `0` ANRs, `0` `AlunaraPlayback` / `SQLiteLog` errors |
+
+---
+
+## 4. M3.1 WebView YouTube Music Sign-In Verification
+
+Implemented Option 1 (`YouTubeWebViewLoginScreen.kt`) using the device's system Chromium WebView (`com.google.android.webview` v`150.0.7871.46` observed via `dumpsys webviewupdate`), capturing `SAPISID` / `__Secure-3PAPISID` / `__Secure-1PAPISID` cookies plus `VISITOR_DATA` / `DATASYNC_ID` when reaching `https://music.youtube.com`, verifying via `ArchiveTuneMusicAdapter.verifyAccountSession()`, encrypting credentials in `KeystoreAccountSessionStore` (AES-256-GCM), and immediately destroying the `WebView` instance on exit (`logoutAccount()` also flushes/clears `CookieManager`).
+
+| Check | Measured M3.1 Outcome |
+|---|---|
+| **Gradle Unit Tests & Lint** | **`52 / 52` passed** across `15` suites (`0` failed, `0` skipped); `:app:lintDebug` passed (`0` errors, `0` Kotlin deprecation warnings); `app-debug.apk` = `78,493,501` bytes (`74.86 MiB`) |
+| **Changhong TV WebView Sign-In Load** | Tapping **`Masuk Akun YouTube Music (WebView)`** (`SettingsScreen` / `LibraryScreen`) loaded Google's official sign-in page (`accounts.google.com`, *"Login · Lanjutkan ke YouTube Music"*) with D-pad/IME input ready and **zero `403 disallowed_useragent`** |
+| **WebView Memory & Stability (`192.168.100.124:5555`)** | Active Chromium WebView `dumpsys meminfo`: `TOTAL PSS: 109,289 KB` (`Java Heap: 7,172 KB`, `Native Heap: 7,484 KB`, `Code: 25,048 KB`, `Stack: 972 KB`, `Graphics: 16,444 KB`, `TOTAL RSS: 167,372 KB`, `TOTAL SWAP PSS: 16,493 KB`); `logcat` (`AlunaraPlayback`, `AndroidRuntime`, `chromium`): `0` crashes, `0` ANRs, `0` errors |
+

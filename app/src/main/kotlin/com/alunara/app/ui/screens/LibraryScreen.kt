@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -72,6 +73,7 @@ fun LibraryScreen(
     onToggleFavorite: (Track) -> Unit,
     onClearHistory: () -> Unit,
     onOpenPlaylist: (PlaylistSummary) -> Unit,
+    onOpenWebViewLogin: () -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -286,9 +288,14 @@ fun LibraryScreen(
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             TvFocusableButton(
+                                text = stringResource(R.string.login_webview_button),
+                                icon = Icons.AutoMirrored.Rounded.Login,
+                                highlighted = true,
+                                onClick = onOpenWebViewLogin,
+                            )
+                            TvFocusableButton(
                                 text = stringResource(R.string.open_search),
                                 icon = Icons.Rounded.Search,
-                                highlighted = true,
                                 onClick = onNavigateToSearch,
                             )
                             TvFocusableButton(

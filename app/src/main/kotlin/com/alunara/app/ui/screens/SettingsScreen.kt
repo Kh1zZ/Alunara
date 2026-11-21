@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -40,7 +41,10 @@ import com.alunara.core.domain.model.AuthSessionState
 fun SettingsScreen(
     autoplayEnabled: Boolean,
     authSession: AuthSessionState,
+    authLoading: Boolean,
+    authErrorMessage: String?,
     onToggleAutoplay: () -> Unit,
+    onOpenWebViewLogin: () -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -135,6 +139,33 @@ fun SettingsScreen(
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
                 )
+
+                if (authLoading) {
+                    Text(
+                        text = stringResource(R.string.login_verifying),
+                        color = AlunaraPalette.PrimaryAccent,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+
+                if (!authErrorMessage.isNullOrBlank()) {
+                    Text(
+                        text = stringResource(R.string.login_error_prefix, authErrorMessage),
+                        color = AlunaraPalette.ErrorText,
+                        fontSize = 13.sp,
+                    )
+                }
+
+                if (authSession !is AuthSessionState.Authenticated) {
+                    TvFocusableButton(
+                        text = stringResource(R.string.login_webview_button),
+                        icon = Icons.AutoMirrored.Rounded.Login,
+                        highlighted = true,
+                        enabled = !authLoading,
+                        onClick = onOpenWebViewLogin,
+                    )
+                }
 
                 if (authSession !is AuthSessionState.Guest) {
                     if (!confirmingLogout) {

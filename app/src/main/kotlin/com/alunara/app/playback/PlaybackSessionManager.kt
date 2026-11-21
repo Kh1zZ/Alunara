@@ -54,6 +54,8 @@ data class PlaybackSessionUiState(
     val activeLyricIndex: Int = -1,
     val errorMessage: String? = null,
     val authSession: AuthSessionState = AuthSessionState.Guest,
+    val authLoading: Boolean = false,
+    val authErrorMessage: String? = null,
     val favorites: List<Track> = emptyList(),
     val favoriteIds: Set<String> = emptySet(),
     val recentHistory: List<Track> = emptyList(),
@@ -444,6 +446,19 @@ class PlaybackSessionManager(
         }
     }
 
+    fun loginWithCredentials(credentials: AccountCredentials) {
+        scope.launch {
+            mutableUiState.update { it.copy(authLoading = true, authErrorMessage = null) }
+            val result = activateAccountSession(credentials)
+            mutableUiState.update {
+                it.copy(
+                    authLoading = false,
+                    authErrorMessage = result.exceptionOrNull()?.message,
+                )
+            }
+        }
+    }
+
     suspend fun activateAccountSession(credentials: AccountCredentials): Result<AccountProfile> {
         val verifyResult = withContext(ioDispatcher) { musicEngine.verifyAccountSession(credentials) }
         return verifyResult.fold(
@@ -473,6 +488,12 @@ class PlaybackSessionManager(
     fun logoutAccount() {
         val previousAuth = mutableUiState.value.authSession
         scope.launch {
+            runCatching {
+                android.webkit.CookieManager.getInstance().apply {
+                    removeAllCookies(null)
+                    flush()
+                }
+            }
             withContext(NonCancellable + ioDispatcher) {
                 if (previousAuth is AuthSessionState.Authenticated) {
                     runCatching { catalogStore.clearAccountData(AccountScope.Account(previousAuth.profile.accountId)) }
@@ -486,6 +507,8 @@ class PlaybackSessionManager(
             mutableUiState.update {
                 it.copy(
                     authSession = AuthSessionState.Guest,
+                    authLoading = false,
+                    authErrorMessage = null,
                     favorites = guestFavorites,
                     favoriteIds = guestFavorites.map { fav -> fav.id }.toSet(),
                     recentHistory = guestHistory,

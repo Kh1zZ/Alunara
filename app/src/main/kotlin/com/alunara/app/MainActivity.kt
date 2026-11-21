@@ -74,6 +74,7 @@ import com.alunara.app.ui.screens.LibraryScreen
 import com.alunara.app.ui.screens.NowPlayingScreen
 import com.alunara.app.ui.screens.SearchScreen
 import com.alunara.app.ui.screens.SettingsScreen
+import com.alunara.app.ui.screens.YouTubeWebViewLoginScreen
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.app.ui.theme.AlunaraTheme
@@ -134,6 +135,7 @@ private fun AlunaraTvApp(
     var currentDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
     var lastBrowseDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
     var catalogStack by remember { mutableStateOf<List<CatalogTarget>>(emptyList()) }
+    var showWebViewLogin by rememberSaveable { mutableStateOf(false) }
     var railFocused by remember { mutableStateOf(false) }
     val railHomeFocusRequester = remember { FocusRequester() }
 
@@ -228,8 +230,12 @@ private fun AlunaraTvApp(
         }
     }
 
-    BackHandler(enabled = currentDestination != TvDestination.HOME || catalogStack.isNotEmpty()) {
+    BackHandler(enabled = showWebViewLogin || currentDestination != TvDestination.HOME || catalogStack.isNotEmpty()) {
         when {
+            showWebViewLogin -> {
+                showWebViewLogin = false
+            }
+
             currentDestination == TvDestination.NOW_PLAYING -> {
                 currentDestination = lastBrowseDestination
             }
@@ -244,15 +250,13 @@ private fun AlunaraTvApp(
         }
     }
 
-    Crossfade(
-        targetState = currentDestination == TvDestination.NOW_PLAYING,
-        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(AlunaraPalette.Background),
-        label = "root_destination",
-    ) { isNowPlaying ->
+    Box(modifier = Modifier.fillMaxSize().background(AlunaraPalette.Background)) {
+        Crossfade(
+            targetState = currentDestination == TvDestination.NOW_PLAYING,
+            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+            modifier = Modifier.fillMaxSize(),
+            label = "root_destination",
+        ) { isNowPlaying ->
         if (isNowPlaying) {
             NowPlayingScreen(
                 sessionState = sessionState,
@@ -366,6 +370,7 @@ private fun AlunaraTvApp(
                                     onToggleFavorite = { track -> sessionManager.toggleFavorite(track) },
                                     onClearHistory = { sessionManager.clearHistory() },
                                     onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
+                                    onOpenWebViewLogin = { showWebViewLogin = true },
                                     onNavigateToSearch = {
                                         catalogStack = emptyList()
                                         lastBrowseDestination = TvDestination.SEARCH
@@ -382,9 +387,12 @@ private fun AlunaraTvApp(
                                 SettingsScreen(
                                     autoplayEnabled = sessionState.queueState.autoplayEnabled,
                                     authSession = sessionState.authSession,
+                                    authLoading = sessionState.authLoading,
+                                    authErrorMessage = sessionState.authErrorMessage,
                                     onToggleAutoplay = {
                                         sessionManager.setAutoplay(!sessionState.queueState.autoplayEnabled)
                                     },
+                                    onOpenWebViewLogin = { showWebViewLogin = true },
                                     onLogout = { sessionManager.logoutAccount() },
                                 )
 
@@ -413,6 +421,18 @@ private fun AlunaraTvApp(
                     },
                 )
             }
+        }
+    }
+
+        if (showWebViewLogin) {
+            YouTubeWebViewLoginScreen(
+                onCancel = { showWebViewLogin = false },
+                onCredentialsCaptured = { credentials ->
+                    showWebViewLogin = false
+                    sessionManager.loginWithCredentials(credentials)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }
