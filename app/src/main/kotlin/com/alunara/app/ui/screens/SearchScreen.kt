@@ -19,6 +19,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -121,6 +125,7 @@ fun SearchScreen(
 
             TvFocusableButton(
                 text = stringResource(R.string.search_button),
+                icon = Icons.Rounded.Search,
                 highlighted = true,
                 onClick = onSubmitSearch,
             )
@@ -159,6 +164,7 @@ fun SearchScreen(
                     )
                     TvFocusableButton(
                         text = stringResource(R.string.retry),
+                        icon = Icons.Rounded.Refresh,
                         onClick = onSubmitSearch,
                     )
                 }
@@ -202,6 +208,7 @@ fun SearchScreen(
                                 isActive = song.id == activeTrackId,
                                 onPlayClick = { onPlaySong(results.songs, index) },
                                 secondaryActionLabel = stringResource(R.string.add_to_queue),
+                                secondaryActionIcon = Icons.Rounded.PlaylistAdd,
                                 onSecondaryClick = { onEnqueueSong(song) },
                             )
                         }

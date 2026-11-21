@@ -10,6 +10,7 @@ import com.alunara.core.domain.contract.QueueStore
 import com.alunara.core.domain.lyrics.LyricsSyncResolver
 import com.alunara.core.domain.model.AudioStreamSource
 import com.alunara.core.domain.model.LyricsDocument
+import com.alunara.core.domain.model.LyricsProviderId
 import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.QueueItem
 import com.alunara.core.domain.model.QueueState
@@ -42,6 +43,7 @@ data class PlaybackSessionUiState(
     val durationMs: Long = 0L,
     val lyrics: LyricsDocument = LyricsDocument.Unavailable(""),
     val lyricsLoading: Boolean = false,
+    val selectedLyricsProvider: LyricsProviderId? = null,
     val activeLyricIndex: Int = -1,
     val errorMessage: String? = null,
 ) {
@@ -302,7 +304,7 @@ class PlaybackSessionManager(
         } else {
             currentTrackAttempt = 0
             resolveAndPlay(currentTrack, startPositionMs = state.positionMs)
-            fetchLyricsForTrack(currentTrack)
+            fetchLyricsForTrack(currentTrack, state.selectedLyricsProvider)
         }
     }
 
@@ -310,8 +312,24 @@ class PlaybackSessionManager(
         val state = mutableUiState.value
         val track = state.currentTrack ?: return
         if (!state.lyricsLoading && state.lyrics is LyricsDocument.Unavailable && state.lyrics.reason.isEmpty()) {
-            fetchLyricsForTrack(track)
+            fetchLyricsForTrack(track, state.selectedLyricsProvider)
         }
+    }
+
+    fun cycleLyricsProvider() {
+        val state = mutableUiState.value
+        val track = state.currentTrack ?: return
+        val order = listOf(LyricsProviderId.SIMPMUSIC, LyricsProviderId.LRCLIB, LyricsProviderId.KUGOU)
+        val currentProvider =
+            state.selectedLyricsProvider
+                ?: when (val doc = state.lyrics) {
+                    is LyricsDocument.Synced -> doc.provider
+                    is LyricsDocument.Plain -> doc.provider
+                    is LyricsDocument.Unavailable -> null
+                }
+        val currentIdx = order.indexOf(currentProvider)
+        val nextProvider = order[(currentIdx + 1) % order.size]
+        fetchLyricsForTrack(track, preferredProvider = nextProvider)
     }
 
     fun skipNext() {
@@ -414,13 +432,14 @@ class PlaybackSessionManager(
                 durationMs = (track.durationSeconds ?: 0) * 1000L,
                 lyrics = LyricsDocument.Unavailable(""),
                 lyricsLoading = true,
+                selectedLyricsProvider = null,
                 activeLyricIndex = -1,
                 errorMessage = null,
             )
         }
         persistQueueAsync(nextQueue)
         resolveAndPlay(track, startPositionMs)
-        fetchLyricsForTrack(track)
+        fetchLyricsForTrack(track, preferredProvider = null)
     }
 
     private fun resolveAndPlay(
@@ -532,13 +551,17 @@ class PlaybackSessionManager(
         }
     }
 
-    private fun fetchLyricsForTrack(track: Track) {
+    private fun fetchLyricsForTrack(
+        track: Track,
+        preferredProvider: LyricsProviderId? = null,
+    ) {
         lyricsJob?.cancel()
         lyricsJob =
             scope.launch {
                 mutableUiState.update {
                     it.copy(
                         lyricsLoading = true,
+                        selectedLyricsProvider = preferredProvider,
                         lyrics = LyricsDocument.Unavailable(""),
                         activeLyricIndex = -1,
                     )
@@ -546,7 +569,7 @@ class PlaybackSessionManager(
                 val doc =
                     withContext(ioDispatcher) {
                         try {
-                            lyricsEngine.fetchLyrics(track)
+                            lyricsEngine.fetchLyrics(track, preferredProvider)
                         } catch (cancel: CancellationException) {
                             throw cancel
                         } catch (t: Throwable) {
@@ -578,7 +601,7 @@ class PlaybackSessionManager(
                             activeLyricIndex = computeActiveLyricIndex(state.lyrics, pos),
                         )
                     }
-                    delay(300L)
+                    delay(100L)
                 }
             }
     }

@@ -6,17 +6,29 @@ enum class LyricsProviderId {
     KUGOU,
 }
 
+data class SyncedLyricWord(
+    val startTimeMs: Long,
+    val text: String,
+)
+
 data class SyncedLyricLine(
     val startTimeMs: Long,
     val text: String,
     val romanizedText: String? = null,
-)
+    val words: List<SyncedLyricWord> = emptyList(),
+) {
+    val hasWordSync: Boolean
+        get() = words.isNotEmpty()
+}
 
 sealed interface LyricsDocument {
     data class Synced(
         val provider: LyricsProviderId,
         val lines: List<SyncedLyricLine>,
-    ) : LyricsDocument
+    ) : LyricsDocument {
+        val isWordSynced: Boolean
+            get() = lines.any { it.hasWordSync }
+    }
 
     data class Plain(
         val provider: LyricsProviderId,

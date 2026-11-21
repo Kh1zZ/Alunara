@@ -16,6 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -118,6 +120,7 @@ fun HomeScreen(
                         )
                         TvFocusableButton(
                             text = stringResource(R.string.retry),
+                            icon = Icons.Rounded.Refresh,
                             highlighted = true,
                             onClick = onRetry,
                         )
@@ -135,6 +138,7 @@ fun HomeScreen(
                         )
                         TvFocusableButton(
                             text = stringResource(R.string.retry),
+                            icon = Icons.Rounded.Refresh,
                             onClick = onRetry,
                         )
                     }

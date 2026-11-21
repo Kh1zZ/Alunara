@@ -40,7 +40,7 @@ class ArchiveTuneLyricsAdapterTest {
     }
 
     @Test
-    fun fetchLyrics_prefersSyncedOverPlainAndRespectsConcurrencyLimit() =
+    fun fetchLyrics_prefersWordSyncOverLineSyncAndPlainAndRespectsConcurrencyLimit() =
         runTest {
             val active = AtomicInteger(0)
             val maxObserved = AtomicInteger(0)
@@ -49,13 +49,13 @@ class ArchiveTuneLyricsAdapterTest {
                     providers =
                         listOf(
                             FakeProvider(LyricsProviderId.LRCLIB, 20L, active, maxObserved) {
-                                Result.success("Plain only line")
+                                Result.success("[00:05.00]Line synced only")
                             },
                             FakeProvider(LyricsProviderId.SIMPMUSIC, 20L, active, maxObserved) {
-                                Result.success("[00:05.00]Synced line")
+                                Result.success("[00:05.00] <00:05.00>Word <00:05.50>synced")
                             },
                             FakeProvider(LyricsProviderId.KUGOU, 20L, active, maxObserved) {
-                                error("Should not need third provider once synced is found")
+                                error("Should not need third provider once word-synced lyrics are found")
                             },
                         ),
                     maxConcurrentRequests = 2,
@@ -63,8 +63,60 @@ class ArchiveTuneLyricsAdapterTest {
 
             val doc = adapter.fetchLyrics(sampleTrack)
             assertTrue(doc is LyricsDocument.Synced)
-            assertEquals(LyricsProviderId.SIMPMUSIC, (doc as LyricsDocument.Synced).provider)
+            val synced = doc as LyricsDocument.Synced
+            assertEquals(LyricsProviderId.SIMPMUSIC, synced.provider)
+            assertTrue(synced.isWordSynced)
             assertTrue("Expected max <= 2 concurrent requests, got ${maxObserved.get()}", maxObserved.get() <= 2)
+        }
+
+    @Test
+    fun fetchLyrics_checksFallbackBatchWhenPrimaryOnlyHasLineSync() =
+        runTest {
+            val active = AtomicInteger(0)
+            val maxObserved = AtomicInteger(0)
+            val adapter =
+                ArchiveTuneLyricsAdapter(
+                    providers =
+                        listOf(
+                            FakeProvider(LyricsProviderId.LRCLIB, 10L, active, maxObserved) {
+                                Result.success("[00:05.00]Line sync")
+                            },
+                            FakeProvider(LyricsProviderId.KUGOU, 10L, active, maxObserved) {
+                                Result.success("Plain only")
+                            },
+                            FakeProvider(LyricsProviderId.SIMPMUSIC, 10L, active, maxObserved) {
+                                Result.success("[00:05.00] <00:05.00>Word <00:05.50>upgrade")
+                            },
+                        ),
+                    maxConcurrentRequests = 2,
+                )
+
+            val doc = adapter.fetchLyrics(sampleTrack) as LyricsDocument.Synced
+            assertEquals(LyricsProviderId.SIMPMUSIC, doc.provider)
+            assertTrue(doc.isWordSynced)
+        }
+
+    @Test
+    fun fetchLyrics_withPreferredProviderQueriesOnlyRequestedProvider() =
+        runTest {
+            val active = AtomicInteger(0)
+            val maxObserved = AtomicInteger(0)
+            val adapter =
+                ArchiveTuneLyricsAdapter(
+                    providers =
+                        listOf(
+                            FakeProvider(LyricsProviderId.SIMPMUSIC, 0L, active, maxObserved) {
+                                error("Should not call SIMPMUSIC when LRCLIB requested")
+                            },
+                            FakeProvider(LyricsProviderId.LRCLIB, 0L, active, maxObserved) {
+                                Result.success("[00:10.00]Requested provider line")
+                            },
+                        ),
+                )
+
+            val doc = adapter.fetchLyrics(sampleTrack, preferredProvider = LyricsProviderId.LRCLIB) as LyricsDocument.Synced
+            assertEquals(LyricsProviderId.LRCLIB, doc.provider)
+            assertEquals("Requested provider line", doc.lines.single().text)
         }
 
     @Test

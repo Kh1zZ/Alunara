@@ -3,12 +3,15 @@ package com.alunara.core.domain.lyrics
 import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.LyricsProviderId
 import com.alunara.core.domain.model.SyncedLyricLine
+import com.alunara.core.domain.model.SyncedLyricWord
 
 /**
- * Pure line-synced LRC parser with safe fallback to plain lyrics or unavailable status.
+ * Parses standard line-synced LRC (`[mm:ss.xx]`) and Enhanced LRC word-synced (`<mm:ss.xx>`)
+ * payloads with safe fallback to plain lyrics or unavailable status.
  */
 object LrcParser {
     private val TIMESTAMP_REGEX = Regex("""\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?]""")
+    private val WORD_TIMESTAMP_REGEX = Regex("""<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>""")
     private val METADATA_TAG_REGEX = Regex("""^\[(ti|ar|al|au|length|by|offset|re|ve):.*]$""", RegexOption.IGNORE_CASE)
 
     fun parse(
@@ -27,18 +30,38 @@ object LrcParser {
             if (trimmed.isEmpty()) return@forEach
             if (METADATA_TAG_REGEX.matches(trimmed)) return@forEach
 
-            val matches = TIMESTAMP_REGEX.findAll(trimmed).toList()
-            if (matches.isEmpty()) {
-                plainLines += trimmed
+            val lineMatches = TIMESTAMP_REGEX.findAll(trimmed).toList()
+            if (lineMatches.isEmpty()) {
+                val words = parseWordSegments(trimmed)
+                if (words.isNotEmpty()) {
+                    val text = words.joinToString(separator = "") { it.text }.trim()
+                    if (text.isNotEmpty()) {
+                        syncedLines +=
+                            SyncedLyricLine(
+                                startTimeMs = words.first().startTimeMs,
+                                text = text,
+                                words = words,
+                            )
+                    }
+                } else {
+                    plainLines += decodeHtmlEntities(trimmed)
+                }
                 return@forEach
             }
 
-            val text = TIMESTAMP_REGEX.replace(trimmed, "").trim()
+            val bodyRaw = TIMESTAMP_REGEX.replace(trimmed, "")
+            val words = parseWordSegments(bodyRaw)
+            val text =
+                if (words.isNotEmpty()) {
+                    words.joinToString(separator = "") { it.text }.trim()
+                } else {
+                    decodeHtmlEntities(bodyRaw.trim())
+                }
             if (text.isEmpty()) return@forEach
 
-            matches.forEach { match ->
+            lineMatches.forEach { match ->
                 val timeMs = parseTimestampMs(match) ?: return@forEach
-                syncedLines += SyncedLyricLine(startTimeMs = timeMs, text = text)
+                syncedLines += SyncedLyricLine(startTimeMs = timeMs, text = text, words = words)
             }
         }
 
@@ -58,6 +81,34 @@ object LrcParser {
             else -> LyricsDocument.Unavailable("No parseable lyric lines")
         }
     }
+
+    private fun parseWordSegments(body: String): List<SyncedLyricWord> {
+        val matches = WORD_TIMESTAMP_REGEX.findAll(body).toList()
+        if (matches.isEmpty()) return emptyList()
+
+        val words = mutableListOf<SyncedLyricWord>()
+        for (i in matches.indices) {
+            val current = matches[i]
+            val startMs = parseTimestampMs(current) ?: continue
+            val sliceStart = current.range.last + 1
+            val sliceEnd = if (i + 1 < matches.size) matches[i + 1].range.first else body.length
+            if (sliceStart > sliceEnd) continue
+            val wordText = decodeHtmlEntities(body.substring(sliceStart, sliceEnd))
+            if (wordText.isNotEmpty()) {
+                words += SyncedLyricWord(startTimeMs = startMs, text = wordText)
+            }
+        }
+        return words
+    }
+
+    private fun decodeHtmlEntities(input: String): String =
+        input
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&#39;", "'")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
 
     private fun parseTimestampMs(match: MatchResult): Long? {
         val minutes = match.groupValues[1].toLongOrNull() ?: return null

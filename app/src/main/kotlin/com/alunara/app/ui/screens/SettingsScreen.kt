@@ -7,7 +7,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,8 +47,8 @@ fun SettingsScreen(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(AlunaraPalette.Background.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
@@ -53,6 +59,7 @@ fun SettingsScreen(
             )
             TvFocusableButton(
                 text = if (autoplayEnabled) stringResource(R.string.state_on) else stringResource(R.string.state_off),
+                icon = if (autoplayEnabled) Icons.Rounded.CheckCircle else Icons.Rounded.AutoAwesome,
                 highlighted = autoplayEnabled,
                 onClick = onToggleAutoplay,
             )
@@ -62,16 +69,27 @@ fun SettingsScreen(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(AlunaraPalette.Background.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
-                    .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(12.dp))
+                    .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                text = stringResource(R.string.compliance_summary),
-                color = AlunaraPalette.PrimaryAccent,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Info,
+                    contentDescription = null,
+                    tint = AlunaraPalette.PrimaryAccent,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = stringResource(R.string.compliance_summary),
+                    color = AlunaraPalette.PrimaryAccent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
             Text(
                 text = stringResource(R.string.attribution_text),
                 color = AlunaraPalette.MutedText,

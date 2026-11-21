@@ -6,6 +6,7 @@ import com.alunara.core.domain.contract.LyricsEngine
 import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.LyricsProviderId
 import com.alunara.core.domain.model.SyncedLyricLine
+import com.alunara.core.domain.model.SyncedLyricWord
 import com.alunara.core.domain.model.Track
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -48,11 +49,25 @@ class CachedLyricsRepositoryTest {
                 CachedLyricsRepository(
                     delegate =
                         object : LyricsEngine {
-                            override suspend fun fetchLyrics(track: Track): LyricsDocument {
+                            override suspend fun fetchLyrics(
+                                track: Track,
+                                preferredProvider: LyricsProviderId?,
+                            ): LyricsDocument {
                                 upstreamCalls++
                                 return LyricsDocument.Synced(
-                                    provider = LyricsProviderId.LRCLIB,
-                                    lines = listOf(SyncedLyricLine(12_345L, "Cached lyric line")),
+                                    provider = LyricsProviderId.SIMPMUSIC,
+                                    lines =
+                                        listOf(
+                                            SyncedLyricLine(
+                                                startTimeMs = 12_345L,
+                                                text = "Cached lyric",
+                                                words =
+                                                    listOf(
+                                                        SyncedLyricWord(12_345L, "Cached "),
+                                                        SyncedLyricWord(12_700L, "lyric"),
+                                                    ),
+                                            ),
+                                        ),
                                 )
                             }
                         },
@@ -65,13 +80,21 @@ class CachedLyricsRepositoryTest {
             assertTrue(first is LyricsDocument.Synced)
             assertEquals(1, upstreamCalls)
 
-            // Cache hit within TTL
+            // Cache hit within TTL preserves word timestamps
             now += 60_000L
             val second = repo.fetchLyrics(track)
             assertTrue(second is LyricsDocument.Synced)
             assertEquals(1, upstreamCalls)
-            assertEquals(12_345L, (second as LyricsDocument.Synced).lines.first().startTimeMs)
-            assertEquals("Cached lyric line", second.lines.first().text)
+            val cachedSynced = second as LyricsDocument.Synced
+            assertTrue(cachedSynced.isWordSynced)
+            assertEquals(12_345L, cachedSynced.lines.first().startTimeMs)
+            assertEquals("Cached lyric", cachedSynced.lines.first().text)
+            assertEquals(12_700L, cachedSynced.lines.first().words[1].startTimeMs)
+
+            // Explicit provider switch bypasses different provider cache & updates cache on success
+            val switched = repo.fetchLyrics(track, LyricsProviderId.SIMPMUSIC)
+            assertEquals(1, upstreamCalls)
+            assertTrue(switched is LyricsDocument.Synced)
 
             // Expired after 8 days -> re-fetches upstream
             now += 8L * 24L * 60L * 60L * 1000L
@@ -89,7 +112,10 @@ class CachedLyricsRepositoryTest {
                 CachedLyricsRepository(
                     delegate =
                         object : LyricsEngine {
-                            override suspend fun fetchLyrics(track: Track): LyricsDocument {
+                            override suspend fun fetchLyrics(
+                                track: Track,
+                                preferredProvider: LyricsProviderId?,
+                            ): LyricsDocument {
                                 upstreamCalls++
                                 return LyricsDocument.Unavailable("Not found")
                             }

@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,13 +13,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,11 +42,17 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.alunara.app.playback.PlaybackSessionManager
@@ -75,6 +90,11 @@ private val RailDestinations =
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
         val container = (application as AlunaraApplication).container
         setContent {
             AlunaraTheme {
@@ -158,7 +178,6 @@ private fun AlunaraTvApp(
         }
     }
 
-    // Back priority: Now Playing -> previous browse tab -> Home -> Android TV Home (UI/UX Spec §3.3 / UX-06)
     BackHandler(enabled = currentDestination != TvDestination.HOME) {
         currentDestination =
             if (currentDestination == TvDestination.NOW_PLAYING) {
@@ -168,19 +187,24 @@ private fun AlunaraTvApp(
             }
     }
 
-    // ~5% TV overscan safe margin (48x27 dp on 960x540 dp 720p grid)
     Box(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(AlunaraPalette.Background)
-                .padding(horizontal = 48.dp, vertical = 27.dp),
+                .background(AlunaraPalette.Background),
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            if (currentDestination != TvDestination.NOW_PLAYING) {
+        if (currentDestination == TvDestination.NOW_PLAYING) {
+            NowPlayingScreen(
+                sessionState = sessionState,
+                onTogglePlayPause = { sessionManager.togglePlayPause() },
+                onSkipPrevious = { sessionManager.skipPrevious() },
+                onSkipNext = { sessionManager.skipNext() },
+                onSeekBy = { delta -> sessionManager.seekBy(delta) },
+                onSwitchLyricsProvider = { sessionManager.cycleLyricsProvider() },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Row(modifier = Modifier.fillMaxSize()) {
                 CollapsibleNavigationRail(
                     selected = currentDestination,
                     expanded = railFocused,
@@ -191,91 +215,82 @@ private fun AlunaraTvApp(
                         currentDestination = dest
                     },
                 )
-            }
 
-            Column(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Box(
+                Column(
                     modifier =
                         Modifier
                             .weight(1f)
-                            .fillMaxWidth()
-                            .background(AlunaraPalette.Surface, RoundedCornerShape(16.dp))
-                            .padding(24.dp),
+                            .fillMaxHeight(),
                 ) {
-                    when (currentDestination) {
-                        TvDestination.HOME ->
-                            HomeScreen(
-                                sections = homeSections,
-                                isLoading = homeLoading,
-                                errorMessage = homeError,
-                                resumeTrack = sessionState.currentTrack,
-                                onRetry = { loadHome() },
-                                onContinueQueue = { openNowPlaying() },
-                                onPlaySongFromSection = { songs, idx ->
-                                    sessionManager.playTracks(songs, idx)
-                                    openNowPlaying()
-                                },
-                            )
+                    Box(
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(horizontal = 28.dp, vertical = 20.dp),
+                    ) {
+                        when (currentDestination) {
+                            TvDestination.HOME ->
+                                HomeScreen(
+                                    sections = homeSections,
+                                    isLoading = homeLoading,
+                                    errorMessage = homeError,
+                                    resumeTrack = sessionState.currentTrack,
+                                    onRetry = { loadHome() },
+                                    onContinueQueue = { openNowPlaying() },
+                                    onPlaySongFromSection = { songs, idx ->
+                                        sessionManager.playTracks(songs, idx)
+                                        openNowPlaying()
+                                    },
+                                )
 
-                        TvDestination.SEARCH ->
-                            SearchScreen(
-                                query = searchQuery,
-                                results = searchResults,
-                                isLoading = searchLoading,
-                                errorMessage = searchError,
-                                activeTrackId = sessionState.currentTrack?.id,
-                                onQueryChange = { searchQuery = it },
-                                onSubmitSearch = { executeSearch() },
-                                onPlaySong = { songs, idx ->
-                                    sessionManager.playTracks(songs, idx)
-                                    openNowPlaying()
-                                },
-                                onEnqueueSong = { track -> sessionManager.enqueue(track) },
-                            )
+                            TvDestination.SEARCH ->
+                                SearchScreen(
+                                    query = searchQuery,
+                                    results = searchResults,
+                                    isLoading = searchLoading,
+                                    errorMessage = searchError,
+                                    activeTrackId = sessionState.currentTrack?.id,
+                                    onQueryChange = { searchQuery = it },
+                                    onSubmitSearch = { executeSearch() },
+                                    onPlaySong = { songs, idx ->
+                                        sessionManager.playTracks(songs, idx)
+                                        openNowPlaying()
+                                    },
+                                    onEnqueueSong = { track -> sessionManager.enqueue(track) },
+                                )
 
-                        TvDestination.LIBRARY ->
-                            LibraryScreen(
-                                queueState = sessionState.queueState,
-                                onPlayAt = { idx ->
-                                    sessionManager.playTrackAt(idx)
-                                    openNowPlaying()
-                                },
-                                onMoveItem = { from, to -> sessionManager.moveQueueItem(from, to) },
-                                onRemoveAt = { idx -> sessionManager.removeFromQueue(idx) },
-                                onClearQueue = { sessionManager.clearQueue() },
-                            )
+                            TvDestination.LIBRARY ->
+                                LibraryScreen(
+                                    queueState = sessionState.queueState,
+                                    onPlayAt = { idx ->
+                                        sessionManager.playTrackAt(idx)
+                                        openNowPlaying()
+                                    },
+                                    onMoveItem = { from, to -> sessionManager.moveQueueItem(from, to) },
+                                    onRemoveAt = { idx -> sessionManager.removeFromQueue(idx) },
+                                    onClearQueue = { sessionManager.clearQueue() },
+                                )
 
-                        TvDestination.SETTINGS ->
-                            SettingsScreen(
-                                autoplayEnabled = sessionState.queueState.autoplayEnabled,
-                                onToggleAutoplay = {
-                                    sessionManager.setAutoplay(!sessionState.queueState.autoplayEnabled)
-                                },
-                            )
+                            TvDestination.SETTINGS ->
+                                SettingsScreen(
+                                    autoplayEnabled = sessionState.queueState.autoplayEnabled,
+                                    onToggleAutoplay = {
+                                        sessionManager.setAutoplay(!sessionState.queueState.autoplayEnabled)
+                                    },
+                                )
 
-                        TvDestination.NOW_PLAYING ->
-                            NowPlayingScreen(
-                                sessionState = sessionState,
-                                onTogglePlayPause = { sessionManager.togglePlayPause() },
-                                onSkipPrevious = { sessionManager.skipPrevious() },
-                                onSkipNext = { sessionManager.skipNext() },
-                                onSeekBy = { delta -> sessionManager.seekBy(delta) },
-                            )
+                            TvDestination.NOW_PLAYING -> Unit
+                        }
                     }
-                }
 
-                if (currentDestination != TvDestination.NOW_PLAYING && sessionState.currentTrack != null) {
-                    DockedMiniPlayer(
-                        sessionState = sessionState,
-                        onTogglePlayPause = { sessionManager.togglePlayPause() },
-                        onOpenNowPlaying = { openNowPlaying() },
-                    )
+                    if (sessionState.currentTrack != null) {
+                        DockedMiniPlayer(
+                            sessionState = sessionState,
+                            onTogglePlayPause = { sessionManager.togglePlayPause() },
+                            onOpenNowPlaying = { openNowPlaying() },
+                        )
+                    }
                 }
             }
         }
@@ -290,49 +305,80 @@ private fun CollapsibleNavigationRail(
     onRailFocusChanged: (Boolean) -> Unit,
     onSelect: (TvDestination) -> Unit,
 ) {
-    val railWidth = if (expanded) 196.dp else 72.dp
-    Column(
-        modifier =
-            Modifier
-                .width(railWidth)
-                .fillMaxHeight()
-                .background(AlunaraPalette.Surface, RoundedCornerShape(16.dp))
-                .padding(10.dp)
-                .onFocusChanged { onRailFocusChanged(it.hasFocus) },
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        RailDestinations.forEachIndexed { index, dest ->
-            RailItem(
-                shortTag =
-                    when (dest) {
-                        TvDestination.HOME -> "H"
-                        TvDestination.SEARCH -> "S"
-                        TvDestination.LIBRARY -> "L"
-                        TvDestination.SETTINGS -> "G"
-                        TvDestination.NOW_PLAYING -> "N"
-                    },
-                label =
-                    stringResource(
+    val railWidth = if (expanded) 204.dp else 74.dp
+    Row(modifier = Modifier.fillMaxHeight()) {
+        Column(
+            modifier =
+                Modifier
+                    .width(railWidth)
+                    .fillMaxHeight()
+                    .background(AlunaraPalette.Surface)
+                    .padding(horizontal = 12.dp, vertical = 18.dp)
+                    .onFocusChanged { onRailFocusChanged(it.hasFocus) },
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = if (expanded) Alignment.Start else Alignment.CenterHorizontally,
+        ) {
+            if (expanded) {
+                Image(
+                    painter = painterResource(R.drawable.alunara_logo_wide),
+                    contentDescription = stringResource(R.string.app_name),
+                    contentScale = ContentScale.Fit,
+                    modifier =
+                        Modifier
+                            .height(40.dp)
+                            .padding(horizontal = 4.dp),
+                )
+            } else {
+                Image(
+                    painter = painterResource(R.drawable.alunara_logo_square),
+                    contentDescription = stringResource(R.string.app_name),
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(38.dp),
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            RailDestinations.forEachIndexed { index, dest ->
+                RailItem(
+                    icon =
                         when (dest) {
-                            TvDestination.HOME -> R.string.nav_home
-                            TvDestination.SEARCH -> R.string.nav_search
-                            TvDestination.LIBRARY -> R.string.nav_library
-                            TvDestination.SETTINGS -> R.string.nav_settings
-                            TvDestination.NOW_PLAYING -> R.string.open_now_playing
+                            TvDestination.HOME -> Icons.Rounded.Home
+                            TvDestination.SEARCH -> Icons.Rounded.Search
+                            TvDestination.LIBRARY -> Icons.Rounded.LibraryMusic
+                            TvDestination.SETTINGS -> Icons.Rounded.Settings
+                            TvDestination.NOW_PLAYING -> Icons.Rounded.Home
                         },
-                    ),
-                selected = selected == dest,
-                expanded = expanded,
-                modifier = if (index == 0) Modifier.focusRequester(firstItemRequester) else Modifier,
-                onClick = { onSelect(dest) },
-            )
+                    label =
+                        stringResource(
+                            when (dest) {
+                                TvDestination.HOME -> R.string.nav_home
+                                TvDestination.SEARCH -> R.string.nav_search
+                                TvDestination.LIBRARY -> R.string.nav_library
+                                TvDestination.SETTINGS -> R.string.nav_settings
+                                TvDestination.NOW_PLAYING -> R.string.open_now_playing
+                            },
+                        ),
+                    selected = selected == dest,
+                    expanded = expanded,
+                    modifier = if (index == 0) Modifier.focusRequester(firstItemRequester) else Modifier,
+                    onClick = { onSelect(dest) },
+                )
+            }
         }
+        Box(
+            modifier =
+                Modifier
+                    .width(1.dp)
+                    .fillMaxHeight()
+                    .background(AlunaraPalette.SecondarySurface),
+        )
     }
 }
 
 @Composable
 private fun RailItem(
-    shortTag: String,
+    icon: ImageVector,
     label: String,
     selected: Boolean,
     expanded: Boolean,
@@ -348,6 +394,7 @@ private fun RailItem(
         } else {
             BorderStroke(1.dp, Color.Transparent)
         }
+    val tintColor = if (selected || focused) AlunaraPalette.PrimaryAccent else AlunaraPalette.MutedText
 
     Row(
         modifier =
@@ -358,15 +405,15 @@ private fun RailItem(
                 .border(borderStroke, shape)
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(onClick = onClick)
-                .padding(horizontal = 14.dp),
+                .padding(horizontal = if (expanded) 14.dp else 0.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = if (expanded) Arrangement.spacedBy(12.dp) else Arrangement.Center,
     ) {
-        Text(
-            text = shortTag,
-            color = if (selected || focused) AlunaraPalette.PrimaryAccent else AlunaraPalette.MutedText,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Bold,
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = tintColor,
+            modifier = Modifier.size(22.dp),
         )
         if (expanded) {
             Text(

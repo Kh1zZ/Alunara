@@ -3,6 +3,7 @@ package com.alunara.core.domain.contract
 import com.alunara.core.domain.model.AudioStreamSource
 import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.LyricsDocument
+import com.alunara.core.domain.model.LyricsProviderId
 import com.alunara.core.domain.model.QueueState
 import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
@@ -16,7 +17,10 @@ interface MusicEngine {
 }
 
 interface LyricsEngine {
-    suspend fun fetchLyrics(track: Track): LyricsDocument
+    suspend fun fetchLyrics(
+        track: Track,
+        preferredProvider: LyricsProviderId? = null,
+    ): LyricsDocument
 }
 
 interface QueueStore {

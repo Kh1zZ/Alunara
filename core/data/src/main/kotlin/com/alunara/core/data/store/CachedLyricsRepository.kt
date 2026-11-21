@@ -12,26 +12,55 @@ import java.util.Locale
 
 /**
  * Room-backed lyrics cache wrapper enforcing positive TTL, negative-miss caching, and bounded entries.
+ * Preserves Enhanced LRC word-level timestamps losslessly via inline `<mm:ss.SSS>` tags.
  */
 class CachedLyricsRepository(
     private val delegate: LyricsEngine,
     private val cacheDao: LyricsCacheDao,
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
 ) : LyricsEngine {
-    override suspend fun fetchLyrics(track: Track): LyricsDocument {
+    override suspend fun fetchLyrics(
+        track: Track,
+        preferredProvider: LyricsProviderId?,
+    ): LyricsDocument {
         val now = nowEpochMs()
         val existing = cacheDao.getEntry(track.id)
-        if (existing != null && existing.expiresAtEpochMs > now) {
+
+        if (preferredProvider == null) {
+            if (existing != null && existing.expiresAtEpochMs > now) {
+                return existing.toDocument()
+            }
+            val fetched = delegate.fetchLyrics(track, null)
+            cacheDao.deleteExpired(now)
+            cacheDocument(track.id, fetched, now, cacheNegative = true)
+            return fetched
+        }
+
+        if (existing != null &&
+            existing.expiresAtEpochMs > now &&
+            !existing.isNegativeCache &&
+            existing.provider == preferredProvider.name
+        ) {
             return existing.toDocument()
         }
 
-        val fetched = delegate.fetchLyrics(track)
+        val fetched = delegate.fetchLyrics(track, preferredProvider)
         cacheDao.deleteExpired(now)
+        cacheDocument(track.id, fetched, now, cacheNegative = false)
+        return fetched
+    }
+
+    private suspend fun cacheDocument(
+        trackId: String,
+        fetched: LyricsDocument,
+        now: Long,
+        cacheNegative: Boolean,
+    ) {
         when (fetched) {
             is LyricsDocument.Synced -> {
                 cacheDao.upsertEntry(
                     LyricsCacheEntity(
-                        trackId = track.id,
+                        trackId = trackId,
                         provider = fetched.provider.name,
                         format = FORMAT_LRC,
                         payload = serializeSyncedLines(fetched.lines),
@@ -46,7 +75,7 @@ class CachedLyricsRepository(
             is LyricsDocument.Plain -> {
                 cacheDao.upsertEntry(
                     LyricsCacheEntity(
-                        trackId = track.id,
+                        trackId = trackId,
                         provider = fetched.provider.name,
                         format = FORMAT_PLAIN,
                         payload = fetched.text,
@@ -59,20 +88,21 @@ class CachedLyricsRepository(
             }
 
             is LyricsDocument.Unavailable -> {
-                cacheDao.upsertEntry(
-                    LyricsCacheEntity(
-                        trackId = track.id,
-                        provider = "",
-                        format = FORMAT_NONE,
-                        payload = fetched.reason,
-                        fetchedAtEpochMs = now,
-                        expiresAtEpochMs = now + NEGATIVE_TTL_MS,
-                        isNegativeCache = true,
-                    ),
-                )
+                if (cacheNegative) {
+                    cacheDao.upsertEntry(
+                        LyricsCacheEntity(
+                            trackId = trackId,
+                            provider = "",
+                            format = FORMAT_NONE,
+                            payload = fetched.reason,
+                            fetchedAtEpochMs = now,
+                            expiresAtEpochMs = now + NEGATIVE_TTL_MS,
+                            isNegativeCache = true,
+                        ),
+                    )
+                }
             }
         }
-        return fetched
     }
 
     private fun LyricsCacheEntity.toDocument(): LyricsDocument {
@@ -90,13 +120,30 @@ class CachedLyricsRepository(
 
     private fun serializeSyncedLines(lines: List<SyncedLyricLine>): String =
         lines.joinToString("\n") { line ->
-            val safeMs = line.startTimeMs.coerceAtLeast(0L)
-            val totalSeconds = safeMs / 1000L
-            val minutes = totalSeconds / 60L
-            val seconds = totalSeconds % 60L
-            val millis = safeMs % 1000L
-            String.format(Locale.ROOT, "[%02d:%02d.%03d]%s", minutes, seconds, millis, line.text)
+            val linePrefix = formatTag("[", "]", line.startTimeMs)
+            if (line.hasWordSync) {
+                val wordsBody =
+                    line.words.joinToString(separator = "") { word ->
+                        "${formatTag("<", ">", word.startTimeMs)}${word.text}"
+                    }
+                "$linePrefix $wordsBody"
+            } else {
+                "$linePrefix${line.text}"
+            }
         }
+
+    private fun formatTag(
+        open: String,
+        close: String,
+        timeMs: Long,
+    ): String {
+        val safeMs = timeMs.coerceAtLeast(0L)
+        val totalSeconds = safeMs / 1000L
+        val minutes = totalSeconds / 60L
+        val seconds = totalSeconds % 60L
+        val millis = safeMs % 1000L
+        return String.format(Locale.ROOT, "%s%02d:%02d.%03d%s", open, minutes, seconds, millis, close)
+    }
 
     companion object {
         private const val FORMAT_LRC = "LRC"

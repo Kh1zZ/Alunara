@@ -44,6 +44,13 @@
     <string name="lyrics_heading">Lyrics</string>
     <string name="lyrics_loading">Loading lyrics…</string>
     <string name="lyrics_plain_label">Plain lyrics (unsynced)</string>
+    <string name="lyrics_source_format">Source: %1$s</string>
+    <string name="lyrics_mode_word">Word-sync</string>
+    <string name="lyrics_mode_line">Line-sync</string>
+    <string name="lyrics_mode_plain">Plain</string>
+    <string name="lyrics_switch_provider">Switch source</string>
+    <string name="lyrics_unavailable_provider">No lyrics available from %1$s. Select Switch source to try another provider.</string>
+    <string name="lyrics_unavailable_generic">No lyrics available for this track.</string>
     <string name="settings_headline">Settings &amp; Open-Source Credits</string>
     <string name="autoplay_label">Autoplay next track in queue</string>
     <string name="state_on">ON</string>

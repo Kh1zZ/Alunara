@@ -44,6 +44,13 @@
     <string name="lyrics_heading">Lirik</string>
     <string name="lyrics_loading">Memuat lirik…</string>
     <string name="lyrics_plain_label">Lirik teks biasa (tanpa sinkronisasi)</string>
+    <string name="lyrics_source_format">Sumber: %1$s</string>
+    <string name="lyrics_mode_word">Sinkron kata</string>
+    <string name="lyrics_mode_line">Sinkron baris</string>
+    <string name="lyrics_mode_plain">Teks biasa</string>
+    <string name="lyrics_switch_provider">Ganti sumber</string>
+    <string name="lyrics_unavailable_provider">Lirik tidak tersedia dari %1$s. Pilih Ganti sumber untuk mencoba penyedia lain.</string>
+    <string name="lyrics_unavailable_generic">Lirik tidak tersedia untuk lagu ini.</string>
     <string name="settings_headline">Pengaturan &amp; Kredit Open-Source</string>
     <string name="autoplay_label">Putar otomatis lagu berikutnya di antrean</string>
     <string name="state_on">AKTIF</string>

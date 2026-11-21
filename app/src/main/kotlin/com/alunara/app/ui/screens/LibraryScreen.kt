@@ -10,6 +10,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.alunara.app.R
 import com.alunara.app.ui.components.TvFocusableButton
+import com.alunara.app.ui.components.TvIconButton
 import com.alunara.app.ui.components.TvSongRow
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.core.domain.model.QueueState
@@ -51,6 +57,7 @@ fun LibraryScreen(
             if (queueState.items.isNotEmpty()) {
                 TvFocusableButton(
                     text = stringResource(R.string.clear_queue),
+                    icon = Icons.Rounded.DeleteSweep,
                     onClick = onClearQueue,
                 )
             }
@@ -63,8 +70,8 @@ fun LibraryScreen(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .background(AlunaraPalette.Background.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
-                    .padding(10.dp),
+                    .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(10.dp))
+                    .padding(12.dp),
         )
 
         if (queueState.items.isEmpty()) {
@@ -85,7 +92,7 @@ fun LibraryScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         TvSongRow(
                             track = item.track,
@@ -93,18 +100,21 @@ fun LibraryScreen(
                             onPlayClick = { onPlayAt(index) },
                             modifier = Modifier.weight(1f),
                         )
-                        TvFocusableButton(
-                            text = stringResource(R.string.move_up),
+                        TvIconButton(
+                            icon = Icons.Rounded.KeyboardArrowUp,
+                            contentDescription = stringResource(R.string.move_up),
                             enabled = index > 0,
                             onClick = { onMoveItem(index, index - 1) },
                         )
-                        TvFocusableButton(
-                            text = stringResource(R.string.move_down),
+                        TvIconButton(
+                            icon = Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = stringResource(R.string.move_down),
                             enabled = index < queueState.items.lastIndex,
                             onClick = { onMoveItem(index, index + 1) },
                         )
-                        TvFocusableButton(
-                            text = stringResource(R.string.remove_item),
+                        TvIconButton(
+                            icon = Icons.Rounded.DeleteOutline,
+                            contentDescription = stringResource(R.string.remove_item),
                             onClick = { onRemoveAt(index) },
                         )
                     }

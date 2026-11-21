@@ -79,3 +79,18 @@ Automated ADB input tests covered D-pad navigation, Home guest playback start, a
 2. **D-Pad Progress Seek (`Now Playing`):** Move focus UP from `Jeda`/`Putar` to the progress bar and press Left/Right (`±10s`) to confirm audio seeks cleanly and synced lyrics follow the new timestamp.
 3. **Queue Reorder / Skip (`Koleksi` & `Now Playing`):** Use `Sblm` / `Brkt` in Now Playing and `Naik` / `Turun` / `Hapus` in `Koleksi`, then close and reopen the app to verify queue edits persist in Room.
 4. **Audio Output Inspection:** Listen directly on TV speakers during `Teh Hijau` playback and verify immediate silence when pressing the remote Home button.
+
+---
+
+## 6. M2.1 Fullscreen Material 3 UI, Official Logos & Word-Sync Lyrics Verification
+
+Updated and verified on Changhong `AI PONT` (`192.168.100.124:5555`) after UI, icon, logo, and lyrics-priority enhancements:
+
+| Check | Measured M2.1 Outcome |
+|---|---|
+| **Gradle Unit Tests (5 modules, 12 suites)** | **`42 / 42` passed** (`0` failed, `0` errors, `0` skipped): `:core:domain` `21/21`, `:core:music` `8/8`, `:core:lyrics` `5/5`, `:core:data` `5/5`, `:app` `3/3` |
+| **Lint & Debug APK Size** | `:app:lintDebug` passed (`0`); `app-debug.apk` = `77,577,137` bytes (`73.98 MiB`, includes unminified `material-icons-extended`; M4 Release R8 strips unused icons) |
+| **Fullscreen Edge-to-Edge & Material 3 Icons** | Verified `WindowCompat.setDecorFitsSystemWindows(window, false)` + hidden system bars, edge-to-edge Dark Forest Green layout with zero outer border, `Icons.Rounded.*` across rail/cards/transport/timeline, uniform 2-line media card height, and sticky bottom Mini Player |
+| **Branding Assets** | Wired `1:1` universal launcher icons (`mipmap-mdpi`..`xxxhdpi` `48..192` + `alunara_logo_square.png`) and `16:9` Leanback banners (`drawable-xhdpi/tv_banner.png` `320x180`, `xxhdpi` `480x270` + `alunara_logo_wide.png`) |
+| **Word-Sync Priority (`Word -> Line -> Plain`) & Switcher** | `SimpMusic richSyncLyrics` prioritized first with Room ELRC lossless round-trip serialization. Verified live word-by-word highlight on `Teh Hijau` (`0:06 / 3:32`, `Sumber: SimpMusic · Sinkron kata`) and in-player `Ganti sumber` toggle (`SimpMusic -> LrcLib` on `Negoro Angin`, `0:20 / 5:12`) |
+| **Changhong Memory, Audio & Stop-on-Exit** | Cold launch `9742 ms` (`WaitTime: 9818 ms` after `pm clear`); active playback `TOTAL PSS: 121,568 KB` (`Java Heap: 11,532 KB`, `Native Heap: 10,236 KB`), AudioFlinger `1` active track @ `48000 Hz` (`Standby: no`), `KEYCODE_HOME` -> `0` active tracks, `0` crashes, `0` ANRs, `0` `AlunaraPlayback` errors |

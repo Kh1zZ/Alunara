@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,6 +15,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.OpenInFull
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -68,11 +74,11 @@ fun TvArtwork(
                 modifier = Modifier.matchParentSize(),
             )
         } else {
-            Text(
-                text = "♪",
-                color = AlunaraPalette.PrimaryAccent,
-                fontSize = (size.value * 0.35f).sp,
-                fontWeight = FontWeight.Bold,
+            Icon(
+                imageVector = Icons.Rounded.MusicNote,
+                contentDescription = contentDescription,
+                tint = AlunaraPalette.PrimaryAccent,
+                modifier = Modifier.size(size * 0.42f),
             )
         }
     }
@@ -83,19 +89,83 @@ fun TvFocusableButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
     highlighted: Boolean = false,
     enabled: Boolean = true,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(20.dp)
     val bgColor =
         when {
             !enabled -> AlunaraPalette.Surface
             highlighted -> AlunaraPalette.PrimaryAccent
             focused -> AlunaraPalette.SecondarySurface
-            else -> AlunaraPalette.SecondarySurface.copy(alpha = 0.7f)
+            else -> AlunaraPalette.SecondarySurface.copy(alpha = 0.72f)
         }
-    val textColor =
+    val contentColor =
+        when {
+            !enabled -> AlunaraPalette.DimmedLyrics
+            highlighted -> AlunaraPalette.Background
+            else -> AlunaraPalette.PrimaryText
+        }
+    val border =
+        if (focused) {
+            BorderStroke(2.dp, AlunaraPalette.FocusOutline)
+        } else {
+            BorderStroke(1.dp, Color.Transparent)
+        }
+
+    Row(
+        modifier =
+            modifier
+                .height(40.dp)
+                .background(bgColor, shape)
+                .border(border, shape)
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(enabled = enabled, onClick = onClick)
+                .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Text(
+            text = text,
+            color = contentColor,
+            fontSize = 14.sp,
+            fontWeight = if (highlighted || focused) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+fun TvIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    size: Dp = 44.dp,
+    iconSize: Dp = 24.dp,
+    highlighted: Boolean = false,
+    enabled: Boolean = true,
+) {
+    var focused by remember { mutableStateOf(false) }
+    val bgColor =
+        when {
+            !enabled -> AlunaraPalette.Surface.copy(alpha = 0.7f)
+            highlighted -> AlunaraPalette.PrimaryAccent
+            focused -> AlunaraPalette.SecondarySurface
+            else -> AlunaraPalette.Surface.copy(alpha = 0.85f)
+        }
+    val tintColor =
         when {
             !enabled -> AlunaraPalette.DimmedLyrics
             highlighted -> AlunaraPalette.Background
@@ -111,21 +181,19 @@ fun TvFocusableButton(
     Box(
         modifier =
             modifier
-                .height(40.dp)
-                .background(bgColor, shape)
-                .border(border, shape)
+                .size(size)
+                .clip(CircleShape)
+                .background(bgColor, CircleShape)
+                .border(border, CircleShape)
                 .onFocusChanged { focused = it.isFocused }
-                .clickable(enabled = enabled, onClick = onClick)
-                .padding(horizontal = 16.dp),
+                .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = text,
-            color = textColor,
-            fontSize = 14.sp,
-            fontWeight = if (highlighted || focused) FontWeight.SemiBold else FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tintColor,
+            modifier = Modifier.size(iconSize),
         )
     }
 }
@@ -136,6 +204,7 @@ fun TvSongRow(
     isActive: Boolean = false,
     onPlayClick: () -> Unit,
     secondaryActionLabel: String? = null,
+    secondaryActionIcon: ImageVector? = null,
     onSecondaryClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -145,7 +214,7 @@ fun TvSongRow(
         when {
             isActive -> AlunaraPalette.SecondarySurface
             rowFocused -> AlunaraPalette.SecondarySurface.copy(alpha = 0.85f)
-            else -> AlunaraPalette.Background.copy(alpha = 0.45f)
+            else -> AlunaraPalette.Surface.copy(alpha = 0.7f)
         }
     val border =
         if (rowFocused) {
@@ -209,6 +278,7 @@ fun TvSongRow(
         if (secondaryActionLabel != null && onSecondaryClick != null) {
             TvFocusableButton(
                 text = secondaryActionLabel,
+                icon = secondaryActionIcon,
                 onClick = onSecondaryClick,
             )
         }
@@ -238,7 +308,7 @@ fun TvMediaCard(
             modifier
                 .width(136.dp)
                 .background(
-                    if (focused) AlunaraPalette.SecondarySurface else AlunaraPalette.Background.copy(alpha = 0.55f),
+                    if (focused) AlunaraPalette.SecondarySurface else AlunaraPalette.Surface.copy(alpha = 0.72f),
                     shape,
                 ).border(border, shape)
                 .onFocusChanged { focused = it.isFocused }
@@ -258,18 +328,17 @@ fun TvMediaCard(
             color = AlunaraPalette.PrimaryText,
             fontSize = 14.sp,
             fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
+            minLines = 2,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        if (subtitle.isNotBlank()) {
-            Text(
-                text = subtitle,
-                color = AlunaraPalette.MutedText,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Text(
+            text = subtitle,
+            color = AlunaraPalette.MutedText,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -292,53 +361,62 @@ fun DockedMiniPlayer(
             PlaybackStatus.IDLE -> ""
         }
 
-    Row(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .height(64.dp)
-                .background(AlunaraPalette.SecondarySurface, RoundedCornerShape(12.dp))
-                .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        TvArtwork(url = track.thumbnailUrl, contentDescription = null, size = 44.dp)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = track.title,
-                color = AlunaraPalette.PrimaryText,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+    Column(modifier = modifier.fillMaxWidth().background(AlunaraPalette.Surface)) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(AlunaraPalette.SecondarySurface),
+        )
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+                    .padding(horizontal = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            TvArtwork(url = track.thumbnailUrl, contentDescription = null, size = 44.dp)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    color = AlunaraPalette.PrimaryText,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text =
+                        listOfNotNull(
+                            track.primaryArtistName.takeIf { it.isNotBlank() },
+                            statusText.takeIf { it.isNotBlank() },
+                        ).joinToString(" · "),
+                    color = if (sessionState.status == PlaybackStatus.ERROR) AlunaraPalette.ErrorText else AlunaraPalette.PrimaryAccent,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            TvIconButton(
+                icon = if (sessionState.status == PlaybackStatus.PLAYING) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                contentDescription =
+                    if (sessionState.status == PlaybackStatus.PLAYING) {
+                        stringResource(R.string.action_pause)
+                    } else {
+                        stringResource(R.string.action_play)
+                    },
+                highlighted = true,
+                onClick = onTogglePlayPause,
             )
-            Text(
-                text =
-                    listOfNotNull(
-                        track.primaryArtistName.takeIf { it.isNotBlank() },
-                        statusText.takeIf { it.isNotBlank() },
-                    ).joinToString(" · "),
-                color = if (sessionState.status == PlaybackStatus.ERROR) AlunaraPalette.ErrorText else AlunaraPalette.PrimaryAccent,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            TvFocusableButton(
+                text = stringResource(R.string.open_now_playing),
+                icon = Icons.Rounded.OpenInFull,
+                onClick = onOpenNowPlaying,
             )
         }
-        TvFocusableButton(
-            text =
-                if (sessionState.status == PlaybackStatus.PLAYING) {
-                    stringResource(R.string.action_pause)
-                } else {
-                    stringResource(R.string.action_play)
-                },
-            highlighted = true,
-            onClick = onTogglePlayPause,
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        TvFocusableButton(
-            text = stringResource(R.string.open_now_playing),
-            onClick = onOpenNowPlaying,
-        )
     }
 }
 

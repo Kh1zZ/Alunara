@@ -5,6 +5,7 @@ import com.alunara.core.domain.model.Track
 import moe.rukamori.archivetune.kugou.KuGou
 import moe.rukamori.archivetune.lrclib.LrcLib
 import moe.rukamori.archivetune.simpmusic.SimpMusicLyrics
+import kotlin.math.abs
 
 interface LyricsProviderClient {
     val id: LyricsProviderId
@@ -28,10 +29,23 @@ object SimpMusicProviderClient : LyricsProviderClient {
     override val id: LyricsProviderId = LyricsProviderId.SIMPMUSIC
 
     override suspend fun fetchRawLyrics(track: Track): Result<String> =
-        SimpMusicLyrics.getLyrics(
-            videoId = track.id,
-            duration = track.durationSeconds ?: 0,
-        )
+        runCatching {
+            val tracks = SimpMusicLyrics.getLyricsByVideoId(track.id)
+            if (tracks.isEmpty()) {
+                throw IllegalStateException("Lyrics unavailable")
+            }
+            val duration = track.durationSeconds ?: 0
+            val bestMatch =
+                if (duration > 0 && tracks.size > 1) {
+                    tracks.minByOrNull { abs((it.duration ?: 0) - duration) }
+                } else {
+                    tracks.firstOrNull()
+                }
+            bestMatch?.richSyncLyrics?.takeIf { it.isNotBlank() }
+                ?: bestMatch?.syncedLyrics?.takeIf { it.isNotBlank() }
+                ?: bestMatch?.plainLyrics?.takeIf { it.isNotBlank() }
+                ?: throw IllegalStateException("Lyrics unavailable")
+        }
 }
 
 object KuGouProviderClient : LyricsProviderClient {
