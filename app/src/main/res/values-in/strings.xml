@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Alunara</string>
+    <string name="nav_home">Beranda</string>
+    <string name="nav_search">Cari</string>
+    <string name="nav_library">Koleksi</string>
+    <string name="nav_settings">Pengaturan</string>
+    <string name="status_badge">Fondasi M1 · Mode Tamu</string>
+    <string name="home_headline">Alunara untuk Android TV</string>
+    <string name="home_body">Fondasi pemutar audio siap. Base engine, persistensi Room, kebijakan stop-on-exit Media3, dan navigasi D-pad telah terpasang.</string>
+    <string name="search_headline">Pencarian Terpadu (Target M2)</string>
+    <string name="search_body">Adapter pencarian mode tamu melalui ArchiveTune Core terhubung di :core:music. Antarmuka pencarian TV hadir pada Milestone M2.</string>
+    <string name="library_headline">Koleksi &amp; Antrean Lokal</string>
+    <string name="library_body">Skema Room v1 aktif dengan isolasi ketat data tamu/akun serta batas cache dinamis maksimum 128 MB.</string>
+    <string name="settings_headline">Pengaturan &amp; Kredit Open-Source</string>
+    <string name="attribution_text">Alunara adalah klien YouTube Music independen untuk Android TV. Integrasi musik dibangun di atas ArchiveTune Core (github.com/rukamori/core) dan lirik di atas ArchiveTune Lyrics (github.com/rukamori/lyrics), proyek open-source oleh rukamori. Alunara tidak berafiliasi secara resmi atau didukung oleh ArchiveTune. Berlisensi GNU GPL v3.0.</string>
+    <string name="compliance_summary">Cache Disk Audio: Nonaktif (0 MB) · Provider Lirik: lrclib, simpmusic, kugou (maks 2 paralel) · Stop-on-Exit: Aktif</string>
+</resources>

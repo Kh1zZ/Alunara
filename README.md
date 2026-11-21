@@ -2,8 +2,36 @@
 
 **Alunara** (`com.alunara.app`) is an independent, audio-only YouTube Music client built specifically for entry-level **Android TV** devices running **Android 9 (API 28)+** with **1 GB RAM** (reference hardware: **Changhong L32G7N**).
 
-> **Current Status:** `Milestone M0 — Preflight & Feasibility Audit`  
-> The repository is currently at M0 baseline setup (audit, license, attribution, and feasibility review). No Android/Gradle modules or distributable APKs have been built yet pending M0 human checkpoint approval.
+> **Current Status:** `Milestone M1 — Foundation Complete (Pending M1 Review)`  
+> M1 modular-lite Gradle build, pinned vendored base engines (`third_party/`), domain policies/tests, Room database v1 schema, Compose for TV shell, Media3 stop-on-exit controller, and GitHub Actions CI are initialized and verified. No alpha/beta release is claimed yet.
+
+---
+
+## Module Architecture (Modular-Lite)
+
+- `:app` — Android TV shell (`com.alunara.app`), Fixed Dark Forest Green Material 3 TV theme, collapsible D-pad rail, `SinglePlayerLifecycleController` (Media3 audio-only + stop-on-exit), ID/EN strings, and in-app open-source notices.
+- `:core:domain` — Pure Kotlin models, `QueueReducer`, `RetryPolicy` (bounded backoff + skip-loop guard), `LrcParser`, `ResourceBudgetPolicy`, and engine contracts.
+- `:core:music` — Isolation adapter (`ArchiveTuneMusicAdapter`) over vendored `third_party/core/`, lazily unlocking `NetworkGatekeeperControl` and normalizing guest search results.
+- `:core:lyrics` — Isolation adapter (`ArchiveTuneLyricsAdapter`) over vendored `third_party/lyrics/{lrclib,simpmusic,kugou}` with max-2 bounded concurrency.
+- `:core:data` — Room database v1 (`AlunaraDatabase`, exported schemas in `core/data/schemas/`), `RoomQueueStore`, account-scoped favorites/history DAOs, and `CacheBudgetManager`.
+- `:third_party:core` & `:third_party:lyrics:{lrclib,simpmusic,kugou}` — Pinned upstream GPL-3.0 base engines (see [third_party/VENDORING.md](third_party/VENDORING.md)).
+
+---
+
+## Build & Test (Windows)
+
+Requires **JDK 21** (vendored base engines target `jvmToolchain(21)`) and Android SDK configured in `local.properties` (`sdk.dir=...`):
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Java\jdk-21.0.12.1"
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+
+# Run all unit tests
+.\gradlew.bat :core:domain:test :core:music:test :core:lyrics:test :core:data:testDebugUnitTest :app:testDebugUnitTest
+
+# Run Android lint & build Debug APK
+.\gradlew.bat :app:lintDebug :app:assembleDebug
+```
 
 ---
 

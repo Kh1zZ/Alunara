@@ -1,0 +1,47 @@
+package com.alunara.app
+
+import android.content.Context
+import androidx.room.Room
+import com.alunara.app.playback.SinglePlayerLifecycleController
+import com.alunara.core.data.db.AlunaraDatabase
+import com.alunara.core.data.store.RoomQueueStore
+import com.alunara.core.domain.contract.LyricsEngine
+import com.alunara.core.domain.contract.MusicEngine
+import com.alunara.core.domain.contract.QueueStore
+import com.alunara.core.lyrics.ArchiveTuneLyricsAdapter
+import com.alunara.core.music.ArchiveTuneMusicAdapter
+
+/**
+ * Lightweight lazy dependency container avoiding eager network or heavy JS engine initialization
+ * at cold start on 1 GB RAM Android TVs.
+ */
+class AppContainer(
+    context: Context,
+) {
+    private val appContext = context.applicationContext
+
+    val database: AlunaraDatabase by lazy {
+        Room
+            .databaseBuilder(
+                appContext,
+                AlunaraDatabase::class.java,
+                "alunara.db",
+            ).build()
+    }
+
+    val queueStore: QueueStore by lazy {
+        RoomQueueStore(database.queueDao())
+    }
+
+    val musicEngine: MusicEngine by lazy {
+        ArchiveTuneMusicAdapter()
+    }
+
+    val lyricsEngine: LyricsEngine by lazy {
+        ArchiveTuneLyricsAdapter()
+    }
+
+    val playbackLifecycleController: SinglePlayerLifecycleController by lazy {
+        SinglePlayerLifecycleController(appContext)
+    }
+}

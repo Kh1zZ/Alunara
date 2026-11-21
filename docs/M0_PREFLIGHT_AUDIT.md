@@ -121,3 +121,15 @@ Per PRD §14 (*Kebijakan otonomi Antigravity*), implementation does **not** adva
 3. **FG-05 Initial Lyrics Provider Shortlist:** Approve which `rukamori/lyrics` submodules (`aa6fcd688ae464a56b044989f3bd7632afb8cadf`) to enable initially in M1 (recommended minimal set: `lrclib` + `simpmusic`, keeping `lrcred` and proxy modules disabled initially).
 4. **Base Engine Integration Mechanism:** Confirm integrating `rukamori/core` and `rukamori/lyrics` as **pinned Git submodules** (recommended for clean upstream GPL-3.0 commit pinning and attribution) vs vendored source copies, noting that `jvmToolchain(21)` compatibility on API 28 may require Gradle toolchain configuration.
 5. **Hardware & Emulator Availability:** Confirm whether Changhong L32G7N can be reached via USB/LAN ADB for M2 hardware benchmarks, or if an Android TV API 28 emulator image should be provisioned first for M1/M2 smoke tests.
+
+---
+
+## M0 Checkpoint Sign-Off (Approved — 2026-11-21)
+
+Owner decisions recorded before entering Milestone M1:
+
+- **Application ID / Package Root:** `com.alunara.app`.
+- **Integration Mechanism:** Source vendoring inside `third_party/` (see [third_party/VENDORING.md](../third_party/VENDORING.md)), keeping upstream GPL-3.0 `LICENSE` and file headers intact.
+- **FG-05 Lyrics Shortlist Enabled in M1:** `:third_party:lyrics:lrclib`, `:third_party:lyrics:simpmusic`, and `:third_party:lyrics:kugou` (8 other upstream modules excluded).
+- **FG-02 / FG-03 / FG-04 Compliance Posture:** M1/M2 target **Guest Mode** first (`KI-02` stays an active Beta blocker), audio disk cache strictly **disabled (`0 MB`)**, `minSdk = 28` / `compileSdk = 35` / `targetSdk = 35`.
+- **M1 Toolchain Finding:** `third_party/core` (`NewPipe.kt:83`) requires OkHttp 5's non-null `Response.body`, while `okhttp-android:5.5.1` demands `compileSdk >= 37`. Pinning **`okhttp = "5.3.2"`** in `gradle/libs.versions.toml` satisfies `NewPipe.kt` and builds cleanly against `compileSdk = 35` + AGP `8.7.3` + `desugar_jdk_libs:2.1.5` under JDK 21 without modifying any vendored upstream files.

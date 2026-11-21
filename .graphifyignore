@@ -2,3 +2,9 @@
 !.production/
 !.production/*
 !.production/**
+
+# Exclude vendored upstream docs/licenses, wrapper binaries, and generated Room schema JSONs
+third_party/**/README.md
+third_party/**/LICENSE
+gradle/wrapper/
+core/data/schemas/
