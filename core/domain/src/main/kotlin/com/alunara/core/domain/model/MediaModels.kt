@@ -104,6 +104,20 @@ data class HomeSection(
     val title: String,
     val songs: List<Track> = emptyList(),
     val albums: List<AlbumRef> = emptyList(),
+    val playlists: List<PlaylistSummary> = emptyList(),
+)
+
+data class QueueFilterChip(
+    val label: String,
+    val playlistId: String,
+    val params: String? = null,
+    val selected: Boolean = false,
+)
+
+data class RadioQueueResult(
+    val tracks: List<Track>,
+    val chips: List<QueueFilterChip> = emptyList(),
+    val playlistId: String? = null,
 )
 
 data class AudioStreamSource(

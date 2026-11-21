@@ -1,5 +1,6 @@
 package com.alunara.app.ui.screens
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -11,6 +12,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,21 +21,29 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.HourglassTop
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PauseCircleOutline
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Radio
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -74,7 +84,9 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.alunara.app.R
 import com.alunara.app.playback.PlaybackSessionUiState
+import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvIconButton
+import com.alunara.app.ui.components.TvSongRow
 import com.alunara.app.ui.components.formatDurationMs
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
@@ -82,6 +94,13 @@ import com.alunara.core.domain.lyrics.LyricsSyncResolver
 import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.LyricsProviderId
 import com.alunara.core.domain.model.PlaybackStatus
+import com.alunara.core.domain.model.QueueFilterChip
+import com.alunara.core.domain.model.QueueState
+
+private enum class NowPlayingRightPanelMode {
+    LYRICS,
+    QUEUE,
+}
 
 @Composable
 fun NowPlayingScreen(
@@ -94,6 +113,12 @@ fun NowPlayingScreen(
     onStartRadio: () -> Unit,
     onSwitchLyricsProvider: () -> Unit,
     modifier: Modifier = Modifier,
+    onPlayQueueAt: (Int) -> Unit = {},
+    onMoveQueueItem: (Int, Int) -> Unit = { _, _ -> },
+    onRemoveQueueItem: (Int) -> Unit = {},
+    onClearQueue: () -> Unit = {},
+    onRefreshRadio: () -> Unit = onStartRadio,
+    onSelectQueueChip: (QueueFilterChip?) -> Unit = {},
 ) {
     val track = sessionState.currentTrack
     if (track == null) {
@@ -111,6 +136,7 @@ fun NowPlayingScreen(
     }
 
     val playButtonRequester = remember { FocusRequester() }
+    var rightPanelMode by remember { mutableStateOf(NowPlayingRightPanelMode.LYRICS) }
     LaunchedEffect(Unit) {
         playButtonRequester.requestFocus()
     }
@@ -331,25 +357,220 @@ fun NowPlayingScreen(
                         highlighted = sessionState.radioLoading,
                         onClick = onStartRadio,
                     )
+                    TvIconButton(
+                        icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                        contentDescription = stringResource(R.string.now_playing_tab_queue, sessionState.queueState.items.size),
+                        size = 46.dp,
+                        iconSize = 22.dp,
+                        highlighted = rightPanelMode == NowPlayingRightPanelMode.QUEUE,
+                        onClick = {
+                            rightPanelMode =
+                                if (rightPanelMode == NowPlayingRightPanelMode.LYRICS) {
+                                    NowPlayingRightPanelMode.QUEUE
+                                } else {
+                                    NowPlayingRightPanelMode.LYRICS
+                                }
+                        },
+                    )
                 }
             }
         }
 
-        // Right pane: 32-inch TV large lyrics viewport + compact source attribution & 32dp switcher button
-        PersistentReadOnlyLyricsPanel(
-            lyrics = sessionState.lyrics,
-            isLoading = sessionState.lyricsLoading,
-            selectedProvider = sessionState.selectedLyricsProvider,
-            activeLineIndex = sessionState.activeLyricIndex,
-            positionMs = sessionState.positionMs,
-            onSwitchLyricsProvider = onSwitchLyricsProvider,
+        // Right pane: toggleable between large Lyrics viewport and YouTube Algorithm Queue + chips
+        Column(
             modifier =
                 Modifier
                     .weight(1.0f)
                     .fillMaxHeight()
                     .background(AlunaraPalette.Background)
-                    .padding(start = 20.dp, end = 36.dp, top = 26.dp, bottom = 28.dp),
-        )
+                    .padding(start = 20.dp, end = 36.dp, top = 22.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TvFocusableButton(
+                    text = stringResource(R.string.now_playing_tab_lyrics),
+                    icon = Icons.Rounded.Lyrics,
+                    highlighted = rightPanelMode == NowPlayingRightPanelMode.LYRICS,
+                    onClick = { rightPanelMode = NowPlayingRightPanelMode.LYRICS },
+                )
+                TvFocusableButton(
+                    text = stringResource(R.string.now_playing_tab_queue, sessionState.queueState.items.size),
+                    icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                    highlighted = rightPanelMode == NowPlayingRightPanelMode.QUEUE,
+                    onClick = { rightPanelMode = NowPlayingRightPanelMode.QUEUE },
+                )
+            }
+
+            Crossfade(
+                targetState = rightPanelMode,
+                animationSpec = tween(durationMillis = 160),
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                label = "now_playing_right_panel",
+            ) { mode ->
+                when (mode) {
+                    NowPlayingRightPanelMode.LYRICS ->
+                        PersistentReadOnlyLyricsPanel(
+                            lyrics = sessionState.lyrics,
+                            isLoading = sessionState.lyricsLoading,
+                            selectedProvider = sessionState.selectedLyricsProvider,
+                            activeLineIndex = sessionState.activeLyricIndex,
+                            positionMs = sessionState.positionMs,
+                            onSwitchLyricsProvider = onSwitchLyricsProvider,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+
+                    NowPlayingRightPanelMode.QUEUE ->
+                        NowPlayingQueuePanel(
+                            queueState = sessionState.queueState,
+                            queueChips = sessionState.queueChips,
+                            activeChipLabel = sessionState.activeQueueChipLabel,
+                            radioLoading = sessionState.radioLoading,
+                            onPlayQueueAt = onPlayQueueAt,
+                            onMoveQueueItem = onMoveQueueItem,
+                            onRemoveQueueItem = onRemoveQueueItem,
+                            onClearQueue = onClearQueue,
+                            onRefreshRadio = onRefreshRadio,
+                            onSelectQueueChip = onSelectQueueChip,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NowPlayingQueuePanel(
+    queueState: QueueState,
+    queueChips: List<QueueFilterChip>,
+    activeChipLabel: String?,
+    radioLoading: Boolean,
+    onPlayQueueAt: (Int) -> Unit,
+    onMoveQueueItem: (Int, Int) -> Unit,
+    onRemoveQueueItem: (Int) -> Unit,
+    onClearQueue: () -> Unit,
+    onRefreshRadio: () -> Unit,
+    onSelectQueueChip: (QueueFilterChip?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = stringResource(R.string.queue_panel_title),
+                color = AlunaraPalette.PrimaryAccent,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TvIconButton(
+                    icon = Icons.Rounded.Refresh,
+                    contentDescription = stringResource(R.string.queue_refresh_radio),
+                    size = 34.dp,
+                    iconSize = 18.dp,
+                    highlighted = radioLoading,
+                    onClick = onRefreshRadio,
+                )
+                if (queueState.items.isNotEmpty()) {
+                    TvIconButton(
+                        icon = Icons.Rounded.DeleteSweep,
+                        contentDescription = stringResource(R.string.clear_queue),
+                        size = 34.dp,
+                        iconSize = 18.dp,
+                        onClick = onClearQueue,
+                    )
+                }
+            }
+        }
+
+        if (queueChips.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item(key = "chip-all") {
+                    TvFocusableButton(
+                        text = stringResource(R.string.queue_chip_all),
+                        highlighted = activeChipLabel == null,
+                        onClick = { onSelectQueueChip(null) },
+                    )
+                }
+                items(queueChips, key = { "chip-${it.label}-${it.params.orEmpty()}" }) { chip ->
+                    TvFocusableButton(
+                        text = chip.label,
+                        highlighted = activeChipLabel == chip.label || (activeChipLabel == null && chip.selected),
+                        onClick = { onSelectQueueChip(chip) },
+                    )
+                }
+            }
+        }
+
+        if (queueState.items.isEmpty()) {
+            Text(
+                text = stringResource(R.string.queue_empty),
+                color = AlunaraPalette.MutedText,
+                fontSize = 15.sp,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 12.dp),
+            ) {
+                items(queueState.items.size, key = { idx -> queueState.items[idx].queueItemId }) { index ->
+                    val item = queueState.items[index]
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        TvSongRow(
+                            track = item.track,
+                            isActive = index == queueState.currentIndex,
+                            onPlayClick = { onPlayQueueAt(index) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        TvIconButton(
+                            icon = Icons.Rounded.KeyboardArrowUp,
+                            contentDescription = stringResource(R.string.move_up),
+                            size = 36.dp,
+                            iconSize = 18.dp,
+                            enabled = index > 0,
+                            onClick = { onMoveQueueItem(index, index - 1) },
+                        )
+                        TvIconButton(
+                            icon = Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = stringResource(R.string.move_down),
+                            size = 36.dp,
+                            iconSize = 18.dp,
+                            enabled = index < queueState.items.lastIndex,
+                            onClick = { onMoveQueueItem(index, index + 1) },
+                        )
+                        TvIconButton(
+                            icon = Icons.Rounded.DeleteOutline,
+                            contentDescription = stringResource(R.string.remove_item),
+                            size = 36.dp,
+                            iconSize = 18.dp,
+                            onClick = { onRemoveQueueItem(index) },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -523,47 +744,24 @@ private fun PersistentReadOnlyLyricsPanel(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Column(
+            Text(
+                text = sourceCaption ?: stringResource(R.string.lyrics_switch_provider),
+                color = AlunaraPalette.MutedText,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier =
                     Modifier
                         .weight(1f)
                         .focusProperties { canFocus = false },
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Lyrics,
-                        contentDescription = null,
-                        tint = AlunaraPalette.PrimaryAccent,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        text = stringResource(R.string.lyrics_heading),
-                        color = AlunaraPalette.PrimaryAccent,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-                if (sourceCaption != null) {
-                    Text(
-                        text = sourceCaption,
-                        color = AlunaraPalette.MutedText,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
+            )
 
             TvIconButton(
                 icon = Icons.Rounded.SwapHoriz,

@@ -2,8 +2,8 @@
 
 **Alunara** (`com.alunara.app`) is an independent, audio-only YouTube Music client built specifically for entry-level **Android TV** devices running **Android 9 (API 28)+** with **1 GB RAM** (reference hardware: **Changhong L32G7N**).
 
-> **Current Status:** `Milestone M3 — Account & Catalog (0.1.0-alpha, Pending M3 Review)`  
-> M3 builds on Playable Alpha with Album/Playlist/Artist detail navigation (`CatalogDetailScreen`), unified playlist search, radio (`RDAMVM`) & bounded autoplay tail recommendations, `RoomCatalogStore` account-scoped favorites & history (`ResourceBudgetPolicy.DEFAULT_HISTORY_LIMIT = 200`), 4-tab Library (`Antrean`, `Favorit`, `Riwayat`, `Playlist Akun`), `KeystoreAccountSessionStore` (AES-256-GCM), `AUTH_INVALID` expiry handling, and Now Playing Favorite/Radio controls. Verified with `52 / 52` unit tests across 15 suites and physical Changhong `AI PONT` TV (`192.168.100.124:5555`); see [docs/M3_VERIFICATION_REPORT.md](docs/M3_VERIFICATION_REPORT.md). Internal Alpha (`0.1.0-alpha`) remains active while `KI-02` / `FG-04` lacks a TV-compliant InnerTube OAuth login path.
+> **Current Status:** `Milestone M3.3 — Personalized Account Experience & Companion Login (0.1.0-alpha)`  
+> M3.3 builds on M3/M3.1/M3.2 with auth-reactive Personalized Home (`PlaylistItem` mixes, continuation shelves, and `ChartsPage`), QR Code Phone Companion WebView login (`QrCodeMatrix` + `LocalLoginCompanionServer` + direct D-pad DOM navigation), reordered 3-tab YouTube-synced `LibraryScreen` (`Playlist` > `Favorit` > `Riwayat` with `LM` & `FEmusic_history`), and interactive `NowPlayingScreen` `Lirik <-> Antrean` panel powered by YouTube `RDAMVM` radio recommendations & `QueueFilterChip` filters. Verified with `60 / 60` unit tests across `16` suites and live on physical Changhong `AI PONT` TV (`192.168.100.124:5555`); see [docs/M3_VERIFICATION_REPORT.md](docs/M3_VERIFICATION_REPORT.md).
 
 ---
 

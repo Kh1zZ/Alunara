@@ -17,7 +17,9 @@ import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.LyricsProviderId
 import com.alunara.core.domain.model.PlaylistSummary
+import com.alunara.core.domain.model.QueueFilterChip
 import com.alunara.core.domain.model.QueueState
+import com.alunara.core.domain.model.RadioQueueResult
 import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
 import com.alunara.core.domain.policy.FailureCategory
@@ -148,6 +150,9 @@ class PlaybackSessionManagerTest {
 
     private class FakeMusicEngine(
         private val radioResultsByTrack: Map<String, List<Track>> = emptyMap(),
+        private val radioQueueByChipParams: Map<String?, RadioQueueResult> = emptyMap(),
+        private val remoteLikesInitial: List<Track> = emptyList(),
+        private val remoteHistoryInitial: List<Track> = emptyList(),
     ) : MusicEngine {
         var radioFetchCalls = mutableListOf<String>()
         var accountClearedCount = 0
@@ -178,6 +183,19 @@ class PlaybackSessionManagerTest {
             return Result.success(radioResultsByTrack[seedTrackId].orEmpty())
         }
 
+        override suspend fun fetchRadioQueue(
+            seedTrackId: String,
+            playlistId: String?,
+            params: String?,
+        ): Result<RadioQueueResult> {
+            val chipped = radioQueueByChipParams[params]
+            if (chipped != null) {
+                radioFetchCalls += seedTrackId
+                return Result.success(chipped)
+            }
+            return super.fetchRadioQueue(seedTrackId, playlistId, params)
+        }
+
         override suspend fun verifyAccountSession(credentials: AccountCredentials): Result<AccountProfile> =
             Result.success(AccountProfile(accountId = "acc-1", name = "Alunara User"))
 
@@ -187,6 +205,12 @@ class PlaybackSessionManagerTest {
 
         override suspend fun fetchAccountPlaylists(): Result<List<PlaylistSummary>> =
             Result.success(listOf(PlaylistSummary(id = "PL1", title = "Account Favorites")))
+
+        override suspend fun fetchLikedMusicTracks(): Result<List<Track>> =
+            Result.success(remoteLikesInitial)
+
+        override suspend fun fetchAccountHistoryTracks(): Result<List<Track>> =
+            Result.success(remoteHistoryInitial)
 
         override suspend fun setRemoteTrackLike(
             trackId: String,
@@ -332,5 +356,96 @@ class PlaybackSessionManagerTest {
             assertTrue(catalog.getFavorites(AccountScope.Account("acc-1")).isEmpty())
             assertEquals(listOf("g1"), catalog.getFavorites(AccountScope.Guest).map { it.id })
             assertFalse(manager.uiState.value.favoriteIds.contains("a1"))
+            assertTrue(manager.uiState.value.remoteFavorites.isEmpty())
+            assertTrue(manager.uiState.value.remoteHistory.isEmpty())
+        }
+
+    @Test
+    fun singleTrackPlayAutoExpandsRadioQueueAndSelectChipReplacesUpcomingWithoutInterruptingCurrent() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val seed = Track(id = "s1", title = "Seed Track")
+            val fam1 = Track(id = "f1", title = "Familiar Pick")
+            val disc1 = Track(id = "d1", title = "Discover Pick")
+            val discoverChip = QueueFilterChip(label = "Discover", playlistId = "RDAMVMs1", params = "chip-discover")
+
+            val music =
+                FakeMusicEngine(
+                    radioQueueByChipParams =
+                        mapOf(
+                            null to
+                                RadioQueueResult(
+                                    tracks = listOf(seed, fam1),
+                                    chips = listOf(QueueFilterChip("Familiar", "RDAMVMs1", "chip-fam", selected = true), discoverChip),
+                                ),
+                            "chip-discover" to
+                                RadioQueueResult(
+                                    tracks = listOf(seed, disc1),
+                                    chips = listOf(QueueFilterChip("Familiar", "RDAMVMs1", "chip-fam", selected = false), discoverChip.copy(selected = true)),
+                                ),
+                        ),
+                )
+            val player = FakePlayerControl()
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = music,
+                    lyricsEngine = emptyLyricsEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = player,
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+
+            manager.playTracks(listOf(seed))
+            advanceUntilIdle()
+
+            assertEquals(listOf("s1", "f1"), manager.uiState.value.queueState.items.map { it.track.id })
+            assertEquals("Familiar", manager.uiState.value.activeQueueChipLabel)
+            assertEquals(2, manager.uiState.value.queueChips.size)
+
+            manager.selectQueueChip(discoverChip)
+            advanceUntilIdle()
+
+            assertEquals("s1", manager.uiState.value.currentTrack?.id)
+            assertEquals(listOf("s1", "d1"), manager.uiState.value.queueState.items.map { it.track.id })
+            assertEquals("Discover", manager.uiState.value.activeQueueChipLabel)
+        }
+
+    @Test
+    fun accountSync_mergesRemoteLikesAndHistoryAndSupportsRemoteUnlike() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val remoteFav = Track(id = "rf1", title = "Liked on Mobile")
+            val remoteHist = Track(id = "rh1", title = "Played on Web")
+            val catalog = FakeCatalogStore()
+            val music =
+                FakeMusicEngine(
+                    remoteLikesInitial = listOf(remoteFav),
+                    remoteHistoryInitial = listOf(remoteHist),
+                )
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = music,
+                    lyricsEngine = emptyLyricsEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = FakePlayerControl(),
+                    catalogStore = catalog,
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+
+            assertTrue(manager.activateAccountSession(AccountCredentials(cookie = "SAPISID=xyz")).isSuccess)
+            advanceUntilIdle()
+
+            assertEquals(listOf("rf1"), manager.uiState.value.remoteFavorites.map { it.id })
+            assertEquals(listOf("rh1"), manager.uiState.value.remoteHistory.map { it.id })
+            assertTrue(manager.uiState.value.favoriteIds.contains("rf1"))
+
+            manager.toggleFavorite(remoteFav)
+            advanceUntilIdle()
+
+            assertFalse(manager.uiState.value.favoriteIds.contains("rf1"))
+            assertTrue(manager.uiState.value.remoteFavorites.isEmpty())
+            assertEquals(listOf("rf1" to false), music.remoteLikes)
         }
 }

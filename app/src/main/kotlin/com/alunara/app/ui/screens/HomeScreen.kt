@@ -43,7 +43,9 @@ import com.alunara.app.ui.components.TvMediaCard
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.core.domain.model.AlbumRef
+import com.alunara.core.domain.model.AuthSessionState
 import com.alunara.core.domain.model.HomeSection
+import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.Track
 
 @Composable
@@ -59,6 +61,8 @@ fun HomeScreen(
     onPlaySongFromSection: (List<Track>, Int) -> Unit,
     onOpenAlbum: (AlbumRef) -> Unit,
     modifier: Modifier = Modifier,
+    authSession: AuthSessionState = AuthSessionState.Guest,
+    onOpenPlaylist: (PlaylistSummary) -> Unit = {},
 ) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -68,13 +72,23 @@ fun HomeScreen(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = stringResource(R.string.status_badge),
+                    text =
+                        if (authSession is AuthSessionState.Authenticated) {
+                            stringResource(R.string.badge_youtube_synced)
+                        } else {
+                            stringResource(R.string.status_badge)
+                        },
                     color = AlunaraPalette.PrimaryAccent,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
-                    text = stringResource(R.string.home_headline),
+                    text =
+                        if (authSession is AuthSessionState.Authenticated) {
+                            stringResource(R.string.home_headline_authenticated, authSession.profile.name)
+                        } else {
+                            stringResource(R.string.home_headline)
+                        },
                     color = AlunaraPalette.PrimaryText,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -164,7 +178,15 @@ fun HomeScreen(
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(section.songs.size, key = { idx -> "s-${section.songs[idx].id}" }) { index ->
+                            items(section.playlists, key = { pl -> "p-${section.title}-${pl.id}" }) { playlist ->
+                                TvMediaCard(
+                                    title = playlist.title,
+                                    subtitle = playlist.author ?: playlist.trackCountText.orEmpty(),
+                                    thumbnailUrl = playlist.thumbnailUrl,
+                                    onClick = { onOpenPlaylist(playlist) },
+                                )
+                            }
+                            items(section.songs.size, key = { idx -> "s-${section.title}-$idx-${section.songs[idx].id}" }) { index ->
                                 val song = section.songs[index]
                                 TvMediaCard(
                                     title = song.title,
@@ -173,7 +195,7 @@ fun HomeScreen(
                                     onClick = { onPlaySongFromSection(section.songs, index) },
                                 )
                             }
-                            items(section.albums, key = { alb -> "a-${alb.id}" }) { album ->
+                            items(section.albums, key = { alb -> "a-${section.title}-${alb.id}" }) { album ->
                                 TvMediaCard(
                                     title = album.title,
                                     subtitle = album.artists.joinToString(", ") { it.name },

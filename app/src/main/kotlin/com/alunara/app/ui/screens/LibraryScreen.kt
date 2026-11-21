@@ -9,20 +9,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.runtime.Composable
@@ -39,46 +38,41 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.alunara.app.R
 import com.alunara.app.ui.components.TvFocusableButton
-import com.alunara.app.ui.components.TvIconButton
 import com.alunara.app.ui.components.TvMediaCard
 import com.alunara.app.ui.components.TvSongRow
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.core.domain.model.AuthSessionState
 import com.alunara.core.domain.model.PlaylistSummary
-import com.alunara.core.domain.model.QueueState
 import com.alunara.core.domain.model.Track
 
 private enum class LibraryTab {
-    QUEUE,
+    PLAYLISTS,
     FAVORITES,
     HISTORY,
-    ACCOUNT_PLAYLISTS,
 }
 
 @Composable
 fun LibraryScreen(
-    queueState: QueueState,
     favorites: List<Track>,
     recentHistory: List<Track>,
+    localHistoryCount: Int,
     accountPlaylists: List<PlaylistSummary>,
     authSession: AuthSessionState,
+    librarySyncing: Boolean,
     activeTrackId: String?,
-    onPlayAt: (Int) -> Unit,
-    onMoveItem: (Int, Int) -> Unit,
-    onRemoveAt: (Int) -> Unit,
-    onClearQueue: () -> Unit,
     onPlayTracks: (List<Track>, Int) -> Unit,
     onEnqueueTrack: (Track) -> Unit,
     onToggleFavorite: (Track) -> Unit,
     onClearHistory: () -> Unit,
+    onRefreshLibrary: () -> Unit,
     onOpenPlaylist: (PlaylistSummary) -> Unit,
     onOpenWebViewLogin: () -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var selectedTab by rememberSaveable { mutableStateOf(LibraryTab.QUEUE) }
+    var selectedTab by rememberSaveable { mutableStateOf(LibraryTab.PLAYLISTS) }
 
     Column(
         modifier = modifier.fillMaxSize(),
@@ -96,15 +90,15 @@ fun LibraryScreen(
                 fontWeight = FontWeight.SemiBold,
             )
             when {
-                selectedTab == LibraryTab.QUEUE && queueState.items.isNotEmpty() -> {
+                authSession is AuthSessionState.Authenticated && selectedTab != LibraryTab.HISTORY -> {
                     TvFocusableButton(
-                        text = stringResource(R.string.clear_queue),
-                        icon = Icons.Rounded.DeleteSweep,
-                        onClick = onClearQueue,
+                        text = stringResource(R.string.action_sync_library),
+                        icon = Icons.Rounded.Refresh,
+                        onClick = onRefreshLibrary,
                     )
                 }
 
-                selectedTab == LibraryTab.HISTORY && recentHistory.isNotEmpty() -> {
+                selectedTab == LibraryTab.HISTORY && localHistoryCount > 0 -> {
                     TvFocusableButton(
                         text = stringResource(R.string.clear_history),
                         icon = Icons.Rounded.DeleteSweep,
@@ -114,16 +108,17 @@ fun LibraryScreen(
             }
         }
 
+        // Exact 3-tab order: 1. Playlist > 2. Favorit > 3. Riwayat
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TvFocusableButton(
-                text = stringResource(R.string.library_tab_queue, queueState.items.size),
-                icon = Icons.AutoMirrored.Rounded.QueueMusic,
-                highlighted = selectedTab == LibraryTab.QUEUE,
-                onClick = { selectedTab = LibraryTab.QUEUE },
+                text = stringResource(R.string.library_tab_playlists, accountPlaylists.size),
+                icon = Icons.Rounded.LibraryMusic,
+                highlighted = selectedTab == LibraryTab.PLAYLISTS,
+                onClick = { selectedTab = LibraryTab.PLAYLISTS },
             )
             TvFocusableButton(
                 text = stringResource(R.string.library_tab_favorites, favorites.size),
@@ -136,12 +131,6 @@ fun LibraryScreen(
                 icon = Icons.Rounded.History,
                 highlighted = selectedTab == LibraryTab.HISTORY,
                 onClick = { selectedTab = LibraryTab.HISTORY },
-            )
-            TvFocusableButton(
-                text = stringResource(R.string.library_tab_account_playlists),
-                icon = Icons.Rounded.LibraryMusic,
-                highlighted = selectedTab == LibraryTab.ACCOUNT_PLAYLISTS,
-                onClick = { selectedTab = LibraryTab.ACCOUNT_PLAYLISTS },
             )
         }
 
@@ -159,51 +148,76 @@ fun LibraryScreen(
         }
 
         when (selectedTab) {
-            LibraryTab.QUEUE ->
-                if (queueState.items.isEmpty()) {
+            LibraryTab.PLAYLISTS ->
+                if (authSession !is AuthSessionState.Authenticated) {
+                    Column(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusCard))
+                                .padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.account_playlists_guest_title),
+                            color = AlunaraPalette.PrimaryAccent,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = stringResource(R.string.account_playlists_guest_desc),
+                            color = AlunaraPalette.MutedText,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            TvFocusableButton(
+                                text = stringResource(R.string.login_webview_button),
+                                icon = Icons.AutoMirrored.Rounded.Login,
+                                highlighted = true,
+                                onClick = onOpenWebViewLogin,
+                            )
+                            TvFocusableButton(
+                                text = stringResource(R.string.open_search),
+                                icon = Icons.Rounded.Search,
+                                onClick = onNavigateToSearch,
+                            )
+                            TvFocusableButton(
+                                text = stringResource(R.string.open_account_status),
+                                icon = Icons.Rounded.Settings,
+                                onClick = onNavigateToSettings,
+                            )
+                        }
+                    }
+                } else if (librarySyncing && accountPlaylists.isEmpty()) {
                     Text(
-                        text = stringResource(R.string.queue_empty),
+                        text = stringResource(R.string.catalog_loading),
+                        color = AlunaraPalette.MutedText,
+                        fontSize = 15.sp,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                } else if (accountPlaylists.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.account_playlists_empty),
                         color = AlunaraPalette.MutedText,
                         fontSize = 15.sp,
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 } else {
-                    LazyColumn(
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 188.dp),
                         modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        contentPadding = PaddingValues(bottom = 16.dp),
                     ) {
-                        items(queueState.items.size, key = { idx -> queueState.items[idx].queueItemId }) { index ->
-                            val item = queueState.items[index]
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                TvSongRow(
-                                    track = item.track,
-                                    isActive = index == queueState.currentIndex,
-                                    onPlayClick = { onPlayAt(index) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                TvIconButton(
-                                    icon = Icons.Rounded.KeyboardArrowUp,
-                                    contentDescription = stringResource(R.string.move_up),
-                                    enabled = index > 0,
-                                    onClick = { onMoveItem(index, index - 1) },
-                                )
-                                TvIconButton(
-                                    icon = Icons.Rounded.KeyboardArrowDown,
-                                    contentDescription = stringResource(R.string.move_down),
-                                    enabled = index < queueState.items.lastIndex,
-                                    onClick = { onMoveItem(index, index + 1) },
-                                )
-                                TvIconButton(
-                                    icon = Icons.Rounded.DeleteOutline,
-                                    contentDescription = stringResource(R.string.remove_item),
-                                    onClick = { onRemoveAt(index) },
-                                )
-                            }
+                        items(accountPlaylists, key = { "acc-pl-${it.id}" }) { playlist ->
+                            TvMediaCard(
+                                title = playlist.title,
+                                subtitle = playlist.author ?: playlist.trackCountText ?: stringResource(R.string.badge_youtube_synced),
+                                thumbnailUrl = playlist.thumbnailUrl,
+                                onClick = { onOpenPlaylist(playlist) },
+                            )
                         }
                     }
                 }
@@ -259,67 +273,6 @@ fun LibraryScreen(
                                 secondaryActionLabel = stringResource(R.string.add_to_queue),
                                 secondaryActionIcon = Icons.AutoMirrored.Rounded.PlaylistAdd,
                                 onSecondaryClick = { onEnqueueTrack(track) },
-                            )
-                        }
-                    }
-                }
-
-            LibraryTab.ACCOUNT_PLAYLISTS ->
-                if (authSession !is AuthSessionState.Authenticated) {
-                    Column(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusCard))
-                                .padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.account_playlists_guest_title),
-                            color = AlunaraPalette.PrimaryAccent,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = stringResource(R.string.account_playlists_guest_desc),
-                            color = AlunaraPalette.MutedText,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            TvFocusableButton(
-                                text = stringResource(R.string.login_webview_button),
-                                icon = Icons.AutoMirrored.Rounded.Login,
-                                highlighted = true,
-                                onClick = onOpenWebViewLogin,
-                            )
-                            TvFocusableButton(
-                                text = stringResource(R.string.open_search),
-                                icon = Icons.Rounded.Search,
-                                onClick = onNavigateToSearch,
-                            )
-                            TvFocusableButton(
-                                text = stringResource(R.string.open_account_status),
-                                icon = Icons.Rounded.Settings,
-                                onClick = onNavigateToSettings,
-                            )
-                        }
-                    }
-                } else if (accountPlaylists.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.account_playlists_empty),
-                        color = AlunaraPalette.MutedText,
-                        fontSize = 15.sp,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                } else {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(accountPlaylists, key = { "acc-pl-${it.id}" }) { playlist ->
-                            TvMediaCard(
-                                title = playlist.title,
-                                subtitle = playlist.author ?: playlist.trackCountText.orEmpty(),
-                                thumbnailUrl = playlist.thumbnailUrl,
-                                onClick = { onOpenPlaylist(playlist) },
                             )
                         }
                     }

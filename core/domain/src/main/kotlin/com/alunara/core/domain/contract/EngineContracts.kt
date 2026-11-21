@@ -12,6 +12,7 @@ import com.alunara.core.domain.model.LyricsProviderId
 import com.alunara.core.domain.model.PlaylistDetail
 import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.QueueState
+import com.alunara.core.domain.model.RadioQueueResult
 import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
 
@@ -36,12 +37,25 @@ interface MusicEngine {
         playlistId: String? = null,
     ): Result<List<Track>> = Result.success(emptyList())
 
+    suspend fun fetchRadioQueue(
+        seedTrackId: String,
+        playlistId: String? = null,
+        params: String? = null,
+    ): Result<RadioQueueResult> =
+        fetchRadioTracks(seedTrackId, playlistId).map { tracks ->
+            RadioQueueResult(tracks = tracks, playlistId = playlistId)
+        }
+
     suspend fun verifyAccountSession(credentials: AccountCredentials): Result<AccountProfile> =
         Result.failure(UnsupportedOperationException("Account session not supported"))
 
     fun clearAccountSession() {}
 
     suspend fun fetchAccountPlaylists(): Result<List<PlaylistSummary>> = Result.success(emptyList())
+
+    suspend fun fetchLikedMusicTracks(): Result<List<Track>> = Result.success(emptyList())
+
+    suspend fun fetchAccountHistoryTracks(): Result<List<Track>> = Result.success(emptyList())
 
     suspend fun setRemoteTrackLike(
         trackId: String,

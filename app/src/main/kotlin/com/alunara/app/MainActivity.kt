@@ -85,6 +85,7 @@ import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.SearchResults
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -139,11 +140,23 @@ private fun AlunaraTvApp(
     var railFocused by remember { mutableStateOf(false) }
     val railHomeFocusRequester = remember { FocusRequester() }
 
-    // Home feed state (loaded lazily once)
+    // Home feed state (auto-refreshes when auth scope transitions Guest <-> Authenticated)
     var homeSections by remember { mutableStateOf<List<HomeSection>>(emptyList()) }
     var homeLoading by remember { mutableStateOf(false) }
     var homeError by remember { mutableStateOf<String?>(null) }
     var homeLoadedOnce by remember { mutableStateOf(false) }
+    var homeLoadJob by remember { mutableStateOf<Job?>(null) }
+    var lastLoadedAuthScopeKey by remember { mutableStateOf<String?>(null) }
+    val authScopeKey = sessionState.authSession.scope.storageKey
+
+    val mergedFavorites =
+        remember(sessionState.favorites, sessionState.remoteFavorites) {
+            (sessionState.favorites + sessionState.remoteFavorites).distinctBy { it.id }
+        }
+    val mergedHistory =
+        remember(sessionState.recentHistory, sessionState.remoteHistory) {
+            (sessionState.recentHistory + sessionState.remoteHistory).distinctBy { it.id }
+        }
 
     // Search state
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -151,18 +164,22 @@ private fun AlunaraTvApp(
     var searchLoading by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
 
-    fun loadHome() {
-        if (homeLoading) return
-        coroutineScope.launch {
-            homeLoading = true
-            homeError = null
-            val res = withContext(Dispatchers.IO) { musicEngine.fetchGuestHome() }
-            res.fold(
-                onSuccess = { homeSections = it },
-                onFailure = { homeError = it.message ?: "Network error" },
-            )
-            homeLoading = false
+    fun loadHome(force: Boolean = false) {
+        if (homeLoading && !force) return
+        if (force) {
+            homeLoadJob?.cancel()
         }
+        homeLoadJob =
+            coroutineScope.launch {
+                homeLoading = true
+                homeError = null
+                val res = withContext(Dispatchers.IO) { musicEngine.fetchGuestHome() }
+                res.fold(
+                    onSuccess = { homeSections = it },
+                    onFailure = { homeError = it.message ?: "Network error" },
+                )
+                homeLoading = false
+            }
     }
 
     fun executeSearch() {
@@ -226,7 +243,17 @@ private fun AlunaraTvApp(
         railHomeFocusRequester.requestFocus()
         if (!homeLoadedOnce) {
             homeLoadedOnce = true
+            lastLoadedAuthScopeKey = authScopeKey
             loadHome()
+        }
+    }
+
+    LaunchedEffect(authScopeKey) {
+        val prevKey = lastLoadedAuthScopeKey
+        if (prevKey != null && prevKey != authScopeKey) {
+            lastLoadedAuthScopeKey = authScopeKey
+            homeLoadedOnce = true
+            loadHome(force = true)
         }
     }
 
@@ -267,6 +294,12 @@ private fun AlunaraTvApp(
                 onToggleFavorite = { sessionManager.toggleFavorite() },
                 onStartRadio = { sessionState.currentTrack?.let { sessionManager.startRadio(it) } },
                 onSwitchLyricsProvider = { sessionManager.cycleLyricsProvider() },
+                onPlayQueueAt = { idx -> sessionManager.playTrackAt(idx) },
+                onMoveQueueItem = { from, to -> sessionManager.moveQueueItem(from, to) },
+                onRemoveQueueItem = { idx -> sessionManager.removeFromQueue(idx) },
+                onClearQueue = { sessionManager.clearQueue() },
+                onRefreshRadio = { sessionManager.refreshCurrentTrackRadio() },
+                onSelectQueueChip = { chip -> sessionManager.selectQueueChip(chip) },
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -317,15 +350,17 @@ private fun AlunaraTvApp(
                                     isLoading = homeLoading,
                                     errorMessage = homeError,
                                     resumeTrack = sessionState.currentTrack,
-                                    recentHistory = sessionState.recentHistory,
-                                    favorites = sessionState.favorites,
-                                    onRetry = { loadHome() },
+                                    recentHistory = mergedHistory,
+                                    favorites = mergedFavorites,
+                                    authSession = sessionState.authSession,
+                                    onRetry = { loadHome(force = true) },
                                     onContinueQueue = { openNowPlaying() },
                                     onPlaySongFromSection = { songs, idx ->
                                         sessionManager.playTracks(songs, idx)
                                         openNowPlaying()
                                     },
                                     onOpenAlbum = { album -> openAlbumTarget(album) },
+                                    onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
                                 )
 
                             TvDestination.SEARCH ->
@@ -349,19 +384,13 @@ private fun AlunaraTvApp(
 
                             TvDestination.LIBRARY ->
                                 LibraryScreen(
-                                    queueState = sessionState.queueState,
-                                    favorites = sessionState.favorites,
-                                    recentHistory = sessionState.recentHistory,
+                                    favorites = mergedFavorites,
+                                    recentHistory = mergedHistory,
+                                    localHistoryCount = sessionState.recentHistory.size,
                                     accountPlaylists = sessionState.accountPlaylists,
                                     authSession = sessionState.authSession,
+                                    librarySyncing = sessionState.librarySyncing,
                                     activeTrackId = sessionState.currentTrack?.id,
-                                    onPlayAt = { idx ->
-                                        sessionManager.playTrackAt(idx)
-                                        openNowPlaying()
-                                    },
-                                    onMoveItem = { from, to -> sessionManager.moveQueueItem(from, to) },
-                                    onRemoveAt = { idx -> sessionManager.removeFromQueue(idx) },
-                                    onClearQueue = { sessionManager.clearQueue() },
                                     onPlayTracks = { tracks, idx ->
                                         sessionManager.playTracks(tracks, idx)
                                         openNowPlaying()
@@ -369,6 +398,7 @@ private fun AlunaraTvApp(
                                     onEnqueueTrack = { track -> sessionManager.enqueue(track) },
                                     onToggleFavorite = { track -> sessionManager.toggleFavorite(track) },
                                     onClearHistory = { sessionManager.clearHistory() },
+                                    onRefreshLibrary = { sessionManager.refreshAccountLibrary() },
                                     onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
                                     onOpenWebViewLogin = { showWebViewLogin = true },
                                     onNavigateToSearch = {

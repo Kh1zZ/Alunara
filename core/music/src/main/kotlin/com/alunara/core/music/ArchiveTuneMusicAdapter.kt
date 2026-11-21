@@ -11,6 +11,8 @@ import com.alunara.core.domain.model.AudioStreamSource
 import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.PlaylistDetail
 import com.alunara.core.domain.model.PlaylistSummary
+import com.alunara.core.domain.model.QueueFilterChip
+import com.alunara.core.domain.model.RadioQueueResult
 import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
 import com.alunara.core.domain.policy.AudioFormatCandidate
@@ -27,8 +29,10 @@ import moe.rukamori.archivetune.innertube.models.ArtistItem
 import moe.rukamori.archivetune.innertube.models.PlaylistItem
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.models.WatchEndpoint
+import moe.rukamori.archivetune.innertube.models.YTItem
 import moe.rukamori.archivetune.innertube.models.YouTubeClient
 import moe.rukamori.archivetune.innertube.models.response.PlayerResponse
+import moe.rukamori.archivetune.innertube.pages.NextResult
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -102,22 +106,58 @@ class ArchiveTuneMusicAdapter internal constructor(
         ensureGatekeeperUnlocked()
         backend.useLoginForBrowse = backend.hasLoginCookie()
 
-        return backend.home().map { page ->
-            page.sections.mapNotNull { section ->
-                val songs = section.items.filterIsInstance<SongItem>().map { it.toDomainTrack() }.distinctBy { it.id }
-                val albums = section.items.filterIsInstance<AlbumItem>().map { it.toDomainAlbum() }.distinctBy { it.id }
-                if (songs.isEmpty() && albums.isEmpty()) {
-                    null
-                } else {
-                    HomeSection(
-                        title = section.title,
-                        songs = songs,
-                        albums = albums,
-                    )
+        return backend.home().map { firstPage ->
+            val sections = mutableListOf<HomeSection>()
+            val seenTitles = mutableSetOf<String>()
+
+            fun appendSection(title: String, items: List<YTItem>) {
+                val normalized = items.toHomeSection(title) ?: return
+                if (seenTitles.add(normalized.title)) {
+                    sections += normalized
                 }
             }
+
+            firstPage.sections.forEach { appendSection(it.title, it.items) }
+
+            val continuation = firstPage.continuation
+            if (continuation != null && sections.size < 6) {
+                safeOptionalSuspend { backend.home(continuation = continuation) }
+                    ?.sections
+                    ?.forEach { appendSection(it.title, it.items) }
+            }
+
+            safeOptionalSuspend { backend.getChartsPage() }
+                ?.sections
+                ?.forEach { appendSection(it.title, it.items) }
+
+            sections
         }
     }
+
+    private fun List<YTItem>.toHomeSection(title: String): HomeSection? {
+        val songs = filterIsInstance<SongItem>().map { it.toDomainTrack() }.distinctBy { it.id }
+        val albums = filterIsInstance<AlbumItem>().map { it.toDomainAlbum() }.distinctBy { it.id }
+        val playlists = filterIsInstance<PlaylistItem>().map { it.toDomainPlaylist() }.distinctBy { it.id }
+        return if (songs.isEmpty() && albums.isEmpty() && playlists.isEmpty()) {
+            null
+        } else {
+            HomeSection(
+                title = title,
+                songs = songs,
+                albums = albums,
+                playlists = playlists,
+            )
+        }
+    }
+
+    private suspend inline fun <T> safeOptionalSuspend(crossinline block: suspend () -> Result<T>): T? =
+        try {
+            block().getOrNull()
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Throwable) {
+            null
+        }
 
     override suspend fun fetchAlbumDetail(albumId: String): Result<AlbumDetail> {
         val normalizedId = albumId.trim()
@@ -190,7 +230,13 @@ class ArchiveTuneMusicAdapter internal constructor(
     override suspend fun fetchRadioTracks(
         seedTrackId: String,
         playlistId: String?,
-    ): Result<List<Track>> {
+    ): Result<List<Track>> = fetchRadioQueue(seedTrackId = seedTrackId, playlistId = playlistId).map { it.tracks }
+
+    override suspend fun fetchRadioQueue(
+        seedTrackId: String,
+        playlistId: String?,
+        params: String?,
+    ): Result<RadioQueueResult> {
         val normalizedId = seedTrackId.trim()
         if (normalizedId.isEmpty()) {
             return Result.failure(IllegalArgumentException("Seed track id must not be blank"))
@@ -198,27 +244,39 @@ class ArchiveTuneMusicAdapter internal constructor(
         ensureGatekeeperUnlocked()
         backend.useLoginForBrowse = backend.hasLoginCookie()
 
-        val primaryEndpoint = WatchEndpoint(videoId = normalizedId, playlistId = playlistId ?: "RDAMVM$normalizedId")
+        val resolvedPlaylistId = playlistId?.trim()?.takeIf { it.isNotEmpty() } ?: "RDAMVM$normalizedId"
+        val primaryEndpoint = WatchEndpoint(videoId = normalizedId, playlistId = resolvedPlaylistId, params = params)
         val primaryResult = backend.next(primaryEndpoint)
-        val primaryTracks =
-            primaryResult
-                .getOrNull()
-                ?.items
-                ?.map { it.toDomainTrack() }
-                ?.distinctBy { it.id }
-                .orEmpty()
-        if (primaryTracks.any { it.id != normalizedId }) {
-            return Result.success(primaryTracks.take(25))
+        val primaryMapped = primaryResult.getOrNull()?.toRadioQueueResult(resolvedPlaylistId)
+        if (primaryMapped != null && (params != null || primaryMapped.tracks.any { it.id != normalizedId })) {
+            return Result.success(primaryMapped)
+        }
+        if (params != null) {
+            return primaryResult.map { it.toRadioQueueResult(resolvedPlaylistId) }
         }
 
         val fallbackResult = backend.next(WatchEndpoint(videoId = normalizedId))
-        return fallbackResult.map { page ->
-            page.items
-                .map { it.toDomainTrack() }
-                .distinctBy { it.id }
-                .take(25)
-        }
+        return fallbackResult.map { it.toRadioQueueResult(resolvedPlaylistId) }
     }
+
+    private fun NextResult.toRadioQueueResult(fallbackPlaylistId: String): RadioQueueResult =
+        RadioQueueResult(
+            tracks =
+                items
+                    .map { it.toDomainTrack() }
+                    .distinctBy { it.id }
+                    .take(25),
+            chips =
+                queueChips.map { chip ->
+                    QueueFilterChip(
+                        label = chip.title,
+                        playlistId = chip.endpoint.playlistId ?: fallbackPlaylistId,
+                        params = chip.endpoint.params,
+                        selected = chip.selected,
+                    )
+                },
+            playlistId = endpoint.playlistId ?: fallbackPlaylistId,
+        )
 
     override suspend fun verifyAccountSession(credentials: AccountCredentials): Result<AccountProfile> {
         ensureGatekeeperUnlocked()
@@ -273,7 +331,34 @@ class ArchiveTuneMusicAdapter internal constructor(
         return backend.library("FEmusic_liked_playlists", tabIndex = 0).map { page ->
             page.items
                 .filterIsInstance<PlaylistItem>()
+                .filter { it.id.removePrefix("VL") !in SYSTEM_PLAYLIST_IDS }
                 .map { it.toDomainPlaylist() }
+                .distinctBy { it.id }
+        }
+    }
+
+    override suspend fun fetchLikedMusicTracks(): Result<List<Track>> {
+        if (!backend.hasLoginCookie()) {
+            return Result.failure(IllegalStateException("Account login required"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = true
+        return backend.playlist("LM").map { page ->
+            page.songs.map { it.toDomainTrack() }.distinctBy { it.id }
+        }
+    }
+
+    override suspend fun fetchAccountHistoryTracks(): Result<List<Track>> {
+        if (!backend.hasLoginCookie()) {
+            return Result.failure(IllegalStateException("Account login required"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = true
+        return backend.musicHistory().map { page ->
+            page.sections
+                .orEmpty()
+                .flatMap { it.songs }
+                .map { it.toDomainTrack() }
                 .distinctBy { it.id }
         }
     }
@@ -287,6 +372,10 @@ class ArchiveTuneMusicAdapter internal constructor(
         }
         ensureGatekeeperUnlocked()
         return backend.likeVideo(trackId.trim(), liked)
+    }
+
+    private companion object {
+        val SYSTEM_PLAYLIST_IDS = setOf("LM", "SE")
     }
 
     override suspend fun resolveAudioStream(trackId: String): Result<AudioStreamSource> {

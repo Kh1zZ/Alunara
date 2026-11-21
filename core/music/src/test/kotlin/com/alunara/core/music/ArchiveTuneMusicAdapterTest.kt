@@ -42,6 +42,7 @@ import moe.rukamori.archivetune.innertube.pages.MoodAndGenres
 import moe.rukamori.archivetune.innertube.pages.NextResult
 import moe.rukamori.archivetune.innertube.pages.PlaylistContinuationPage
 import moe.rukamori.archivetune.innertube.pages.PlaylistPage
+import moe.rukamori.archivetune.innertube.pages.QueueChip
 import moe.rukamori.archivetune.innertube.pages.RelatedPage
 import moe.rukamori.archivetune.innertube.pages.SearchResult
 import moe.rukamori.archivetune.innertube.pages.SearchSummary
@@ -637,5 +638,195 @@ class ArchiveTuneMusicAdapterTest {
 
             adapter.clearAccountSession()
             assertFalse(backend.hasLoginCookie())
+        }
+
+    @Test
+    fun fetchGuestHome_includesPlaylistMixesContinuationAndCharts() =
+        runTest {
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override suspend fun home(continuation: String?, params: String?): Result<HomePage> =
+                        if (continuation == null) {
+                            Result.success(
+                                HomePage(
+                                    chips = null,
+                                    sections =
+                                        listOf(
+                                            HomePage.Section(
+                                                title = "Mixed for you",
+                                                label = null,
+                                                thumbnail = null,
+                                                endpoint = null,
+                                                items =
+                                                    listOf(
+                                                        PlaylistItem(
+                                                            id = "VLRDMix1",
+                                                            title = "Daily Mix 1",
+                                                            author = Artist("YouTube Music", null),
+                                                            songCountText = "50 songs",
+                                                            thumbnail = "https://img/mix1.jpg",
+                                                            playEndpoint = null,
+                                                            shuffleEndpoint = null,
+                                                            radioEndpoint = null,
+                                                        ),
+                                                    ),
+                                            ),
+                                        ),
+                                    continuation = "cont-page-2",
+                                ),
+                            )
+                        } else {
+                            Result.success(
+                                HomePage(
+                                    chips = null,
+                                    sections =
+                                        listOf(
+                                            HomePage.Section(
+                                                title = "Forgotten favorites",
+                                                label = null,
+                                                thumbnail = null,
+                                                endpoint = null,
+                                                items =
+                                                    listOf(
+                                                        SongItem(
+                                                            id = "fav1",
+                                                            title = "Old Gold",
+                                                            artists = listOf(Artist("Budi", null)),
+                                                            thumbnail = "https://img/f1.jpg",
+                                                        ),
+                                                    ),
+                                            ),
+                                        ),
+                                ),
+                            )
+                        }
+
+                    override suspend fun getChartsPage(continuation: String?): Result<ChartsPage> =
+                        Result.success(
+                            ChartsPage(
+                                sections =
+                                    listOf(
+                                        ChartsPage.ChartSection(
+                                            title = "Top songs",
+                                            items =
+                                                listOf(
+                                                    SongItem(
+                                                        id = "top1",
+                                                        title = "Chart Hit",
+                                                        artists = listOf(Artist("Nadin", null)),
+                                                        thumbnail = "https://img/top1.jpg",
+                                                    ),
+                                                ),
+                                            chartType = ChartsPage.ChartType.TOP,
+                                        ),
+                                    ),
+                                continuation = null,
+                            ),
+                        )
+                }
+
+            val adapter = ArchiveTuneMusicAdapter(backend) {}
+            val sections = adapter.fetchGuestHome().getOrThrow()
+
+            assertEquals(listOf("Mixed for you", "Forgotten favorites", "Top songs"), sections.map { it.title })
+            assertEquals("Daily Mix 1", sections[0].playlists.single().title)
+            assertEquals("Old Gold", sections[1].songs.single().title)
+            assertEquals("Chart Hit", sections[2].songs.single().title)
+        }
+
+    @Test
+    fun fetchRadioQueue_mapsQueueChipsAndRespectsChipFilter() =
+        runTest {
+            val seenEndpoints = mutableListOf<WatchEndpoint>()
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override suspend fun next(endpoint: WatchEndpoint, continuation: String?, followAutomixPreview: Boolean): Result<NextResult> {
+                        seenEndpoints += endpoint
+                        return Result.success(
+                            NextResult(
+                                title = "Radio",
+                                items =
+                                    listOf(
+                                        SongItem(id = "seed1", title = "Seed", artists = listOf(Artist("A", null)), thumbnail = "https://img/s.jpg"),
+                                        SongItem(id = "q2", title = "Discover Pick", artists = listOf(Artist("C", null)), thumbnail = "https://img/q2.jpg"),
+                                    ),
+                                continuation = null,
+                                endpoint = endpoint,
+                                queueChips =
+                                    listOf(
+                                        QueueChip(
+                                            id = "chip-discover",
+                                            title = "Discover",
+                                            selected = endpoint.params == "p-discover",
+                                            endpoint = WatchEndpoint(videoId = "seed1", playlistId = "RDAMVMseed1", params = "p-discover"),
+                                        ),
+                                    ),
+                            ),
+                        )
+                    }
+                }
+
+            val adapter = ArchiveTuneMusicAdapter(backend) {}
+            val initial = adapter.fetchRadioQueue("seed1").getOrThrow()
+            assertEquals(listOf("seed1", "q2"), initial.tracks.map { it.id })
+            assertEquals("Discover", initial.chips.single().label)
+            assertEquals("p-discover", initial.chips.single().params)
+
+            val filtered = adapter.fetchRadioQueue("seed1", playlistId = initial.chips.single().playlistId, params = "p-discover").getOrThrow()
+            assertTrue(filtered.chips.single().selected)
+            assertEquals("p-discover", seenEndpoints.last().params)
+        }
+
+    @Test
+    fun fetchLikedMusicAndHistoryAndPlaylists_filterSystemAndRequireLogin() =
+        runTest {
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override suspend fun library(browseId: String, tabIndex: Int): Result<LibraryPage> =
+                        Result.success(
+                            LibraryPage(
+                                items =
+                                    listOf(
+                                        PlaylistItem(id = "VLLM", title = "Your Likes", author = null, songCountText = "10", thumbnail = "", playEndpoint = null, shuffleEndpoint = null, radioEndpoint = null),
+                                        PlaylistItem(id = "VLSE", title = "Episodes", author = null, songCountText = "2", thumbnail = "", playEndpoint = null, shuffleEndpoint = null, radioEndpoint = null),
+                                        PlaylistItem(id = "VLPLuser1", title = "Chill Coding", author = Artist("Me", null), songCountText = "12 songs", thumbnail = "https://img/pl.jpg", playEndpoint = null, shuffleEndpoint = null, radioEndpoint = null),
+                                    ),
+                                continuation = null,
+                            ),
+                        )
+
+                    override suspend fun playlist(playlistId: String): Result<PlaylistPage> =
+                        Result.success(
+                            PlaylistPage(
+                                playlist = PlaylistItem(id = playlistId, title = "Liked Music", author = null, songCountText = "1", thumbnail = "", playEndpoint = null, shuffleEndpoint = null, radioEndpoint = null),
+                                songs = listOf(SongItem(id = "lm1", title = "Liked Track", artists = listOf(Artist("A", null)), thumbnail = "https://img/lm.jpg")),
+                                songsContinuation = null,
+                                continuation = null,
+                            ),
+                        )
+
+                    override suspend fun musicHistory(): Result<HistoryPage> =
+                        Result.success(
+                            HistoryPage(
+                                sections =
+                                    listOf(
+                                        HistoryPage.HistorySection(
+                                            title = "Today",
+                                            songs = listOf(SongItem(id = "h1", title = "History Track", artists = listOf(Artist("B", null)), thumbnail = "https://img/h.jpg")),
+                                        ),
+                                    ),
+                            ),
+                        )
+                }
+
+            val adapter = ArchiveTuneMusicAdapter(backend) {}
+            assertTrue(adapter.fetchLikedMusicTracks().isFailure)
+            assertTrue(adapter.fetchAccountHistoryTracks().isFailure)
+
+            backend.authState = PlaybackAuthState(cookie = "SAPISID=abc123; SID=xyz")
+            val playlists = adapter.fetchAccountPlaylists().getOrThrow()
+            assertEquals(listOf("VLPLuser1"), playlists.map { it.id })
+            assertEquals(listOf("lm1"), adapter.fetchLikedMusicTracks().getOrThrow().map { it.id })
+            assertEquals(listOf("h1"), adapter.fetchAccountHistoryTracks().getOrThrow().map { it.id })
         }
 }
