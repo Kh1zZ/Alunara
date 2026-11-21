@@ -42,6 +42,32 @@ data class SearchResults(
     val artists: List<ArtistRef> = emptyList(),
 )
 
+data class HomeSection(
+    val title: String,
+    val songs: List<Track> = emptyList(),
+    val albums: List<AlbumRef> = emptyList(),
+)
+
+data class AudioStreamSource(
+    val trackId: String,
+    val streamUrl: String,
+    val userAgent: String,
+    val mimeType: String,
+    val bitrateBps: Int,
+    val expiresAtEpochMs: Long,
+    val clientProfile: String,
+)
+
+enum class PlaybackStatus {
+    IDLE,
+    RESOLVING,
+    BUFFERING,
+    PLAYING,
+    PAUSED,
+    ENDED,
+    ERROR,
+}
+
 sealed interface AccountScope {
     val storageKey: String
 

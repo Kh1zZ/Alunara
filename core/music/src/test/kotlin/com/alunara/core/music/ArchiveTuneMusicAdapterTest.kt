@@ -16,6 +16,7 @@ import moe.rukamori.archivetune.innertube.models.Artist
 import moe.rukamori.archivetune.innertube.models.ArtistItem
 import moe.rukamori.archivetune.innertube.models.BrowseEndpoint
 import moe.rukamori.archivetune.innertube.models.MediaInfo
+import moe.rukamori.archivetune.innertube.models.ResponseContext
 import moe.rukamori.archivetune.innertube.models.SearchSuggestions
 import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.models.WatchEndpoint
@@ -48,6 +49,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
 import java.net.Proxy
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 class ArchiveTuneMusicAdapterTest {
@@ -104,7 +106,7 @@ class ArchiveTuneMusicAdapterTest {
         override suspend fun queue(videoIds: List<String>?, playlistId: String?): Result<List<SongItem>> = error("Unused")
         override suspend fun registerPlayback(playlistId: String?, playbackTracking: String, authState: PlaybackAuthState): Result<Unit> = error("Unused")
         override suspend fun transcript(videoId: String): Result<String> = error("Unused")
-        override suspend fun visitorData(): Result<String> = error("Unused")
+        override suspend fun visitorData(): Result<String> = Result.success("guest-visitor-token")
         override suspend fun accountInfo(): Result<AccountInfo> = error("Unused")
         override suspend fun accountChannels(): Result<List<AccountChannel>> = error("Unused")
         override suspend fun getChannelId(browseId: String): String = error("Unused")
@@ -122,6 +124,53 @@ class ArchiveTuneMusicAdapterTest {
         override suspend fun deletePlaylist(playlistId: String): Result<Unit> = error("Unused")
         override suspend fun getMediaInfo(videoId: String): Result<MediaInfo> = error("Unused")
     }
+
+    private fun testFormat(
+        itag: Int,
+        mimeType: String,
+        bitrate: Int,
+        width: Int? = null,
+        url: String? = null,
+        cipher: String? = null,
+    ) = PlayerResponse.StreamingData.Format(
+        itag = itag,
+        url = url,
+        mimeType = mimeType,
+        bitrate = bitrate,
+        width = width,
+        height = width,
+        contentLength = null,
+        quality = "medium",
+        fps = null,
+        qualityLabel = null,
+        averageBitrate = bitrate,
+        audioQuality = "AUDIO_QUALITY_MEDIUM",
+        approxDurationMs = "180000",
+        audioSampleRate = 48000,
+        audioChannels = 2,
+        loudnessDb = null,
+        lastModified = null,
+        signatureCipher = cipher,
+        cipher = null,
+    )
+
+    private fun testPlayerResponse(
+        status: String,
+        formats: List<PlayerResponse.StreamingData.Format> = emptyList(),
+        expiresInSeconds: Int = 360,
+    ) = PlayerResponse(
+        responseContext = ResponseContext(visitorData = null, serviceTrackingParams = null),
+        playabilityStatus = PlayerResponse.PlayabilityStatus(status = status, reason = if (status == "OK") null else "Blocked"),
+        playerConfig = null,
+        streamingData =
+            if (status == "OK") {
+                PlayerResponse.StreamingData(formats = emptyList(), adaptiveFormats = formats, expiresInSeconds = expiresInSeconds)
+            } else {
+                null
+            },
+        videoDetails = null,
+        playbackTracking = null,
+    )
 
     @Test
     fun searchGuest_unlocksGatekeeperOnceAndNormalizesItems() =
@@ -215,5 +264,219 @@ class ArchiveTuneMusicAdapterTest {
 
             val result = adapter.searchGuest("test")
             assertTrue(result.isFailure)
+        }
+
+    @Test
+    fun fetchGuestHome_normalizesSectionsAndOmitsEmptyOnes() =
+        runTest {
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override suspend fun home(continuation: String?, params: String?): Result<HomePage> =
+                        Result.success(
+                            HomePage(
+                                chips = null,
+                                sections =
+                                    listOf(
+                                        HomePage.Section(
+                                            title = "Quick picks",
+                                            label = null,
+                                            thumbnail = null,
+                                            endpoint = null,
+                                            items =
+                                                listOf(
+                                                    SongItem(
+                                                        id = "s1",
+                                                        title = "Pine Breeze",
+                                                        artists = listOf(Artist("Artist 1", null)),
+                                                        thumbnail = "https://img/s1.jpg",
+                                                    ),
+                                                ),
+                                        ),
+                                        HomePage.Section(
+                                            title = "Empty Section",
+                                            label = null,
+                                            thumbnail = null,
+                                            endpoint = null,
+                                            items = emptyList(),
+                                        ),
+                                    ),
+                            ),
+                        )
+                }
+
+            val adapter = ArchiveTuneMusicAdapter(backend) {}
+            val sections = adapter.fetchGuestHome().getOrThrow()
+            assertEquals(1, sections.size)
+            assertEquals("Quick picks", sections.first().title)
+            assertEquals("Pine Breeze", sections.first().songs.first().title)
+        }
+
+    @Test
+    fun resolveAudioStream_prefersDirectAudioOnlyAndFallsBackCleanly() =
+        runTest {
+            val fallbackInvoked = AtomicBoolean(false)
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override suspend fun player(
+                        videoId: String,
+                        playlistId: String?,
+                        client: YouTubeClient,
+                        signatureTimestamp: Int?,
+                        poToken: String?,
+                        setLogin: Boolean,
+                        authState: PlaybackAuthState,
+                    ): Result<PlayerResponse> {
+                        assertFalse(setLogin)
+                        return when (client.clientName) {
+                            "VISIONOS" -> Result.success(testPlayerResponse("LOGIN_REQUIRED"))
+                            else ->
+                                Result.success(
+                                    testPlayerResponse(
+                                        status = "OK",
+                                        formats =
+                                            listOf(
+                                                testFormat(18, "video/mp4", 500_000, width = 640, url = "https://cdn/video.mp4"),
+                                                testFormat(140, "audio/mp4; codecs=\"mp4a.40.2\"", 128_000, url = "https://cdn/aac.m4a"),
+                                                testFormat(251, "audio/webm; codecs=\"opus\"", 160_000, url = "https://cdn/opus.webm"),
+                                            ),
+                                    ),
+                                )
+                        }
+                    }
+                }
+
+            val adapter =
+                ArchiveTuneMusicAdapter(
+                    backend = backend,
+                    nowEpochMs = { 1_000L },
+                    fallbackStreamResolver = { _, _, _ ->
+                        fallbackInvoked.set(true)
+                        error("Should not invoke cipher resolver when direct URL has no throttling")
+                    },
+                    signatureTimestampProvider = { null },
+                    allowConnectionsAction = {},
+                )
+
+            val source = adapter.resolveAudioStream("track123").getOrThrow()
+            assertEquals("https://cdn/opus.webm", source.streamUrl)
+            assertEquals("IOS", source.clientProfile)
+            assertEquals(301_000L, source.expiresAtEpochMs)
+            assertFalse(fallbackInvoked.get())
+        }
+
+    @Test
+    fun resolveAudioStream_returnsFailureWhenAllClientsFail() =
+        runTest {
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override suspend fun player(
+                        videoId: String,
+                        playlistId: String?,
+                        client: YouTubeClient,
+                        signatureTimestamp: Int?,
+                        poToken: String?,
+                        setLogin: Boolean,
+                        authState: PlaybackAuthState,
+                    ): Result<PlayerResponse> = Result.success(testPlayerResponse("UNPLAYABLE"))
+                }
+
+            val adapter =
+                ArchiveTuneMusicAdapter(
+                    backend = backend,
+                    signatureTimestampProvider = { null },
+                    allowConnectionsAction = {},
+                )
+
+            val result = adapter.resolveAudioStream("badTrack")
+            assertTrue(result.isFailure)
+        }
+
+    @Test
+    fun resolveAudioStream_fetchesAnonymousVisitorDataOnceAndAttachesToPlayerAuthState() =
+        runTest {
+            val visitorDataCalls = AtomicInteger(0)
+            val seenAuthStates = mutableListOf<PlaybackAuthState>()
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override suspend fun visitorData(): Result<String> {
+                        visitorDataCalls.incrementAndGet()
+                        return Result.success("anon-visitor-123")
+                    }
+
+                    override suspend fun player(
+                        videoId: String,
+                        playlistId: String?,
+                        client: YouTubeClient,
+                        signatureTimestamp: Int?,
+                        poToken: String?,
+                        setLogin: Boolean,
+                        authState: PlaybackAuthState,
+                    ): Result<PlayerResponse> {
+                        seenAuthStates += authState
+                        return Result.success(
+                            testPlayerResponse(
+                                status = "OK",
+                                formats = listOf(testFormat(251, "audio/webm; codecs=\"opus\"", 160_000, url = "https://cdn/$videoId.webm")),
+                            ),
+                        )
+                    }
+                }
+
+            val adapter =
+                ArchiveTuneMusicAdapter(
+                    backend = backend,
+                    signatureTimestampProvider = { null },
+                    allowConnectionsAction = {},
+                )
+
+            val first = adapter.resolveAudioStream("trackOne").getOrThrow()
+            val second = adapter.resolveAudioStream("trackTwo").getOrThrow()
+
+            assertEquals("https://cdn/trackOne.webm", first.streamUrl)
+            assertEquals("https://cdn/trackTwo.webm", second.streamUrl)
+            assertEquals(1, visitorDataCalls.get())
+            assertEquals("anon-visitor-123", backend.visitorData)
+            assertEquals(2, seenAuthStates.size)
+            assertTrue(seenAuthStates.all { it.visitorData == "anon-visitor-123" && it.cookie == null })
+        }
+
+    @Test
+    fun resolveAudioStream_fallsBackToEmptyAuthWhenVisitorDataFails() =
+        runTest {
+            val seenAuthStates = mutableListOf<PlaybackAuthState>()
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override suspend fun visitorData(): Result<String> = Result.failure(IOException("Visitor lookup failed"))
+
+                    override suspend fun player(
+                        videoId: String,
+                        playlistId: String?,
+                        client: YouTubeClient,
+                        signatureTimestamp: Int?,
+                        poToken: String?,
+                        setLogin: Boolean,
+                        authState: PlaybackAuthState,
+                    ): Result<PlayerResponse> {
+                        seenAuthStates += authState
+                        return Result.success(
+                            testPlayerResponse(
+                                status = "OK",
+                                formats = listOf(testFormat(251, "audio/webm; codecs=\"opus\"", 160_000, url = "https://cdn/fallback.webm")),
+                            ),
+                        )
+                    }
+                }
+
+            val adapter =
+                ArchiveTuneMusicAdapter(
+                    backend = backend,
+                    signatureTimestampProvider = { null },
+                    allowConnectionsAction = {},
+                )
+
+            val source = adapter.resolveAudioStream("trackFallback").getOrThrow()
+            assertEquals("https://cdn/fallback.webm", source.streamUrl)
+            assertEquals(1, seenAuthStates.size)
+            assertEquals(PlaybackAuthState.EMPTY, seenAuthStates.single())
         }
 }

@@ -2,17 +2,16 @@ package com.alunara.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +24,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -38,39 +38,137 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
+import com.alunara.app.playback.PlaybackSessionManager
+import com.alunara.app.ui.components.DockedMiniPlayer
+import com.alunara.app.ui.screens.HomeScreen
+import com.alunara.app.ui.screens.LibraryScreen
+import com.alunara.app.ui.screens.NowPlayingScreen
+import com.alunara.app.ui.screens.SearchScreen
+import com.alunara.app.ui.screens.SettingsScreen
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.app.ui.theme.AlunaraTheme
+import com.alunara.core.domain.contract.MusicEngine
+import com.alunara.core.domain.model.HomeSection
+import com.alunara.core.domain.model.SearchResults
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class TvDestination {
     HOME,
     SEARCH,
     LIBRARY,
     SETTINGS,
+    NOW_PLAYING,
 }
+
+private val RailDestinations =
+    listOf(
+        TvDestination.HOME,
+        TvDestination.SEARCH,
+        TvDestination.LIBRARY,
+        TvDestination.SETTINGS,
+    )
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val container = (application as AlunaraApplication).container
         setContent {
             AlunaraTheme {
-                AlunaraTvShell()
+                AlunaraTvApp(
+                    musicEngine = container.musicEngine,
+                    sessionManager = container.playbackSessionManager,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun AlunaraTvShell() {
-    var selectedDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
-    var railFocused by remember { mutableStateOf(false) }
-    val initialFocusRequester = remember { FocusRequester() }
+private fun AlunaraTvApp(
+    musicEngine: MusicEngine,
+    sessionManager: PlaybackSessionManager,
+) {
+    val sessionState by sessionManager.uiState.collectAsStateWithLifecycle()
+    val coroutineScope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
-        initialFocusRequester.requestFocus()
+    var currentDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
+    var lastBrowseDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
+    var railFocused by remember { mutableStateOf(false) }
+    val railHomeFocusRequester = remember { FocusRequester() }
+
+    // Home feed state (loaded lazily once)
+    var homeSections by remember { mutableStateOf<List<HomeSection>>(emptyList()) }
+    var homeLoading by remember { mutableStateOf(false) }
+    var homeError by remember { mutableStateOf<String?>(null) }
+    var homeLoadedOnce by remember { mutableStateOf(false) }
+
+    // Search state
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var searchResults by remember { mutableStateOf<SearchResults?>(null) }
+    var searchLoading by remember { mutableStateOf(false) }
+    var searchError by remember { mutableStateOf<String?>(null) }
+
+    fun loadHome() {
+        if (homeLoading) return
+        coroutineScope.launch {
+            homeLoading = true
+            homeError = null
+            val res = withContext(Dispatchers.IO) { musicEngine.fetchGuestHome() }
+            res.fold(
+                onSuccess = { homeSections = it },
+                onFailure = { homeError = it.message ?: "Network error" },
+            )
+            homeLoading = false
+        }
     }
 
-    // ~5% TV overscan safe margin (UI/UX Spec §2.2)
+    fun executeSearch() {
+        val q = searchQuery.trim()
+        if (q.isEmpty()) return
+        coroutineScope.launch {
+            searchLoading = true
+            searchError = null
+            val res = withContext(Dispatchers.IO) { musicEngine.searchGuest(q) }
+            res.fold(
+                onSuccess = { searchResults = it },
+                onFailure = { searchError = it.message ?: "Search failed" },
+            )
+            searchLoading = false
+        }
+    }
+
+    fun openNowPlaying() {
+        if (currentDestination != TvDestination.NOW_PLAYING) {
+            lastBrowseDestination = currentDestination
+            currentDestination = TvDestination.NOW_PLAYING
+            sessionManager.ensureLyricsLoaded()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        sessionManager.restorePersistedQueue()
+        railHomeFocusRequester.requestFocus()
+        if (!homeLoadedOnce) {
+            homeLoadedOnce = true
+            loadHome()
+        }
+    }
+
+    // Back priority: Now Playing -> previous browse tab -> Home -> Android TV Home (UI/UX Spec §3.3 / UX-06)
+    BackHandler(enabled = currentDestination != TvDestination.HOME) {
+        currentDestination =
+            if (currentDestination == TvDestination.NOW_PLAYING) {
+                lastBrowseDestination
+            } else {
+                TvDestination.HOME
+            }
+    }
+
+    // ~5% TV overscan safe margin (48x27 dp on 960x540 dp 720p grid)
     Box(
         modifier =
             Modifier
@@ -80,25 +178,105 @@ private fun AlunaraTvShell() {
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            CollapsibleNavigationRail(
-                selected = selectedDestination,
-                expanded = railFocused,
-                firstItemRequester = initialFocusRequester,
-                onRailFocusChanged = { railFocused = it },
-                onSelect = { selectedDestination = it },
-            )
+            if (currentDestination != TvDestination.NOW_PLAYING) {
+                CollapsibleNavigationRail(
+                    selected = currentDestination,
+                    expanded = railFocused,
+                    firstItemRequester = railHomeFocusRequester,
+                    onRailFocusChanged = { railFocused = it },
+                    onSelect = { dest ->
+                        lastBrowseDestination = dest
+                        currentDestination = dest
+                    },
+                )
+            }
 
-            Box(
+            Column(
                 modifier =
                     Modifier
                         .weight(1f)
-                        .fillMaxHeight()
-                        .background(AlunaraPalette.Surface, RoundedCornerShape(16.dp))
-                        .padding(32.dp),
+                        .fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                DestinationContent(destination = selectedDestination)
+                Box(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .background(AlunaraPalette.Surface, RoundedCornerShape(16.dp))
+                            .padding(24.dp),
+                ) {
+                    when (currentDestination) {
+                        TvDestination.HOME ->
+                            HomeScreen(
+                                sections = homeSections,
+                                isLoading = homeLoading,
+                                errorMessage = homeError,
+                                resumeTrack = sessionState.currentTrack,
+                                onRetry = { loadHome() },
+                                onContinueQueue = { openNowPlaying() },
+                                onPlaySongFromSection = { songs, idx ->
+                                    sessionManager.playTracks(songs, idx)
+                                    openNowPlaying()
+                                },
+                            )
+
+                        TvDestination.SEARCH ->
+                            SearchScreen(
+                                query = searchQuery,
+                                results = searchResults,
+                                isLoading = searchLoading,
+                                errorMessage = searchError,
+                                activeTrackId = sessionState.currentTrack?.id,
+                                onQueryChange = { searchQuery = it },
+                                onSubmitSearch = { executeSearch() },
+                                onPlaySong = { songs, idx ->
+                                    sessionManager.playTracks(songs, idx)
+                                    openNowPlaying()
+                                },
+                                onEnqueueSong = { track -> sessionManager.enqueue(track) },
+                            )
+
+                        TvDestination.LIBRARY ->
+                            LibraryScreen(
+                                queueState = sessionState.queueState,
+                                onPlayAt = { idx ->
+                                    sessionManager.playTrackAt(idx)
+                                    openNowPlaying()
+                                },
+                                onMoveItem = { from, to -> sessionManager.moveQueueItem(from, to) },
+                                onRemoveAt = { idx -> sessionManager.removeFromQueue(idx) },
+                                onClearQueue = { sessionManager.clearQueue() },
+                            )
+
+                        TvDestination.SETTINGS ->
+                            SettingsScreen(
+                                autoplayEnabled = sessionState.queueState.autoplayEnabled,
+                                onToggleAutoplay = {
+                                    sessionManager.setAutoplay(!sessionState.queueState.autoplayEnabled)
+                                },
+                            )
+
+                        TvDestination.NOW_PLAYING ->
+                            NowPlayingScreen(
+                                sessionState = sessionState,
+                                onTogglePlayPause = { sessionManager.togglePlayPause() },
+                                onSkipPrevious = { sessionManager.skipPrevious() },
+                                onSkipNext = { sessionManager.skipNext() },
+                                onSeekBy = { delta -> sessionManager.seekBy(delta) },
+                            )
+                    }
+                }
+
+                if (currentDestination != TvDestination.NOW_PLAYING && sessionState.currentTrack != null) {
+                    DockedMiniPlayer(
+                        sessionState = sessionState,
+                        onTogglePlayPause = { sessionManager.togglePlayPause() },
+                        onOpenNowPlaying = { openNowPlaying() },
+                    )
+                }
             }
         }
     }
@@ -112,18 +290,18 @@ private fun CollapsibleNavigationRail(
     onRailFocusChanged: (Boolean) -> Unit,
     onSelect: (TvDestination) -> Unit,
 ) {
-    val railWidth = if (expanded) 220.dp else 76.dp
+    val railWidth = if (expanded) 196.dp else 72.dp
     Column(
         modifier =
             Modifier
                 .width(railWidth)
                 .fillMaxHeight()
                 .background(AlunaraPalette.Surface, RoundedCornerShape(16.dp))
-                .padding(12.dp)
+                .padding(10.dp)
                 .onFocusChanged { onRailFocusChanged(it.hasFocus) },
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        TvDestination.entries.forEachIndexed { index, dest ->
+        RailDestinations.forEachIndexed { index, dest ->
             RailItem(
                 shortTag =
                     when (dest) {
@@ -131,6 +309,7 @@ private fun CollapsibleNavigationRail(
                         TvDestination.SEARCH -> "S"
                         TvDestination.LIBRARY -> "L"
                         TvDestination.SETTINGS -> "G"
+                        TvDestination.NOW_PLAYING -> "N"
                     },
                 label =
                     stringResource(
@@ -139,6 +318,7 @@ private fun CollapsibleNavigationRail(
                             TvDestination.SEARCH -> R.string.nav_search
                             TvDestination.LIBRARY -> R.string.nav_library
                             TvDestination.SETTINGS -> R.string.nav_settings
+                            TvDestination.NOW_PLAYING -> R.string.open_now_playing
                         },
                     ),
                 selected = selected == dest,
@@ -161,11 +341,7 @@ private fun RailItem(
 ) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
-    val bgColor =
-        when {
-            selected -> AlunaraPalette.SecondarySurface
-            else -> Color.Transparent
-        }
+    val bgColor = if (selected) AlunaraPalette.SecondarySurface else Color.Transparent
     val borderStroke =
         if (focused) {
             BorderStroke(2.dp, AlunaraPalette.FocusOutline)
@@ -177,11 +353,10 @@ private fun RailItem(
         modifier =
             modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(46.dp)
                 .background(bgColor, shape)
                 .border(borderStroke, shape)
                 .onFocusChanged { focused = it.isFocused }
-                .focusable()
                 .clickable(onClick = onClick)
                 .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -190,63 +365,18 @@ private fun RailItem(
         Text(
             text = shortTag,
             color = if (selected || focused) AlunaraPalette.PrimaryAccent else AlunaraPalette.MutedText,
-            fontSize = 18.sp,
+            fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
         )
         if (expanded) {
             Text(
                 text = label,
                 color = AlunaraPalette.PrimaryText,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-    }
-}
-
-@Composable
-private fun DestinationContent(destination: TvDestination) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Text(
-            text = stringResource(R.string.status_badge),
-            color = AlunaraPalette.PrimaryAccent,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-        )
-
-        val (headlineRes, bodyRes) =
-            when (destination) {
-                TvDestination.HOME -> R.string.home_headline to R.string.home_body
-                TvDestination.SEARCH -> R.string.search_headline to R.string.search_body
-                TvDestination.LIBRARY -> R.string.library_headline to R.string.library_body
-                TvDestination.SETTINGS -> R.string.settings_headline to R.string.attribution_text
-            }
-
-        Text(
-            text = stringResource(headlineRes),
-            color = AlunaraPalette.PrimaryText,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-
-        Text(
-            text = stringResource(bodyRes),
-            color = AlunaraPalette.MutedText,
-            fontSize = 16.sp,
-            lineHeight = 24.sp,
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = stringResource(R.string.compliance_summary),
-            color = AlunaraPalette.PrimaryText,
-            fontSize = 14.sp,
-        )
     }
 }

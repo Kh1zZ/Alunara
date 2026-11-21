@@ -2,8 +2,8 @@
 
 **Alunara** (`com.alunara.app`) is an independent, audio-only YouTube Music client built specifically for entry-level **Android TV** devices running **Android 9 (API 28)+** with **1 GB RAM** (reference hardware: **Changhong L32G7N**).
 
-> **Current Status:** `Milestone M1 — Foundation Complete (Pending M1 Review)`  
-> M1 modular-lite Gradle build, pinned vendored base engines (`third_party/`), domain policies/tests, Room database v1 schema, Compose for TV shell, Media3 stop-on-exit controller, and GitHub Actions CI are initialized and verified. No alpha/beta release is claimed yet.
+> **Current Status:** `Milestone M2 — Playable Alpha (0.1.0-alpha, Pending M2 Review)`  
+> M2 Playable Alpha implements Guest Mode Home/Search discovery, `visitorData` + `VISIONOS` Media3 audio-only playback, persisted Room queue & position recovery, bounded retry/skip, stop-on-exit via `ProcessLifecycleOwner`, cached synced/plain lyrics, and 720p Dark Forest Green Android TV UI with ID/EN localization. Verified on physical Changhong `AI PONT` TV (`192.168.100.124:5555`); see [docs/M2_HARDWARE_SMOKE.md](docs/M2_HARDWARE_SMOKE.md). Internal Alpha only — Beta (`KI-02` / `FG-04`) stays blocked until M3.
 
 ---
 

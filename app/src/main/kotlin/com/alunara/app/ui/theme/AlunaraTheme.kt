@@ -17,6 +17,9 @@ object AlunaraPalette {
     const val FOCUS_OUTLINE_HEX: Long = 0xFFB5E6CCL
     const val SECONDARY_SURFACE_HEX: Long = 0xFF26382DL
     const val MUTED_TEXT_HEX: Long = 0xFFB2C4B7L
+    const val DIMMED_LYRICS_HEX: Long = 0xFF7E9486L
+    const val ERROR_SURFACE_HEX: Long = 0xFF3E2224L
+    const val ERROR_TEXT_HEX: Long = 0xFFF4B8BCL
 
     val Background = Color(BACKGROUND_HEX)
     val Surface = Color(SURFACE_HEX)
@@ -24,7 +27,10 @@ object AlunaraPalette {
     val PrimaryAccent = Color(PRIMARY_ACCENT_HEX)
     val PrimaryText = Color(PRIMARY_TEXT_HEX)
     val MutedText = Color(MUTED_TEXT_HEX)
+    val DimmedLyrics = Color(DIMMED_LYRICS_HEX)
     val FocusOutline = Color(FOCUS_OUTLINE_HEX)
+    val ErrorSurface = Color(ERROR_SURFACE_HEX)
+    val ErrorText = Color(ERROR_TEXT_HEX)
 }
 
 private val AlunaraColorScheme =

@@ -1,15 +1,21 @@
 package com.alunara.app
 
 import android.content.Context
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import androidx.room.Room
+import com.alunara.app.playback.PlaybackSessionManager
 import com.alunara.app.playback.SinglePlayerLifecycleController
 import com.alunara.core.data.db.AlunaraDatabase
+import com.alunara.core.data.store.CachedLyricsRepository
 import com.alunara.core.data.store.RoomQueueStore
 import com.alunara.core.domain.contract.LyricsEngine
 import com.alunara.core.domain.contract.MusicEngine
 import com.alunara.core.domain.contract.QueueStore
 import com.alunara.core.lyrics.ArchiveTuneLyricsAdapter
 import com.alunara.core.music.ArchiveTuneMusicAdapter
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 /**
  * Lightweight lazy dependency container avoiding eager network or heavy JS engine initialization
@@ -19,6 +25,16 @@ class AppContainer(
     context: Context,
 ) {
     private val appContext = context.applicationContext
+
+    val okHttpClient: OkHttpClient by lazy {
+        OkHttpClient
+            .Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
 
     val database: AlunaraDatabase by lazy {
         Room
@@ -38,10 +54,30 @@ class AppContainer(
     }
 
     val lyricsEngine: LyricsEngine by lazy {
-        ArchiveTuneLyricsAdapter()
+        CachedLyricsRepository(
+            delegate = ArchiveTuneLyricsAdapter(),
+            cacheDao = database.lyricsCacheDao(),
+        )
     }
 
     val playbackLifecycleController: SinglePlayerLifecycleController by lazy {
-        SinglePlayerLifecycleController(appContext)
+        SinglePlayerLifecycleController(appContext, okHttpClient)
+    }
+
+    val playbackSessionManager: PlaybackSessionManager by lazy {
+        PlaybackSessionManager(
+            musicEngine = musicEngine,
+            lyricsEngine = lyricsEngine,
+            queueStore = queueStore,
+            playerController = playbackLifecycleController,
+        )
+    }
+
+    val playbackLifecycleObserver: DefaultLifecycleObserver by lazy {
+        object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) {
+                playbackSessionManager.onAppBackgroundedOrStopped()
+            }
+        }
     }
 }
