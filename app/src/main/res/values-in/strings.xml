@@ -96,9 +96,14 @@
     <string name="cancel">Batal</string>
     <string name="login_webview_button">Masuk Akun YouTube Music (WebView)</string>
     <string name="login_webview_title">Masuk Akun YouTube Music</string>
-    <string name="login_webview_hint">Gunakan D-pad / OK / Keyboard TV untuk login Google. Otomatis selesai saat masuk ke music.youtube.com.</string>
+    <string name="login_webview_hint">Ketik di kolom bantu di bawah pakai keyboard TV lalu pilih Isi &amp; Lanjut, atau arahkan tombol web dengan Elemen ▶ / Klik.</string>
     <string name="login_verifying">Memverifikasi sesi YouTube Music…</string>
     <string name="login_error_prefix">Verifikasi login gagal: %1$s</string>
+    <string name="webview_input_hint">Ketik email / sandi / kode di sini dengan keyboard TV…</string>
+    <string name="webview_fill_and_next">Isi &amp; Lanjut</string>
+    <string name="webview_prev_element">◀ Elemen</string>
+    <string name="webview_next_element">Elemen ▶</string>
+    <string name="webview_click_element">Klik</string>
     <string name="attribution_text">Alunara adalah klien YouTube Music independen untuk Android TV. Integrasi musik dibangun di atas ArchiveTune Core (github.com/rukamori/core) dan lirik di atas ArchiveTune Lyrics (github.com/rukamori/lyrics), proyek open-source oleh rukamori. Alunara tidak berafiliasi secara resmi atau didukung oleh ArchiveTune. Berlisensi GNU GPL v3.0.</string>
     <string name="compliance_summary">Cache Disk Audio: Nonaktif (0 MB) · Batas Cache Dinamis: 128 MB · Provider Lirik: lrclib, simpmusic, kugou (maks 2 paralel) · Stop-on-Exit: Aktif</string>
 </resources>

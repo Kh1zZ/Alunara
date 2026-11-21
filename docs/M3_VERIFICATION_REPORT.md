@@ -64,3 +64,16 @@ Implemented Option 1 (`YouTubeWebViewLoginScreen.kt`) using the device's system 
 | **Changhong TV WebView Sign-In Load** | Tapping **`Masuk Akun YouTube Music (WebView)`** (`SettingsScreen` / `LibraryScreen`) loaded Google's official sign-in page (`accounts.google.com`, *"Login · Lanjutkan ke YouTube Music"*) with D-pad/IME input ready and **zero `403 disallowed_useragent`** |
 | **WebView Memory & Stability (`192.168.100.124:5555`)** | Active Chromium WebView `dumpsys meminfo`: `TOTAL PSS: 109,289 KB` (`Java Heap: 7,172 KB`, `Native Heap: 7,484 KB`, `Code: 25,048 KB`, `Stack: 972 KB`, `Graphics: 16,444 KB`, `TOTAL RSS: 167,372 KB`, `TOTAL SWAP PSS: 16,493 KB`); `logcat` (`AlunaraPlayback`, `AndroidRuntime`, `chromium`): `0` crashes, `0` ANRs, `0` errors |
 
+---
+
+## 5. M3.2 High-Contrast 3-State TV Focus & WebView Input Assist Fix
+
+Resolved two real-device usability findings from Changhong TV testing:
+
+| Check | Measured M3.2 Outcome |
+|---|---|
+| **Gradle Unit Tests & Lint** | **`52 / 52` passed** across `15` suites (`0` failed, `0` skipped); `:app:lintDebug` passed (`0` errors, `0` warnings); `app-debug.apk` = `78,516,461` bytes (`74.88 MiB`) |
+| **3-State Focus Contrast (`AlunaraPalette` / `TvComponents` / `RailItem`)** | Replaced ambiguous solid mint fill on unfocused `highlighted = true` buttons/tabs/rail items with clear 3-state separation: **Normal Unfocused** (`#1D2B22` surface, `#E3EEE5` text, `#26382D` border), **Selected/Primary Unfocused** (`#26382D` dark emerald, `#85BDA0` mint text/icon, `55%` mint outline), and **D-Pad Focused** (`#C8F0DA` bright mint-white fill, `#0B120E` bold dark text/icon, `2.5.dp` `#FFFFFF` white focus ring). Verified visually on Changhong Settings (`AKTIF` unfocused vs `Masuk Akun YouTube Music (WebView)` focused) and Rail (`Beranda` focused vs `Pengaturan` selected) |
+| **WebView TV Remote Input Assist Bar (`YouTubeWebViewLoginScreen`)** | Added native Compose `BasicTextField` input assist bar (`imeAction = Send`, auto-focused on open for immediate Gboard TV popup), **`Isi & Lanjut`** (`Fill & Next`) JS injector (`HTMLInputElement.prototype.value` setter + `input`/`change` events + Google Next click), and **`◀ Elemen` / `Elemen ▶` / `Klik`** DOM navigator highlighting active web elements with `3px solid #FFD54F`. Verified live on Changhong TV: typed `"alunara.test@example.com"`, submitted into Google's `"Email atau nomor telepon"` input box via `Isi & Lanjut`, and observed server validation response (`Tidak dapat menemukan akun ini`) with `0` crashes/ANRs/errors |
+
+

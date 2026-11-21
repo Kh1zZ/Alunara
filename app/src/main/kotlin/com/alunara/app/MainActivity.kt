@@ -546,17 +546,32 @@ private fun RailItem(
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
     val bgColor by animateColorAsState(
-        targetValue = if (selected) AlunaraPalette.SecondarySurface else Color.Transparent,
+        targetValue =
+            when {
+                focused -> AlunaraPalette.FocusedButtonBg
+                selected -> AlunaraPalette.SecondarySurface
+                else -> Color.Transparent
+            },
         animationSpec = tween(150),
         label = "rail_item_bg",
     )
     val borderColor by animateColorAsState(
-        targetValue = if (focused) AlunaraPalette.FocusOutline else Color.Transparent,
+        targetValue =
+            when {
+                focused -> AlunaraPalette.FocusRingStrong
+                selected -> AlunaraPalette.PrimaryAccent.copy(alpha = 0.45f)
+                else -> Color.Transparent
+            },
         animationSpec = tween(150),
         label = "rail_item_border",
     )
     val tintColor by animateColorAsState(
-        targetValue = if (selected || focused) AlunaraPalette.PrimaryAccent else AlunaraPalette.MutedText,
+        targetValue =
+            when {
+                focused -> AlunaraPalette.FocusedButtonContent
+                selected -> AlunaraPalette.PrimaryAccent
+                else -> AlunaraPalette.MutedText
+            },
         animationSpec = tween(150),
         label = "rail_item_tint",
     )
@@ -588,7 +603,7 @@ private fun RailItem(
                 Spacer(modifier = Modifier.width(14.dp))
                 Text(
                     text = label,
-                    color = AlunaraPalette.PrimaryText,
+                    color = if (focused) AlunaraPalette.FocusedButtonContent else AlunaraPalette.PrimaryText,
                     fontSize = 15.sp,
                     fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,

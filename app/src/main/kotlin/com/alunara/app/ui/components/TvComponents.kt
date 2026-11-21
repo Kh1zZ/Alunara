@@ -103,10 +103,10 @@ fun TvFocusableButton(
     val bgColor by animateColorAsState(
         targetValue =
             when {
-                !enabled -> AlunaraPalette.Surface
-                highlighted -> AlunaraPalette.PrimaryAccent
-                focused -> AlunaraPalette.SecondarySurface
-                else -> AlunaraPalette.SecondarySurface.copy(alpha = 0.72f)
+                !enabled -> AlunaraPalette.Surface.copy(alpha = 0.45f)
+                focused -> AlunaraPalette.FocusedButtonBg
+                highlighted -> AlunaraPalette.SecondarySurface
+                else -> AlunaraPalette.Surface
             },
         animationSpec = tween(FOCUS_ANIM_MS),
         label = "btn_bg",
@@ -115,14 +115,20 @@ fun TvFocusableButton(
         targetValue =
             when {
                 !enabled -> AlunaraPalette.DimmedLyrics
-                highlighted -> AlunaraPalette.Background
+                focused -> AlunaraPalette.FocusedButtonContent
+                highlighted -> AlunaraPalette.PrimaryAccent
                 else -> AlunaraPalette.PrimaryText
             },
         animationSpec = tween(FOCUS_ANIM_MS),
         label = "btn_fg",
     )
     val borderColor by animateColorAsState(
-        targetValue = if (focused) AlunaraPalette.FocusOutline else Color.Transparent,
+        targetValue =
+            when {
+                focused -> AlunaraPalette.FocusRingStrong
+                highlighted -> AlunaraPalette.PrimaryAccent.copy(alpha = 0.55f)
+                else -> AlunaraPalette.SecondarySurface
+            },
         animationSpec = tween(FOCUS_ANIM_MS),
         label = "btn_border",
     )
@@ -173,10 +179,10 @@ fun TvIconButton(
     val bgColor by animateColorAsState(
         targetValue =
             when {
-                !enabled -> AlunaraPalette.Surface.copy(alpha = 0.7f)
-                highlighted -> AlunaraPalette.PrimaryAccent
-                focused -> AlunaraPalette.SecondarySurface
-                else -> AlunaraPalette.Surface.copy(alpha = 0.85f)
+                !enabled -> AlunaraPalette.Surface.copy(alpha = 0.45f)
+                focused -> AlunaraPalette.FocusedButtonBg
+                highlighted -> AlunaraPalette.SecondarySurface
+                else -> AlunaraPalette.Surface
             },
         animationSpec = tween(FOCUS_ANIM_MS),
         label = "icon_btn_bg",
@@ -185,14 +191,20 @@ fun TvIconButton(
         targetValue =
             when {
                 !enabled -> AlunaraPalette.DimmedLyrics
-                highlighted -> AlunaraPalette.Background
+                focused -> AlunaraPalette.FocusedButtonContent
+                highlighted -> AlunaraPalette.PrimaryAccent
                 else -> AlunaraPalette.PrimaryText
             },
         animationSpec = tween(FOCUS_ANIM_MS),
         label = "icon_btn_tint",
     )
     val borderColor by animateColorAsState(
-        targetValue = if (focused) AlunaraPalette.FocusOutline else Color.Transparent,
+        targetValue =
+            when {
+                focused -> AlunaraPalette.FocusRingStrong
+                highlighted -> AlunaraPalette.PrimaryAccent.copy(alpha = 0.55f)
+                else -> AlunaraPalette.SecondarySurface
+            },
         animationSpec = tween(FOCUS_ANIM_MS),
         label = "icon_btn_border",
     )
@@ -232,15 +244,20 @@ fun TvSongRow(
     val bgColor by animateColorAsState(
         targetValue =
             when {
+                rowFocused -> AlunaraPalette.FocusedCardSurface
                 isActive -> AlunaraPalette.SecondarySurface
-                rowFocused -> AlunaraPalette.SecondarySurface.copy(alpha = 0.85f)
                 else -> AlunaraPalette.Surface.copy(alpha = 0.72f)
             },
         animationSpec = tween(FOCUS_ANIM_MS),
         label = "row_bg",
     )
     val borderColor by animateColorAsState(
-        targetValue = if (rowFocused) AlunaraPalette.FocusOutline else Color.Transparent,
+        targetValue =
+            when {
+                rowFocused -> AlunaraPalette.FocusRingStrong
+                isActive -> AlunaraPalette.PrimaryAccent.copy(alpha = 0.45f)
+                else -> Color.Transparent
+            },
         animationSpec = tween(FOCUS_ANIM_MS),
         label = "row_border",
     )
@@ -320,12 +337,12 @@ fun TvMediaCard(
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(AlunaraDimens.RadiusCard)
     val bgColor by animateColorAsState(
-        targetValue = if (focused) AlunaraPalette.SecondarySurface else AlunaraPalette.Surface.copy(alpha = 0.72f),
+        targetValue = if (focused) AlunaraPalette.FocusedCardSurface else AlunaraPalette.Surface.copy(alpha = 0.72f),
         animationSpec = tween(FOCUS_ANIM_MS),
         label = "card_bg",
     )
     val borderColor by animateColorAsState(
-        targetValue = if (focused) AlunaraPalette.FocusOutline else Color.Transparent,
+        targetValue = if (focused) AlunaraPalette.FocusRingStrong else Color.Transparent,
         animationSpec = tween(FOCUS_ANIM_MS),
         label = "card_border",
     )

@@ -30,6 +30,10 @@ object AlunaraPalette {
     val MutedText = Color(MUTED_TEXT_HEX)
     val DimmedLyrics = Color(DIMMED_LYRICS_HEX)
     val FocusOutline = Color(FOCUS_OUTLINE_HEX)
+    val FocusedButtonBg = Color(0xFFC8F0DAL)
+    val FocusedButtonContent = Color(0xFF0B120EL)
+    val FocusedCardSurface = Color(0xFF2E493AL)
+    val FocusRingStrong = Color(0xFFFFFFFFL)
     val ErrorSurface = Color(ERROR_SURFACE_HEX)
     val ErrorText = Color(ERROR_TEXT_HEX)
 }
@@ -49,7 +53,7 @@ object AlunaraDimens {
     val CardArtworkSize = 132.dp
     val RadiusControl = 12.dp
     val RadiusCard = 14.dp
-    val FocusBorderWidth = 2.dp
+    val FocusBorderWidth = 2.5.dp
 }
 
 private val AlunaraColorScheme =
