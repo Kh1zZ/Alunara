@@ -22,7 +22,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.Composable
@@ -48,6 +48,9 @@ import com.alunara.app.ui.components.TvMediaCard
 import com.alunara.app.ui.components.TvSongRow
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
+import com.alunara.core.domain.model.AlbumRef
+import com.alunara.core.domain.model.ArtistRef
+import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
 
@@ -62,6 +65,9 @@ fun SearchScreen(
     onSubmitSearch: () -> Unit,
     onPlaySong: (List<Track>, Int) -> Unit,
     onEnqueueSong: (Track) -> Unit,
+    onOpenAlbum: (AlbumRef) -> Unit,
+    onOpenArtist: (ArtistRef) -> Unit,
+    onOpenPlaylist: (PlaylistSummary) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var fieldFocused by remember { mutableStateOf(false) }
@@ -179,7 +185,7 @@ fun SearchScreen(
                 )
             }
 
-            results.songs.isEmpty() && results.albums.isEmpty() && results.artists.isEmpty() -> {
+            results.songs.isEmpty() && results.albums.isEmpty() && results.artists.isEmpty() && results.playlists.isEmpty() -> {
                 Text(
                     text = stringResource(R.string.search_empty),
                     color = AlunaraPalette.MutedText,
@@ -209,7 +215,7 @@ fun SearchScreen(
                                 isActive = song.id == activeTrackId,
                                 onPlayClick = { onPlaySong(results.songs, index) },
                                 secondaryActionLabel = stringResource(R.string.add_to_queue),
-                                secondaryActionIcon = Icons.Rounded.PlaylistAdd,
+                                secondaryActionIcon = Icons.AutoMirrored.Rounded.PlaylistAdd,
                                 onSecondaryClick = { onEnqueueSong(song) },
                             )
                         }
@@ -232,7 +238,31 @@ fun SearchScreen(
                                         title = album.title,
                                         subtitle = album.artists.joinToString(", ") { it.name },
                                         thumbnailUrl = album.thumbnailUrl,
-                                        onClick = {},
+                                        onClick = { onOpenAlbum(album) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (results.playlists.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = stringResource(R.string.section_playlists),
+                                color = AlunaraPalette.PrimaryAccent,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        item {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(results.playlists, key = { "pl-${it.id}" }) { playlist ->
+                                    TvMediaCard(
+                                        title = playlist.title,
+                                        subtitle = playlist.author ?: playlist.trackCountText.orEmpty(),
+                                        thumbnailUrl = playlist.thumbnailUrl,
+                                        onClick = { onOpenPlaylist(playlist) },
                                     )
                                 }
                             }
@@ -257,7 +287,11 @@ fun SearchScreen(
                                         subtitle = "",
                                         thumbnailUrl = artist.thumbnailUrl,
                                         circular = true,
-                                        onClick = {},
+                                        onClick = {
+                                            if (!artist.id.isNullOrBlank()) {
+                                                onOpenArtist(artist)
+                                            }
+                                        },
                                     )
                                 }
                             }

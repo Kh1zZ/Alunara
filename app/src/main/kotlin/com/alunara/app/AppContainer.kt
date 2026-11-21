@@ -8,7 +8,11 @@ import com.alunara.app.playback.PlaybackSessionManager
 import com.alunara.app.playback.SinglePlayerLifecycleController
 import com.alunara.core.data.db.AlunaraDatabase
 import com.alunara.core.data.store.CachedLyricsRepository
+import com.alunara.core.data.store.KeystoreAccountSessionStore
+import com.alunara.core.data.store.RoomCatalogStore
 import com.alunara.core.data.store.RoomQueueStore
+import com.alunara.core.domain.contract.AccountSessionStore
+import com.alunara.core.domain.contract.CatalogStore
 import com.alunara.core.domain.contract.LyricsEngine
 import com.alunara.core.domain.contract.MusicEngine
 import com.alunara.core.domain.contract.QueueStore
@@ -49,6 +53,14 @@ class AppContainer(
         RoomQueueStore(database.queueDao())
     }
 
+    val catalogStore: CatalogStore by lazy {
+        RoomCatalogStore(database.favoritesDao(), database.historyDao())
+    }
+
+    val accountSessionStore: AccountSessionStore by lazy {
+        KeystoreAccountSessionStore(appContext)
+    }
+
     val musicEngine: MusicEngine by lazy {
         ArchiveTuneMusicAdapter()
     }
@@ -70,6 +82,8 @@ class AppContainer(
             lyricsEngine = lyricsEngine,
             queueStore = queueStore,
             playerController = playbackLifecycleController,
+            catalogStore = catalogStore,
+            accountSessionStore = accountSessionStore,
         )
     }
 

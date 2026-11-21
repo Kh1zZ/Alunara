@@ -1,10 +1,16 @@
 package com.alunara.core.music
 
 import com.alunara.core.domain.contract.MusicEngine
+import com.alunara.core.domain.model.AccountCredentials
+import com.alunara.core.domain.model.AccountProfile
+import com.alunara.core.domain.model.AlbumDetail
 import com.alunara.core.domain.model.AlbumRef
+import com.alunara.core.domain.model.ArtistDetail
 import com.alunara.core.domain.model.ArtistRef
 import com.alunara.core.domain.model.AudioStreamSource
 import com.alunara.core.domain.model.HomeSection
+import com.alunara.core.domain.model.PlaylistDetail
+import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
 import com.alunara.core.domain.policy.AudioFormatCandidate
@@ -18,7 +24,9 @@ import moe.rukamori.archivetune.innertube.NewPipeUtils
 import moe.rukamori.archivetune.innertube.PlaybackAuthState
 import moe.rukamori.archivetune.innertube.models.AlbumItem
 import moe.rukamori.archivetune.innertube.models.ArtistItem
+import moe.rukamori.archivetune.innertube.models.PlaylistItem
 import moe.rukamori.archivetune.innertube.models.SongItem
+import moe.rukamori.archivetune.innertube.models.WatchEndpoint
 import moe.rukamori.archivetune.innertube.models.YouTubeClient
 import moe.rukamori.archivetune.innertube.models.response.PlayerResponse
 import java.util.concurrent.atomic.AtomicBoolean
@@ -60,12 +68,13 @@ class ArchiveTuneMusicAdapter internal constructor(
             return Result.success(SearchResults())
         }
         ensureGatekeeperUnlocked()
-        backend.useLoginForBrowse = false
+        backend.useLoginForBrowse = backend.hasLoginCookie()
 
         return backend.searchSummary(normalizedQuery).map { page ->
             val songs = mutableListOf<Track>()
             val albums = mutableListOf<AlbumRef>()
             val artists = mutableListOf<ArtistRef>()
+            val playlists = mutableListOf<PlaylistSummary>()
 
             page.summaries
                 .asSequence()
@@ -75,6 +84,7 @@ class ArchiveTuneMusicAdapter internal constructor(
                         is SongItem -> songs += item.toDomainTrack()
                         is AlbumItem -> albums += item.toDomainAlbum()
                         is ArtistItem -> artists += item.toDomainArtist()
+                        is PlaylistItem -> playlists += item.toDomainPlaylist()
                         else -> Unit
                     }
                 }
@@ -83,13 +93,14 @@ class ArchiveTuneMusicAdapter internal constructor(
                 songs = songs.distinctBy { it.id },
                 albums = albums.distinctBy { it.id },
                 artists = artists.distinctBy { it.id ?: it.name },
+                playlists = playlists.distinctBy { it.id },
             )
         }
     }
 
     override suspend fun fetchGuestHome(): Result<List<HomeSection>> {
         ensureGatekeeperUnlocked()
-        backend.useLoginForBrowse = false
+        backend.useLoginForBrowse = backend.hasLoginCookie()
 
         return backend.home().map { page ->
             page.sections.mapNotNull { section ->
@@ -108,6 +119,176 @@ class ArchiveTuneMusicAdapter internal constructor(
         }
     }
 
+    override suspend fun fetchAlbumDetail(albumId: String): Result<AlbumDetail> {
+        val normalizedId = albumId.trim()
+        if (normalizedId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Album id must not be blank"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = backend.hasLoginCookie()
+
+        return backend.album(normalizedId, withSongs = true).map { page ->
+            AlbumDetail(
+                album = page.album.toDomainAlbum(),
+                tracks = page.songs.map { it.toDomainTrack() }.distinctBy { it.id },
+            )
+        }
+    }
+
+    override suspend fun fetchPlaylistDetail(playlistId: String): Result<PlaylistDetail> {
+        val normalizedId = playlistId.trim().removePrefix("VL")
+        if (normalizedId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Playlist id must not be blank"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = backend.hasLoginCookie()
+
+        return backend.playlist(normalizedId).map { page ->
+            PlaylistDetail(
+                playlist = page.playlist.toDomainPlaylist(),
+                description = page.playlist.description,
+                tracks = page.songs.map { it.toDomainTrack() }.distinctBy { it.id },
+            )
+        }
+    }
+
+    override suspend fun fetchArtistDetail(artistId: String): Result<ArtistDetail> {
+        val normalizedId = artistId.trim()
+        if (normalizedId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Artist id must not be blank"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = backend.hasLoginCookie()
+
+        return backend.artist(normalizedId).map { page ->
+            val topSongs = mutableListOf<Track>()
+            val albums = mutableListOf<AlbumRef>()
+            val playlists = mutableListOf<PlaylistSummary>()
+
+            page.sections
+                .asSequence()
+                .flatMap { it.items.asSequence() }
+                .forEach { item ->
+                    when (item) {
+                        is SongItem -> topSongs += item.toDomainTrack()
+                        is AlbumItem -> albums += item.toDomainAlbum()
+                        is PlaylistItem -> playlists += item.toDomainPlaylist()
+                        else -> Unit
+                    }
+                }
+
+            ArtistDetail(
+                artist = page.artist.toDomainArtist(),
+                description = page.description,
+                topSongs = topSongs.distinctBy { it.id },
+                albums = albums.distinctBy { it.id },
+                playlists = playlists.distinctBy { it.id },
+            )
+        }
+    }
+
+    override suspend fun fetchRadioTracks(
+        seedTrackId: String,
+        playlistId: String?,
+    ): Result<List<Track>> {
+        val normalizedId = seedTrackId.trim()
+        if (normalizedId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Seed track id must not be blank"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = backend.hasLoginCookie()
+
+        val primaryEndpoint = WatchEndpoint(videoId = normalizedId, playlistId = playlistId ?: "RDAMVM$normalizedId")
+        val primaryResult = backend.next(primaryEndpoint)
+        val primaryTracks =
+            primaryResult
+                .getOrNull()
+                ?.items
+                ?.map { it.toDomainTrack() }
+                ?.distinctBy { it.id }
+                .orEmpty()
+        if (primaryTracks.any { it.id != normalizedId }) {
+            return Result.success(primaryTracks.take(25))
+        }
+
+        val fallbackResult = backend.next(WatchEndpoint(videoId = normalizedId))
+        return fallbackResult.map { page ->
+            page.items
+                .map { it.toDomainTrack() }
+                .distinctBy { it.id }
+                .take(25)
+        }
+    }
+
+    override suspend fun verifyAccountSession(credentials: AccountCredentials): Result<AccountProfile> {
+        ensureGatekeeperUnlocked()
+        val candidateAuth =
+            PlaybackAuthState(
+                cookie = credentials.cookie,
+                visitorData = credentials.visitorData ?: backend.visitorData,
+                dataSyncId = credentials.dataSyncId,
+                poToken = credentials.poToken,
+            ).normalized()
+        if (!candidateAuth.hasLoginCookie) {
+            return Result.failure(IllegalArgumentException("Missing required YouTube login cookie (SAPISID)"))
+        }
+
+        backend.authState = candidateAuth
+        backend.useLoginForBrowse = true
+        return backend.accountInfo().fold(
+            onSuccess = { info ->
+                val stableId =
+                    info.channelHandle?.takeIf { it.isNotBlank() }
+                        ?: info.email?.takeIf { it.isNotBlank() }
+                        ?: candidateAuth.fingerprint.take(16)
+                Result.success(
+                    AccountProfile(
+                        accountId = stableId,
+                        name = info.name,
+                        email = info.email,
+                        channelHandle = info.channelHandle,
+                        avatarUrl = info.thumbnailUrl,
+                    ),
+                )
+            },
+            onFailure = { error ->
+                clearAccountSession()
+                Result.failure(error)
+            },
+        )
+    }
+
+    override fun clearAccountSession() {
+        val currentVisitor = backend.authState.visitorData ?: backend.visitorData
+        backend.authState = PlaybackAuthState(visitorData = currentVisitor)
+        backend.useLoginForBrowse = false
+    }
+
+    override suspend fun fetchAccountPlaylists(): Result<List<PlaylistSummary>> {
+        if (!backend.hasLoginCookie()) {
+            return Result.failure(IllegalStateException("Account login required"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = true
+        return backend.library("FEmusic_liked_playlists", tabIndex = 0).map { page ->
+            page.items
+                .filterIsInstance<PlaylistItem>()
+                .map { it.toDomainPlaylist() }
+                .distinctBy { it.id }
+        }
+    }
+
+    override suspend fun setRemoteTrackLike(
+        trackId: String,
+        liked: Boolean,
+    ): Result<Unit> {
+        if (!backend.hasLoginCookie()) {
+            return Result.failure(IllegalStateException("Account login required"))
+        }
+        ensureGatekeeperUnlocked()
+        return backend.likeVideo(trackId.trim(), liked)
+    }
+
     override suspend fun resolveAudioStream(trackId: String): Result<AudioStreamSource> {
         val normalizedId = trackId.trim()
         if (normalizedId.isEmpty()) {
@@ -115,7 +296,8 @@ class ArchiveTuneMusicAdapter internal constructor(
         }
 
         ensureGatekeeperUnlocked()
-        val guestAuthState = ensureGuestAuthState()
+        val useLoginContext = backend.hasPlaybackLoginContext()
+        val playbackAuth = if (useLoginContext) backend.currentPlaybackAuthState() else ensureGuestAuthState()
         val guestClients =
             listOf(
                 YouTubeClient.VISIONOS,
@@ -132,7 +314,8 @@ class ArchiveTuneMusicAdapter internal constructor(
                     trackId = normalizedId,
                     client = client,
                     signatureTimestamp = null,
-                    authState = guestAuthState,
+                    authState = playbackAuth,
+                    setLogin = useLoginContext,
                     requireDirectUrl = true,
                 )
             if (resolved.isSuccess) return resolved
@@ -153,7 +336,8 @@ class ArchiveTuneMusicAdapter internal constructor(
                 trackId = normalizedId,
                 client = clientForWebFallback(),
                 signatureTimestamp = sigTs,
-                authState = guestAuthState,
+                authState = playbackAuth,
+                setLogin = useLoginContext,
                 requireDirectUrl = false,
             )
         if (webRemixResult.isSuccess) return webRemixResult
@@ -196,6 +380,7 @@ class ArchiveTuneMusicAdapter internal constructor(
         client: YouTubeClient,
         signatureTimestamp: Int?,
         authState: PlaybackAuthState,
+        setLogin: Boolean,
         requireDirectUrl: Boolean,
     ): Result<AudioStreamSource> {
         val response =
@@ -206,7 +391,7 @@ class ArchiveTuneMusicAdapter internal constructor(
                     client = client,
                     signatureTimestamp = signatureTimestamp,
                     poToken = null,
-                    setLogin = false,
+                    setLogin = setLogin,
                     authState = authState,
                 ).getOrElse { return Result.failure(it) }
 
@@ -296,6 +481,15 @@ class ArchiveTuneMusicAdapter internal constructor(
         ArtistRef(
             id = id,
             name = title,
+            thumbnailUrl = thumbnail,
+        )
+
+    private fun PlaylistItem.toDomainPlaylist(): PlaylistSummary =
+        PlaylistSummary(
+            id = id,
+            title = title,
+            author = author?.name,
+            trackCountText = songCountText,
             thumbnailUrl = thumbnail,
         )
 }

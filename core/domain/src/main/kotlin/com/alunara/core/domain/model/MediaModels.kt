@@ -40,7 +40,65 @@ data class SearchResults(
     val songs: List<Track> = emptyList(),
     val albums: List<AlbumRef> = emptyList(),
     val artists: List<ArtistRef> = emptyList(),
+    val playlists: List<PlaylistSummary> = emptyList(),
 )
+
+data class AlbumDetail(
+    val album: AlbumRef,
+    val tracks: List<Track>,
+)
+
+data class PlaylistDetail(
+    val playlist: PlaylistSummary,
+    val description: String? = null,
+    val tracks: List<Track>,
+)
+
+data class ArtistDetail(
+    val artist: ArtistRef,
+    val description: String? = null,
+    val topSongs: List<Track> = emptyList(),
+    val albums: List<AlbumRef> = emptyList(),
+    val playlists: List<PlaylistSummary> = emptyList(),
+)
+
+data class AccountCredentials(
+    val cookie: String,
+    val dataSyncId: String? = null,
+    val visitorData: String? = null,
+    val poToken: String? = null,
+) {
+    override fun toString(): String = "AccountCredentials(redacted)"
+}
+
+data class AccountProfile(
+    val accountId: String,
+    val name: String,
+    val email: String? = null,
+    val channelHandle: String? = null,
+    val avatarUrl: String? = null,
+)
+
+sealed interface AuthSessionState {
+    val scope: AccountScope
+
+    data object Guest : AuthSessionState {
+        override val scope: AccountScope = AccountScope.Guest
+    }
+
+    data class Authenticated(
+        val profile: AccountProfile,
+    ) : AuthSessionState {
+        override val scope: AccountScope = AccountScope.Account(profile.accountId)
+    }
+
+    data class Expired(
+        val previousAccountId: String?,
+        val reason: String,
+    ) : AuthSessionState {
+        override val scope: AccountScope = AccountScope.Guest
+    }
+}
 
 data class HomeSection(
     val title: String,

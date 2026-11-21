@@ -18,6 +18,29 @@ import com.alunara.core.domain.model.AudioStreamSource
 import okhttp3.Call
 import okhttp3.OkHttpClient
 
+interface AudioPlayerControl : PlaybackLifecycleController {
+    val hasActivePlayer: Boolean
+
+    fun prepareAudioStream(
+        source: AudioStreamSource,
+        startPositionMs: Long,
+        playWhenReady: Boolean,
+        listener: Player.Listener,
+    )
+
+    fun play()
+
+    fun pause()
+
+    fun seekTo(positionMs: Long)
+
+    fun currentPositionMs(): Long
+
+    fun durationMs(): Long
+
+    fun isPlaying(): Boolean
+}
+
 /**
  * Enforces PRD §6.1 & §6.3:
  * - At most one active audio-only ExoPlayer instance per process (video tracks disabled).
@@ -30,12 +53,12 @@ class SinglePlayerLifecycleController(
     private val okHttpClient: OkHttpClient,
     private val onPersistPositionMs: (Long) -> Unit = {},
 ) : DefaultLifecycleObserver,
-    PlaybackLifecycleController {
+    AudioPlayerControl {
     private val appContext = context.applicationContext
     private var player: ExoPlayer? = null
     private var attachedListener: Player.Listener? = null
 
-    val hasActivePlayer: Boolean
+    override val hasActivePlayer: Boolean
         get() = player != null
 
     @OptIn(UnstableApi::class)
@@ -83,7 +106,7 @@ class SinglePlayerLifecycleController(
 
     @OptIn(UnstableApi::class)
     @Synchronized
-    fun prepareAudioStream(
+    override fun prepareAudioStream(
         source: AudioStreamSource,
         startPositionMs: Long,
         playWhenReady: Boolean,
@@ -104,28 +127,28 @@ class SinglePlayerLifecycleController(
     }
 
     @Synchronized
-    fun play() {
+    override fun play() {
         player?.play()
     }
 
     @Synchronized
-    fun pause() {
+    override fun pause() {
         player?.pause()
     }
 
     @Synchronized
-    fun seekTo(positionMs: Long) {
+    override fun seekTo(positionMs: Long) {
         player?.seekTo(positionMs.coerceAtLeast(0L))
     }
 
     @Synchronized
-    fun currentPositionMs(): Long = player?.currentPosition?.coerceAtLeast(0L) ?: 0L
+    override fun currentPositionMs(): Long = player?.currentPosition?.coerceAtLeast(0L) ?: 0L
 
     @Synchronized
-    fun durationMs(): Long = player?.duration?.takeIf { it > 0L && it != C.TIME_UNSET } ?: 0L
+    override fun durationMs(): Long = player?.duration?.takeIf { it > 0L && it != C.TIME_UNSET } ?: 0L
 
     @Synchronized
-    fun isPlaying(): Boolean = player?.isPlaying == true
+    override fun isPlaying(): Boolean = player?.isPlaying == true
 
     override fun onStop(owner: LifecycleOwner) {
         onAppBackgroundedOrStopped()

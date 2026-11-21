@@ -1,5 +1,6 @@
 package com.alunara.core.music
 
+import com.alunara.core.domain.model.AccountCredentials
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -16,6 +17,7 @@ import moe.rukamori.archivetune.innertube.models.Artist
 import moe.rukamori.archivetune.innertube.models.ArtistItem
 import moe.rukamori.archivetune.innertube.models.BrowseEndpoint
 import moe.rukamori.archivetune.innertube.models.MediaInfo
+import moe.rukamori.archivetune.innertube.models.PlaylistItem
 import moe.rukamori.archivetune.innertube.models.ResponseContext
 import moe.rukamori.archivetune.innertube.models.SearchSuggestions
 import moe.rukamori.archivetune.innertube.models.SongItem
@@ -27,6 +29,8 @@ import moe.rukamori.archivetune.innertube.pages.AlbumPage
 import moe.rukamori.archivetune.innertube.pages.ArtistItemsContinuationPage
 import moe.rukamori.archivetune.innertube.pages.ArtistItemsPage
 import moe.rukamori.archivetune.innertube.pages.ArtistPage
+import moe.rukamori.archivetune.innertube.pages.ArtistSection
+import moe.rukamori.archivetune.innertube.pages.ArtistSectionLayout
 import moe.rukamori.archivetune.innertube.pages.BrowseResult
 import moe.rukamori.archivetune.innertube.pages.ChartsPage
 import moe.rukamori.archivetune.innertube.pages.ExplorePage
@@ -58,7 +62,11 @@ class ArchiveTuneMusicAdapterTest {
         override val historySyncEvent: SharedFlow<Unit> = MutableSharedFlow()
         override var authState: PlaybackAuthState = PlaybackAuthState.EMPTY
         override var locale: YouTubeLocale = YouTubeLocale("US", "en")
-        override var visitorData: String? = null
+        override var visitorData: String?
+            get() = authState.visitorData
+            set(value) {
+                authState = authState.copy(visitorData = value)
+            }
         override var dataSyncId: String? = null
         override var cookie: String? = null
         override var poToken: String? = null
@@ -75,8 +83,8 @@ class ArchiveTuneMusicAdapterTest {
         override val streamOkHttpProxy: Proxy = Proxy.NO_PROXY
         override fun notifyHistorySynced() = Unit
         override fun currentPlaybackAuthState(): PlaybackAuthState = authState
-        override fun hasLoginCookie(): Boolean = false
-        override fun hasPlaybackLoginContext(): Boolean = false
+        override fun hasLoginCookie(): Boolean = authState.hasLoginCookie
+        override fun hasPlaybackLoginContext(): Boolean = authState.hasPlaybackLoginContext
         override fun createDnsOverHttps(url: String): Dns = Dns.SYSTEM
         override suspend fun searchSuggestions(query: String): Result<SearchSuggestions> = error("Unused")
         override suspend fun searchSummary(query: String): Result<SearchSummaryPage> = error("Unused")
@@ -210,6 +218,16 @@ class ArchiveTuneMusicAdapterTest {
                                                         shuffleEndpoint = null,
                                                         radioEndpoint = null,
                                                     ),
+                                                    PlaylistItem(
+                                                        id = "VLPL1",
+                                                        title = "Forest Radio Mix",
+                                                        author = Artist("Alunara", null),
+                                                        songCountText = "25 songs",
+                                                        thumbnail = "https://img/p.jpg",
+                                                        playEndpoint = null,
+                                                        shuffleEndpoint = null,
+                                                        radioEndpoint = null,
+                                                    ),
                                                 ),
                                         ),
                                     ),
@@ -237,6 +255,8 @@ class ArchiveTuneMusicAdapterTest {
             assertEquals("alb1", results.albums.first().id)
             assertEquals(1, results.artists.size)
             assertEquals("Artist A", results.artists.first().name)
+            assertEquals(1, results.playlists.size)
+            assertEquals("Forest Radio Mix", results.playlists.first().title)
         }
 
     @Test
@@ -478,5 +498,144 @@ class ArchiveTuneMusicAdapterTest {
             assertEquals("https://cdn/fallback.webm", source.streamUrl)
             assertEquals(1, seenAuthStates.size)
             assertEquals(PlaybackAuthState.EMPTY, seenAuthStates.single())
+        }
+
+    @Test
+    fun fetchAlbumPlaylistAndArtistDetail_normalizeInnerTubePages() =
+        runTest {
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override suspend fun album(browseId: String, withSongs: Boolean): Result<AlbumPage> =
+                        Result.success(
+                            AlbumPage(
+                                album = AlbumItem(browseId = browseId, playlistId = "OLAK1", title = "Green Album", artists = listOf(Artist("Tulus", "artT")), year = 2022, thumbnail = "https://img/alb.jpg"),
+                                songs = listOf(SongItem(id = "trk1", title = "Track One", artists = listOf(Artist("Tulus", "artT")), duration = 210, thumbnail = "https://img/t1.jpg")),
+                                otherVersions = emptyList(),
+                            ),
+                        )
+
+                    override suspend fun playlist(playlistId: String): Result<PlaylistPage> =
+                        Result.success(
+                            PlaylistPage(
+                                playlist = PlaylistItem(id = playlistId, title = "Chill Mix", author = Artist("Alunara", null), songCountText = "1 song", description = "Calm TV mix", thumbnail = "https://img/pl.jpg", playEndpoint = null, shuffleEndpoint = null, radioEndpoint = null),
+                                songs = listOf(SongItem(id = "trk2", title = "Track Two", artists = listOf(Artist("Raim", "artR")), duration = 200, thumbnail = "https://img/t2.jpg")),
+                                songsContinuation = null,
+                                continuation = null,
+                            ),
+                        )
+
+                    override suspend fun artist(browseId: String): Result<ArtistPage> =
+                        Result.success(
+                            ArtistPage(
+                                artist = ArtistItem(id = browseId, title = "Tulus", thumbnail = "https://img/art.jpg", shuffleEndpoint = null, radioEndpoint = null),
+                                sections =
+                                    listOf(
+                                        ArtistSection(
+                                            title = "Songs",
+                                            items = listOf(SongItem(id = "trk1", title = "Track One", artists = listOf(Artist("Tulus", browseId)), duration = 210, thumbnail = "https://img/t1.jpg")),
+                                            moreEndpoint = null,
+                                            layout = ArtistSectionLayout.LIST,
+                                        ),
+                                        ArtistSection(
+                                            title = "Albums",
+                                            items = listOf(AlbumItem(browseId = "MPRE1", playlistId = "OLAK1", title = "Green Album", artists = listOf(Artist("Tulus", browseId)), thumbnail = "https://img/alb.jpg")),
+                                            moreEndpoint = null,
+                                            layout = ArtistSectionLayout.GRID,
+                                        ),
+                                    ),
+                                description = "Indonesian singer",
+                            ),
+                        )
+                }
+
+            val adapter = ArchiveTuneMusicAdapter(backend) {}
+
+            val albumDetail = adapter.fetchAlbumDetail("MPRE1").getOrThrow()
+            assertEquals("Green Album", albumDetail.album.title)
+            assertEquals("Track One", albumDetail.tracks.single().title)
+
+            val playlistDetail = adapter.fetchPlaylistDetail("VLPL99").getOrThrow()
+            assertEquals("PL99", playlistDetail.playlist.id)
+            assertEquals("Calm TV mix", playlistDetail.description)
+            assertEquals("Track Two", playlistDetail.tracks.single().title)
+
+            val artistDetail = adapter.fetchArtistDetail("artT").getOrThrow()
+            assertEquals("Tulus", artistDetail.artist.name)
+            assertEquals(1, artistDetail.topSongs.size)
+            assertEquals(1, artistDetail.albums.size)
+        }
+
+    @Test
+    fun fetchRadioTracks_queriesAutomixAndFallsBackToWatchEndpoint() =
+        runTest {
+            val seenEndpoints = mutableListOf<WatchEndpoint>()
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override suspend fun next(endpoint: WatchEndpoint, continuation: String?, followAutomixPreview: Boolean): Result<NextResult> {
+                        seenEndpoints += endpoint
+                        return if (endpoint.playlistId != null) {
+                            Result.failure(IOException("Automix unavailable"))
+                        } else {
+                            Result.success(
+                                NextResult(
+                                    title = "Radio",
+                                    items =
+                                        listOf(
+                                            SongItem(id = "seed1", title = "Seed", artists = listOf(Artist("A", null)), thumbnail = "https://img/s.jpg"),
+                                            SongItem(id = "rec1", title = "Next Song", artists = listOf(Artist("B", null)), thumbnail = "https://img/r.jpg"),
+                                        ),
+                                    continuation = null,
+                                    endpoint = endpoint,
+                                ),
+                            )
+                        }
+                    }
+                }
+
+            val adapter = ArchiveTuneMusicAdapter(backend) {}
+            val radio = adapter.fetchRadioTracks("seed1").getOrThrow()
+            assertEquals(2, seenEndpoints.size)
+            assertEquals("RDAMVMseed1", seenEndpoints.first().playlistId)
+            assertEquals(null, seenEndpoints[1].playlistId)
+            assertEquals(listOf("seed1", "rec1"), radio.map { it.id })
+        }
+
+    @Test
+    fun verifyAccountSession_rejectsMissingCookieActivatesValidAndResetsOnClearOrFailure() =
+        runTest {
+            val backend =
+                object : FakeMusicBackendBase() {
+                    var failAccountInfo = false
+                    override suspend fun accountInfo(): Result<AccountInfo> =
+                        if (failAccountInfo) {
+                            Result.failure(IllegalStateException("401 Unauthorized"))
+                        } else {
+                            Result.success(AccountInfo(name = "Alunara User", email = "user@example.com", channelHandle = "@alunara", thumbnailUrl = "https://img/u.jpg"))
+                        }
+                }
+
+            val adapter = ArchiveTuneMusicAdapter(backend) {}
+
+            val badResult = adapter.verifyAccountSession(AccountCredentials(cookie = "PREF=123"))
+            assertTrue(badResult.isFailure)
+            assertFalse(backend.hasLoginCookie())
+
+            val okResult = adapter.verifyAccountSession(AccountCredentials(cookie = "SAPISID=abc123; SID=xyz", visitorData = "vis-1"))
+            assertTrue(okResult.isSuccess)
+            val profile = okResult.getOrThrow()
+            assertEquals("@alunara", profile.accountId)
+            assertEquals("Alunara User", profile.name)
+            assertTrue(backend.hasLoginCookie())
+            assertTrue(backend.useLoginForBrowse)
+
+            backend.failAccountInfo = true
+            val expiredResult = adapter.verifyAccountSession(AccountCredentials(cookie = "SAPISID=abc123", visitorData = "vis-1"))
+            assertTrue(expiredResult.isFailure)
+            assertFalse(backend.hasLoginCookie())
+            assertFalse(backend.useLoginForBrowse)
+            assertEquals("vis-1", backend.visitorData)
+
+            adapter.clearAccountSession()
+            assertFalse(backend.hasLoginCookie())
         }
 }

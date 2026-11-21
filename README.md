@@ -2,8 +2,8 @@
 
 **Alunara** (`com.alunara.app`) is an independent, audio-only YouTube Music client built specifically for entry-level **Android TV** devices running **Android 9 (API 28)+** with **1 GB RAM** (reference hardware: **Changhong L32G7N**).
 
-> **Current Status:** `Milestone M2 — Playable Alpha (0.1.0-alpha, Pending M2 Review)`  
-> M2 Playable Alpha implements Guest Mode Home/Search discovery, `visitorData` + `VISIONOS` Media3 audio-only playback, persisted Room queue & position recovery, bounded retry/skip, stop-on-exit via `ProcessLifecycleOwner`, cached synced/plain lyrics, and 720p Dark Forest Green Android TV UI with ID/EN localization. Verified on physical Changhong `AI PONT` TV (`192.168.100.124:5555`); see [docs/M2_HARDWARE_SMOKE.md](docs/M2_HARDWARE_SMOKE.md). Internal Alpha only — Beta (`KI-02` / `FG-04`) stays blocked until M3.
+> **Current Status:** `Milestone M3 — Account & Catalog (0.1.0-alpha, Pending M3 Review)`  
+> M3 builds on Playable Alpha with Album/Playlist/Artist detail navigation (`CatalogDetailScreen`), unified playlist search, radio (`RDAMVM`) & bounded autoplay tail recommendations, `RoomCatalogStore` account-scoped favorites & history (`ResourceBudgetPolicy.DEFAULT_HISTORY_LIMIT = 200`), 4-tab Library (`Antrean`, `Favorit`, `Riwayat`, `Playlist Akun`), `KeystoreAccountSessionStore` (AES-256-GCM), `AUTH_INVALID` expiry handling, and Now Playing Favorite/Radio controls. Verified with `52 / 52` unit tests across 15 suites and physical Changhong `AI PONT` TV (`192.168.100.124:5555`); see [docs/M3_VERIFICATION_REPORT.md](docs/M3_VERIFICATION_REPORT.md). Internal Alpha (`0.1.0-alpha`) remains active while `KI-02` / `FG-04` lacks a TV-compliant InnerTube OAuth login path.
 
 ---
 
@@ -67,6 +67,8 @@ Alunara is licensed under the **GNU General Public License v3.0 (GPL-3.0)** in a
 ## Project Documents
 
 - [M0 Preflight & Feasibility Audit](docs/M0_PREFLIGHT_AUDIT.md)
+- [M2 Hardware Smoke Report](docs/M2_HARDWARE_SMOKE.md)
+- [M3 Account & Catalog Verification Report](docs/M3_VERIFICATION_REPORT.md)
 - [Credits & License Notices](CREDITS.md)
 - [Known Issues & Release Blockers](KNOWN_ISSUES.md)
 - [GNU GPL v3.0 License](LICENSE)

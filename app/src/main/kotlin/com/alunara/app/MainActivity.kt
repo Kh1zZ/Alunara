@@ -67,6 +67,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.alunara.app.playback.PlaybackSessionManager
 import com.alunara.app.ui.components.DockedMiniPlayer
+import com.alunara.app.ui.screens.CatalogDetailScreen
+import com.alunara.app.ui.screens.CatalogTarget
 import com.alunara.app.ui.screens.HomeScreen
 import com.alunara.app.ui.screens.LibraryScreen
 import com.alunara.app.ui.screens.NowPlayingScreen
@@ -76,7 +78,10 @@ import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.app.ui.theme.AlunaraTheme
 import com.alunara.core.domain.contract.MusicEngine
+import com.alunara.core.domain.model.AlbumRef
+import com.alunara.core.domain.model.ArtistRef
 import com.alunara.core.domain.model.HomeSection
+import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.SearchResults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -128,6 +133,7 @@ private fun AlunaraTvApp(
 
     var currentDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
     var lastBrowseDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
+    var catalogStack by remember { mutableStateOf<List<CatalogTarget>>(emptyList()) }
     var railFocused by remember { mutableStateOf(false) }
     val railHomeFocusRequester = remember { FocusRequester() }
 
@@ -180,6 +186,39 @@ private fun AlunaraTvApp(
         }
     }
 
+    fun openAlbumTarget(album: AlbumRef) {
+        catalogStack =
+            catalogStack +
+            CatalogTarget.Album(
+                albumId = album.id,
+                initialTitle = album.title,
+                initialSubtitle = album.artists.joinToString(", ") { it.name },
+                initialThumbnailUrl = album.thumbnailUrl,
+            )
+    }
+
+    fun openPlaylistTarget(playlist: PlaylistSummary) {
+        catalogStack =
+            catalogStack +
+            CatalogTarget.Playlist(
+                playlistId = playlist.id,
+                initialTitle = playlist.title,
+                initialSubtitle = playlist.author ?: playlist.trackCountText,
+                initialThumbnailUrl = playlist.thumbnailUrl,
+            )
+    }
+
+    fun openArtistTarget(artist: ArtistRef) {
+        val artistId = artist.id?.takeIf { it.isNotBlank() } ?: return
+        catalogStack =
+            catalogStack +
+            CatalogTarget.Artist(
+                artistId = artistId,
+                initialName = artist.name,
+                initialThumbnailUrl = artist.thumbnailUrl,
+            )
+    }
+
     LaunchedEffect(Unit) {
         sessionManager.restorePersistedQueue()
         railHomeFocusRequester.requestFocus()
@@ -189,13 +228,20 @@ private fun AlunaraTvApp(
         }
     }
 
-    BackHandler(enabled = currentDestination != TvDestination.HOME) {
-        currentDestination =
-            if (currentDestination == TvDestination.NOW_PLAYING) {
-                lastBrowseDestination
-            } else {
-                TvDestination.HOME
+    BackHandler(enabled = currentDestination != TvDestination.HOME || catalogStack.isNotEmpty()) {
+        when {
+            currentDestination == TvDestination.NOW_PLAYING -> {
+                currentDestination = lastBrowseDestination
             }
+
+            catalogStack.isNotEmpty() -> {
+                catalogStack = catalogStack.dropLast(1)
+            }
+
+            else -> {
+                currentDestination = TvDestination.HOME
+            }
+        }
     }
 
     Crossfade(
@@ -214,11 +260,14 @@ private fun AlunaraTvApp(
                 onSkipPrevious = { sessionManager.skipPrevious() },
                 onSkipNext = { sessionManager.skipNext() },
                 onSeekBy = { delta -> sessionManager.seekBy(delta) },
+                onToggleFavorite = { sessionManager.toggleFavorite() },
+                onStartRadio = { sessionState.currentTrack?.let { sessionManager.startRadio(it) } },
                 onSwitchLyricsProvider = { sessionManager.cycleLyricsProvider() },
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
             val browseDest = if (currentDestination == TvDestination.NOW_PLAYING) lastBrowseDestination else currentDestination
+            val activeCatalogTarget = catalogStack.lastOrNull()
             Box(modifier = Modifier.fillMaxSize()) {
                 // Content reserves constant collapsed rail margin so expanding the overlay rail never shifts layout
                 Column(
@@ -228,7 +277,7 @@ private fun AlunaraTvApp(
                             .padding(start = AlunaraDimens.RailCollapsedWidth),
                 ) {
                     Crossfade(
-                        targetState = browseDest,
+                        targetState = activeCatalogTarget ?: browseDest,
                         animationSpec = tween(durationMillis = 160),
                         modifier =
                             Modifier
@@ -236,20 +285,43 @@ private fun AlunaraTvApp(
                                 .fillMaxWidth()
                                 .padding(horizontal = 28.dp, vertical = 20.dp),
                         label = "browse_tab",
-                    ) { tab ->
-                        when (tab) {
+                    ) { paneTarget ->
+                        when (paneTarget) {
+                            is CatalogTarget ->
+                                CatalogDetailScreen(
+                                    target = paneTarget,
+                                    musicEngine = musicEngine,
+                                    activeTrackId = sessionState.currentTrack?.id,
+                                    onBack = { catalogStack = catalogStack.dropLast(1) },
+                                    onPlayTracks = { tracks, idx ->
+                                        sessionManager.playTracks(tracks, idx)
+                                        openNowPlaying()
+                                    },
+                                    onEnqueueTrack = { track -> sessionManager.enqueue(track) },
+                                    onEnqueueAll = { tracks -> sessionManager.enqueueAll(tracks) },
+                                    onStartRadio = { seed ->
+                                        sessionManager.startRadio(seed)
+                                        openNowPlaying()
+                                    },
+                                    onOpenAlbum = { album -> openAlbumTarget(album) },
+                                    onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
+                                )
+
                             TvDestination.HOME ->
                                 HomeScreen(
                                     sections = homeSections,
                                     isLoading = homeLoading,
                                     errorMessage = homeError,
                                     resumeTrack = sessionState.currentTrack,
+                                    recentHistory = sessionState.recentHistory,
+                                    favorites = sessionState.favorites,
                                     onRetry = { loadHome() },
                                     onContinueQueue = { openNowPlaying() },
                                     onPlaySongFromSection = { songs, idx ->
                                         sessionManager.playTracks(songs, idx)
                                         openNowPlaying()
                                     },
+                                    onOpenAlbum = { album -> openAlbumTarget(album) },
                                 )
 
                             TvDestination.SEARCH ->
@@ -266,11 +338,19 @@ private fun AlunaraTvApp(
                                         openNowPlaying()
                                     },
                                     onEnqueueSong = { track -> sessionManager.enqueue(track) },
+                                    onOpenAlbum = { album -> openAlbumTarget(album) },
+                                    onOpenArtist = { artist -> openArtistTarget(artist) },
+                                    onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
                                 )
 
                             TvDestination.LIBRARY ->
                                 LibraryScreen(
                                     queueState = sessionState.queueState,
+                                    favorites = sessionState.favorites,
+                                    recentHistory = sessionState.recentHistory,
+                                    accountPlaylists = sessionState.accountPlaylists,
+                                    authSession = sessionState.authSession,
+                                    activeTrackId = sessionState.currentTrack?.id,
                                     onPlayAt = { idx ->
                                         sessionManager.playTrackAt(idx)
                                         openNowPlaying()
@@ -278,14 +358,34 @@ private fun AlunaraTvApp(
                                     onMoveItem = { from, to -> sessionManager.moveQueueItem(from, to) },
                                     onRemoveAt = { idx -> sessionManager.removeFromQueue(idx) },
                                     onClearQueue = { sessionManager.clearQueue() },
+                                    onPlayTracks = { tracks, idx ->
+                                        sessionManager.playTracks(tracks, idx)
+                                        openNowPlaying()
+                                    },
+                                    onEnqueueTrack = { track -> sessionManager.enqueue(track) },
+                                    onToggleFavorite = { track -> sessionManager.toggleFavorite(track) },
+                                    onClearHistory = { sessionManager.clearHistory() },
+                                    onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
+                                    onNavigateToSearch = {
+                                        catalogStack = emptyList()
+                                        lastBrowseDestination = TvDestination.SEARCH
+                                        currentDestination = TvDestination.SEARCH
+                                    },
+                                    onNavigateToSettings = {
+                                        catalogStack = emptyList()
+                                        lastBrowseDestination = TvDestination.SETTINGS
+                                        currentDestination = TvDestination.SETTINGS
+                                    },
                                 )
 
                             TvDestination.SETTINGS ->
                                 SettingsScreen(
                                     autoplayEnabled = sessionState.queueState.autoplayEnabled,
+                                    authSession = sessionState.authSession,
                                     onToggleAutoplay = {
                                         sessionManager.setAutoplay(!sessionState.queueState.autoplayEnabled)
                                     },
+                                    onLogout = { sessionManager.logoutAccount() },
                                 )
 
                             TvDestination.NOW_PLAYING -> Unit
@@ -307,6 +407,7 @@ private fun AlunaraTvApp(
                     firstItemRequester = railHomeFocusRequester,
                     onRailFocusChanged = { railFocused = it },
                     onSelect = { dest ->
+                        catalogStack = emptyList()
                         lastBrowseDestination = dest
                         currentDestination = dest
                     },

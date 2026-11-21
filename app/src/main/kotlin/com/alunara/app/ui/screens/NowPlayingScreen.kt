@@ -24,6 +24,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.HourglassTop
 import androidx.compose.material.icons.rounded.Lyrics
@@ -31,6 +33,7 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PauseCircleOutline
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -87,6 +90,8 @@ fun NowPlayingScreen(
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
     onSeekBy: (Long) -> Unit,
+    onToggleFavorite: () -> Unit,
+    onStartRadio: () -> Unit,
     onSwitchLyricsProvider: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -304,6 +309,27 @@ fun NowPlayingScreen(
                         iconSize = 24.dp,
                         enabled = sessionState.queueState.currentIndex < sessionState.queueState.items.lastIndex,
                         onClick = onSkipNext,
+                    )
+                    TvIconButton(
+                        icon = if (sessionState.isCurrentTrackFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        contentDescription =
+                            if (sessionState.isCurrentTrackFavorite) {
+                                stringResource(R.string.action_unfavorite)
+                            } else {
+                                stringResource(R.string.action_favorite)
+                            },
+                        size = 46.dp,
+                        iconSize = 22.dp,
+                        highlighted = sessionState.isCurrentTrackFavorite,
+                        onClick = onToggleFavorite,
+                    )
+                    TvIconButton(
+                        icon = Icons.Rounded.Radio,
+                        contentDescription = stringResource(R.string.action_start_radio),
+                        size = 46.dp,
+                        iconSize = 22.dp,
+                        highlighted = sessionState.radioLoading,
+                        onClick = onStartRadio,
                     )
                 }
             }

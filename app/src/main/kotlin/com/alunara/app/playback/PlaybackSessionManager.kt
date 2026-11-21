@@ -3,15 +3,22 @@ package com.alunara.app.playback
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import com.alunara.core.domain.contract.AccountSessionStore
+import com.alunara.core.domain.contract.CatalogStore
 import com.alunara.core.domain.contract.LyricsEngine
 import com.alunara.core.domain.contract.MusicEngine
 import com.alunara.core.domain.contract.PlaybackLifecycleController
 import com.alunara.core.domain.contract.QueueStore
 import com.alunara.core.domain.lyrics.LyricsSyncResolver
+import com.alunara.core.domain.model.AccountCredentials
+import com.alunara.core.domain.model.AccountProfile
+import com.alunara.core.domain.model.AccountScope
 import com.alunara.core.domain.model.AudioStreamSource
+import com.alunara.core.domain.model.AuthSessionState
 import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.LyricsProviderId
 import com.alunara.core.domain.model.PlaybackStatus
+import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.QueueItem
 import com.alunara.core.domain.model.QueueState
 import com.alunara.core.domain.model.Track
@@ -46,20 +53,32 @@ data class PlaybackSessionUiState(
     val selectedLyricsProvider: LyricsProviderId? = null,
     val activeLyricIndex: Int = -1,
     val errorMessage: String? = null,
+    val authSession: AuthSessionState = AuthSessionState.Guest,
+    val favorites: List<Track> = emptyList(),
+    val favoriteIds: Set<String> = emptySet(),
+    val recentHistory: List<Track> = emptyList(),
+    val accountPlaylists: List<PlaylistSummary> = emptyList(),
+    val radioLoading: Boolean = false,
 ) {
     val currentTrack: Track?
         get() = queueState.currentItem?.track
+
+    val isCurrentTrackFavorite: Boolean
+        get() = currentTrack?.id in favoriteIds
 }
 
 /**
  * Coordinates queue state, Room persistence, audio stream resolution, bounded retry/recovery,
- * lyrics fetching/sync, and stop-on-exit lifecycle enforcement (PRD §§6–7).
+ * radio & autoplay tail extension, account-scoped favorites/history, verified session lifecycle,
+ * lyrics fetching/sync, and stop-on-exit enforcement (PRD §§6–7, 10, FR-11–FR-16, FR-22).
  */
 class PlaybackSessionManager(
     private val musicEngine: MusicEngine,
     private val lyricsEngine: LyricsEngine,
     private val queueStore: QueueStore,
-    private val playerController: SinglePlayerLifecycleController,
+    private val playerController: AudioPlayerControl,
+    private val catalogStore: CatalogStore = NoOpCatalogStore,
+    private val accountSessionStore: AccountSessionStore = NoOpAccountSessionStore,
     private val retryPolicy: RetryPolicy = RetryPolicy(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     mainDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
@@ -73,13 +92,16 @@ class PlaybackSessionManager(
     private var lyricsJob: Job? = null
     private var tickerJob: Job? = null
     private var persistJob: Job? = null
+    private var radioJob: Job? = null
 
     private var currentTrackAttempt = 0
     private var consecutiveTrackFailures = 0
     private var cachedSource: AudioStreamSource? = null
     private var queueRestored = false
+    private var lastRecordedQueueItemId: String? = null
+    private var lastAutoplayExtendedTrackId: String? = null
 
-    private val playerListener =
+    internal val playerListener =
         object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 val track = mutableUiState.value.currentTrack
@@ -106,6 +128,7 @@ class PlaybackSessionManager(
                         if (playing) {
                             currentTrackAttempt = 0
                             consecutiveTrackFailures = 0
+                            recordCurrentItemToHistoryIfNeeded()
                             startTickerIfNeeded()
                         } else {
                             stopTicker()
@@ -134,6 +157,7 @@ class PlaybackSessionManager(
                             errorMessage = null,
                         )
                     }
+                    recordCurrentItemToHistoryIfNeeded()
                     startTickerIfNeeded()
                 } else {
                     stopTicker()
@@ -164,7 +188,7 @@ class PlaybackSessionManager(
                         error,
                     )
                 }
-                if (category == FailureCategory.EXPIRED_SOURCE) {
+                if (category == FailureCategory.EXPIRED_SOURCE || category == FailureCategory.AUTH_INVALID) {
                     cachedSource = null
                 }
                 handlePlaybackFailure(category, error.message ?: "Playback error")
@@ -181,6 +205,40 @@ class PlaybackSessionManager(
                 }
             val normalized = QueueReducer.reduce(QueueState(), QueueAction.Restore(loaded))
             val item = normalized.currentItem
+
+            val storedSession = withContext(ioDispatcher) { runCatching { accountSessionStore.loadSession() }.getOrNull() }
+            var resolvedAuth: AuthSessionState = AuthSessionState.Guest
+            var loadedPlaylists: List<PlaylistSummary> = emptyList()
+
+            if (storedSession != null) {
+                val (storedProfile, credentials) = storedSession
+                val verifyResult = withContext(ioDispatcher) { musicEngine.verifyAccountSession(credentials) }
+                verifyResult.fold(
+                    onSuccess = { verifiedProfile ->
+                        resolvedAuth = AuthSessionState.Authenticated(verifiedProfile)
+                        loadedPlaylists =
+                            withContext(ioDispatcher) {
+                                musicEngine.fetchAccountPlaylists().getOrDefault(emptyList())
+                            }
+                    },
+                    onFailure = { error ->
+                        withContext(NonCancellable + ioDispatcher) {
+                            runCatching { accountSessionStore.clearSession() }
+                        }
+                        musicEngine.clearAccountSession()
+                        resolvedAuth =
+                            AuthSessionState.Expired(
+                                previousAccountId = storedProfile.accountId,
+                                reason = error.message ?: "Session expired",
+                            )
+                    },
+                )
+            }
+
+            val scopeKey = resolvedAuth.scope
+            val favorites = withContext(ioDispatcher) { runCatching { catalogStore.getFavorites(scopeKey) }.getOrDefault(emptyList()) }
+            val history = withContext(ioDispatcher) { runCatching { catalogStore.getRecentHistory(scopeKey) }.getOrDefault(emptyList()) }
+
             mutableUiState.update {
                 it.copy(
                     queueState = normalized,
@@ -188,6 +246,11 @@ class PlaybackSessionManager(
                     positionMs = normalized.positionMs,
                     durationMs = (item?.track?.durationSeconds ?: 0) * 1000L,
                     errorMessage = null,
+                    authSession = resolvedAuth,
+                    favorites = favorites,
+                    favoriteIds = favorites.map { fav -> fav.id }.toSet(),
+                    recentHistory = history,
+                    accountPlaylists = loadedPlaylists,
                 )
             }
         }
@@ -205,6 +268,7 @@ class PlaybackSessionManager(
         val nextQueue = QueueReducer.reduce(mutableUiState.value.queueState, QueueAction.SetQueue(items, startIndex))
         consecutiveTrackFailures = 0
         currentTrackAttempt = 0
+        lastAutoplayExtendedTrackId = null
         cachedSource = null
         applyQueueAndStartTrack(nextQueue, startPositionMs = 0L)
     }
@@ -215,19 +279,30 @@ class PlaybackSessionManager(
         val nextQueue = QueueReducer.reduce(current, QueueAction.SetQueue(current.items, index))
         consecutiveTrackFailures = 0
         currentTrackAttempt = 0
+        lastAutoplayExtendedTrackId = null
         cachedSource = null
         applyQueueAndStartTrack(nextQueue, startPositionMs = 0L)
     }
 
     fun enqueue(track: Track) {
-        val wasEmpty = mutableUiState.value.queueState.items.isEmpty()
-        val item = QueueItem(queueItemId = "${track.id}-${UUID.randomUUID()}", track = track)
-        val nextQueue = QueueReducer.reduce(mutableUiState.value.queueState, QueueAction.Enqueue(item))
+        enqueueAll(listOf(track))
+    }
+
+    fun enqueueAll(tracks: List<Track>) {
+        if (tracks.isEmpty()) return
+        val initialQueue = mutableUiState.value.queueState
+        val wasEmpty = initialQueue.items.isEmpty()
+        var nextQueue = initialQueue
+        for (track in tracks) {
+            val item = QueueItem(queueItemId = "${track.id}-${UUID.randomUUID()}", track = track)
+            nextQueue = QueueReducer.reduce(nextQueue, QueueAction.Enqueue(item))
+        }
         mutableUiState.update {
+            val activeTrack = nextQueue.currentItem?.track
             it.copy(
                 queueState = nextQueue,
                 status = if (wasEmpty) PlaybackStatus.PAUSED else it.status,
-                durationMs = if (wasEmpty) (track.durationSeconds ?: 0) * 1000L else it.durationMs,
+                durationMs = if (wasEmpty) (activeTrack?.durationSeconds ?: 0) * 1000L else it.durationMs,
             )
         }
         persistQueueAsync(nextQueue)
@@ -280,13 +355,144 @@ class PlaybackSessionManager(
         cachedSource = null
         currentTrackAttempt = 0
         consecutiveTrackFailures = 0
+        lastAutoplayExtendedTrackId = null
         val empty = mutableUiState.value.queueState.copy(items = emptyList(), currentIndex = -1, positionMs = 0L)
-        mutableUiState.value =
-            PlaybackSessionUiState(
+        mutableUiState.update { state ->
+            state.copy(
                 queueState = empty,
                 status = PlaybackStatus.IDLE,
+                positionMs = 0L,
+                durationMs = 0L,
+                lyrics = LyricsDocument.Unavailable(""),
+                lyricsLoading = false,
+                selectedLyricsProvider = null,
+                activeLyricIndex = -1,
+                errorMessage = null,
+                radioLoading = false,
             )
+        }
         persistQueueAsync(empty)
+    }
+
+    fun startRadio(
+        seedTrack: Track,
+        playlistId: String? = null,
+    ) {
+        radioJob?.cancel()
+        playTracks(listOf(seedTrack), 0)
+        radioJob =
+            scope.launch {
+                mutableUiState.update { it.copy(radioLoading = true) }
+                val fetched =
+                    withContext(ioDispatcher) {
+                        musicEngine.fetchRadioTracks(seedTrack.id, playlistId)
+                    }.getOrDefault(emptyList())
+                if (!isActive) return@launch
+                val currentQueue = mutableUiState.value.queueState
+                val existingIds = currentQueue.items.map { it.track.id }.toSet()
+                val additional = fetched.filter { it.id !in existingIds }
+                if (additional.isNotEmpty()) {
+                    var nextQueue = currentQueue
+                    for (track in additional) {
+                        val item = QueueItem(queueItemId = "${track.id}-${UUID.randomUUID()}", track = track)
+                        nextQueue = QueueReducer.reduce(nextQueue, QueueAction.Enqueue(item))
+                    }
+                    mutableUiState.update { it.copy(queueState = nextQueue, radioLoading = false) }
+                    persistQueueAsync(nextQueue)
+                } else {
+                    mutableUiState.update { it.copy(radioLoading = false) }
+                }
+            }
+    }
+
+    fun toggleFavorite(track: Track? = mutableUiState.value.currentTrack) {
+        val target = track ?: return
+        val activeState = mutableUiState.value
+        val activeScope = activeState.authSession.scope
+        val isAuthenticated = activeState.authSession is AuthSessionState.Authenticated
+
+        scope.launch {
+            val nowLiked =
+                withContext(ioDispatcher) {
+                    catalogStore.toggleFavorite(target, activeScope)
+                }
+            val refreshed =
+                withContext(ioDispatcher) {
+                    runCatching { catalogStore.getFavorites(activeScope) }.getOrDefault(emptyList())
+                }
+            mutableUiState.update {
+                it.copy(
+                    favorites = refreshed,
+                    favoriteIds = refreshed.map { fav -> fav.id }.toSet(),
+                )
+            }
+            if (isAuthenticated) {
+                withContext(ioDispatcher) {
+                    runCatching { musicEngine.setRemoteTrackLike(target.id, nowLiked) }
+                }
+            }
+        }
+    }
+
+    fun clearHistory() {
+        val activeScope = mutableUiState.value.authSession.scope
+        scope.launch {
+            withContext(ioDispatcher) {
+                catalogStore.clearHistory(activeScope)
+            }
+            mutableUiState.update { it.copy(recentHistory = emptyList()) }
+        }
+    }
+
+    suspend fun activateAccountSession(credentials: AccountCredentials): Result<AccountProfile> {
+        val verifyResult = withContext(ioDispatcher) { musicEngine.verifyAccountSession(credentials) }
+        return verifyResult.fold(
+            onSuccess = { profile ->
+                withContext(NonCancellable + ioDispatcher) {
+                    accountSessionStore.saveSession(profile, credentials)
+                }
+                val newScope = AccountScope.Account(profile.accountId)
+                val favorites = withContext(ioDispatcher) { runCatching { catalogStore.getFavorites(newScope) }.getOrDefault(emptyList()) }
+                val history = withContext(ioDispatcher) { runCatching { catalogStore.getRecentHistory(newScope) }.getOrDefault(emptyList()) }
+                val playlists = withContext(ioDispatcher) { musicEngine.fetchAccountPlaylists().getOrDefault(emptyList()) }
+                mutableUiState.update {
+                    it.copy(
+                        authSession = AuthSessionState.Authenticated(profile),
+                        favorites = favorites,
+                        favoriteIds = favorites.map { fav -> fav.id }.toSet(),
+                        recentHistory = history,
+                        accountPlaylists = playlists,
+                    )
+                }
+                Result.success(profile)
+            },
+            onFailure = { error -> Result.failure(error) },
+        )
+    }
+
+    fun logoutAccount() {
+        val previousAuth = mutableUiState.value.authSession
+        scope.launch {
+            withContext(NonCancellable + ioDispatcher) {
+                if (previousAuth is AuthSessionState.Authenticated) {
+                    runCatching { catalogStore.clearAccountData(AccountScope.Account(previousAuth.profile.accountId)) }
+                }
+                runCatching { accountSessionStore.clearSession() }
+            }
+            musicEngine.clearAccountSession()
+            val guestScope = AccountScope.Guest
+            val guestFavorites = withContext(ioDispatcher) { runCatching { catalogStore.getFavorites(guestScope) }.getOrDefault(emptyList()) }
+            val guestHistory = withContext(ioDispatcher) { runCatching { catalogStore.getRecentHistory(guestScope) }.getOrDefault(emptyList()) }
+            mutableUiState.update {
+                it.copy(
+                    authSession = AuthSessionState.Guest,
+                    favorites = guestFavorites,
+                    favoriteIds = guestFavorites.map { fav -> fav.id }.toSet(),
+                    recentHistory = guestHistory,
+                    accountPlaylists = emptyList(),
+                )
+            }
+        }
     }
 
     fun togglePlayPause() {
@@ -407,10 +613,30 @@ class PlaybackSessionManager(
                 queueState = updatedQueue,
                 positionMs = capturedPosition,
                 status = if (updatedQueue.currentItem != null) PlaybackStatus.PAUSED else PlaybackStatus.IDLE,
+                radioLoading = false,
             )
         }
         scope.launch(NonCancellable + ioDispatcher) {
             runCatching { queueStore.saveQueue(updatedQueue) }
+        }
+    }
+
+    private fun recordCurrentItemToHistoryIfNeeded() {
+        val state = mutableUiState.value
+        val currentItem = state.queueState.currentItem ?: return
+        if (lastRecordedQueueItemId == currentItem.queueItemId) return
+        lastRecordedQueueItemId = currentItem.queueItemId
+        val activeScope = state.authSession.scope
+
+        scope.launch {
+            withContext(ioDispatcher) {
+                runCatching { catalogStore.recordHistory(currentItem.track, activeScope) }
+            }
+            val refreshed =
+                withContext(ioDispatcher) {
+                    runCatching { catalogStore.getRecentHistory(activeScope) }.getOrDefault(emptyList())
+                }
+            mutableUiState.update { it.copy(recentHistory = refreshed) }
         }
     }
 
@@ -488,18 +714,40 @@ class PlaybackSessionManager(
             }
     }
 
-    private fun handlePlaybackFailure(
+    internal fun handlePlaybackFailure(
         category: FailureCategory,
         message: String,
     ) {
         val state = mutableUiState.value
-        val track = state.currentTrack ?: return
+        if (category == FailureCategory.AUTH_INVALID && state.authSession is AuthSessionState.Authenticated) {
+            val expiredId = state.authSession.profile.accountId
+            musicEngine.clearAccountSession()
+            scope.launch {
+                withContext(NonCancellable + ioDispatcher) {
+                    runCatching { accountSessionStore.clearSession() }
+                }
+                val guestFav = withContext(ioDispatcher) { runCatching { catalogStore.getFavorites(AccountScope.Guest) }.getOrDefault(emptyList()) }
+                val guestHist = withContext(ioDispatcher) { runCatching { catalogStore.getRecentHistory(AccountScope.Guest) }.getOrDefault(emptyList()) }
+                mutableUiState.update { current ->
+                    current.copy(
+                        authSession = AuthSessionState.Expired(previousAccountId = expiredId, reason = "Session expired or revoked"),
+                        favorites = guestFav,
+                        favoriteIds = guestFav.map { it.id }.toSet(),
+                        recentHistory = guestHist,
+                        accountPlaylists = emptyList(),
+                    )
+                }
+            }
+        }
+
+        val currentState = mutableUiState.value
+        val track = currentState.currentTrack ?: return
         val decision =
             retryPolicy.evaluate(
                 category = category,
                 attemptIndex = currentTrackAttempt,
                 consecutiveTrackFailures = consecutiveTrackFailures,
-                queueSize = state.queueState.items.size,
+                queueSize = currentState.queueState.items.size,
             )
 
         if (decision.shouldRetry) {
@@ -515,13 +763,13 @@ class PlaybackSessionManager(
                 scope.launch {
                     delay(decision.delayMs)
                     if (!isActive || mutableUiState.value.currentTrack?.id != track.id) return@launch
-                    resolveAndPlay(track, startPositionMs = state.positionMs)
+                    resolveAndPlay(track, startPositionMs = currentState.positionMs)
                 }
-        } else if (decision.shouldSkipToNext && state.queueState.currentIndex < state.queueState.items.lastIndex) {
+        } else if (decision.shouldSkipToNext && currentState.queueState.currentIndex < currentState.queueState.items.lastIndex) {
             consecutiveTrackFailures++
             currentTrackAttempt = 0
             cachedSource = null
-            val nextQueue = QueueReducer.reduce(state.queueState, QueueAction.SkipNext)
+            val nextQueue = QueueReducer.reduce(currentState.queueState, QueueAction.SkipNext)
             applyQueueAndStartTrack(nextQueue, startPositionMs = 0L)
         } else {
             mutableUiState.update {
@@ -541,13 +789,53 @@ class PlaybackSessionManager(
             currentTrackAttempt = 0
             cachedSource = null
             applyQueueAndStartTrack(nextQueue, startPositionMs = 0L)
-        } else {
-            mutableUiState.update {
-                it.copy(
-                    status = PlaybackStatus.ENDED,
-                    positionMs = it.durationMs,
-                )
-            }
+            return
+        }
+
+        val currentTrack = state.currentTrack
+        if (queue.autoplayEnabled && currentTrack != null && lastAutoplayExtendedTrackId != currentTrack.id) {
+            lastAutoplayExtendedTrackId = currentTrack.id
+            radioJob?.cancel()
+            radioJob =
+                scope.launch {
+                    mutableUiState.update { it.copy(radioLoading = true) }
+                    val recommended =
+                        withContext(ioDispatcher) {
+                            musicEngine.fetchRadioTracks(currentTrack.id)
+                        }.getOrDefault(emptyList())
+                    val currentState = mutableUiState.value
+                    val existingIds = currentState.queueState.items.map { it.track.id }.toSet()
+                    val newTracks = recommended.filter { it.id !in existingIds }
+                    if (isActive && currentState.currentTrack?.id == currentTrack.id && newTracks.isNotEmpty()) {
+                        val nextStartIndex = currentState.queueState.items.size
+                        var extended = currentState.queueState
+                        for (track in newTracks) {
+                            val item = QueueItem(queueItemId = "${track.id}-${UUID.randomUUID()}", track = track)
+                            extended = QueueReducer.reduce(extended, QueueAction.Enqueue(item))
+                        }
+                        extended = QueueReducer.reduce(extended, QueueAction.SetQueue(extended.items, nextStartIndex))
+                        mutableUiState.update { it.copy(radioLoading = false) }
+                        currentTrackAttempt = 0
+                        cachedSource = null
+                        applyQueueAndStartTrack(extended, startPositionMs = 0L)
+                    } else {
+                        mutableUiState.update {
+                            it.copy(
+                                status = PlaybackStatus.ENDED,
+                                positionMs = it.durationMs,
+                                radioLoading = false,
+                            )
+                        }
+                    }
+                }
+            return
+        }
+
+        mutableUiState.update {
+            it.copy(
+                status = PlaybackStatus.ENDED,
+                positionMs = it.durationMs,
+            )
         }
     }
 
@@ -618,6 +906,8 @@ class PlaybackSessionManager(
         retryJob = null
         lyricsJob?.cancel()
         lyricsJob = null
+        radioJob?.cancel()
+        radioJob = null
         stopTicker()
     }
 
@@ -643,4 +933,43 @@ class PlaybackSessionManager(
             is LyricsDocument.Synced -> LyricsSyncResolver.findActiveLineIndex(lyrics.lines, positionMs)
             else -> -1
         }
+}
+
+private object NoOpCatalogStore : CatalogStore {
+    override suspend fun getFavorites(scope: AccountScope): List<Track> = emptyList()
+
+    override suspend fun isFavorite(
+        trackId: String,
+        scope: AccountScope,
+    ): Boolean = false
+
+    override suspend fun toggleFavorite(
+        track: Track,
+        scope: AccountScope,
+    ): Boolean = false
+
+    override suspend fun recordHistory(
+        track: Track,
+        scope: AccountScope,
+    ) = Unit
+
+    override suspend fun getRecentHistory(
+        scope: AccountScope,
+        limit: Int,
+    ): List<Track> = emptyList()
+
+    override suspend fun clearHistory(scope: AccountScope) = Unit
+
+    override suspend fun clearAccountData(scope: AccountScope.Account) = Unit
+}
+
+private object NoOpAccountSessionStore : AccountSessionStore {
+    override suspend fun loadSession(): Pair<AccountProfile, AccountCredentials>? = null
+
+    override suspend fun saveSession(
+        profile: AccountProfile,
+        credentials: AccountCredentials,
+    ) = Unit
+
+    override suspend fun clearSession() = Unit
 }

@@ -42,6 +42,7 @@ import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvMediaCard
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
+import com.alunara.core.domain.model.AlbumRef
 import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.Track
 
@@ -51,9 +52,12 @@ fun HomeScreen(
     isLoading: Boolean,
     errorMessage: String?,
     resumeTrack: Track?,
+    recentHistory: List<Track>,
+    favorites: List<Track>,
     onRetry: () -> Unit,
     onContinueQueue: () -> Unit,
     onPlaySongFromSection: (List<Track>, Int) -> Unit,
+    onOpenAlbum: (AlbumRef) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -174,14 +178,64 @@ fun HomeScreen(
                                     title = album.title,
                                     subtitle = album.artists.joinToString(", ") { it.name },
                                     thumbnailUrl = album.thumbnailUrl,
-                                    onClick = {
-                                        // Album browsing arrives in M3; keeps D-pad navigation safe in M2
-                                    },
+                                    onClick = { onOpenAlbum(album) },
                                 )
                             }
                         }
                     }
                 }
+            }
+        }
+
+        if (recentHistory.isNotEmpty()) {
+            item(key = "home-recent-history") {
+                HomeSongRail(
+                    title = stringResource(R.string.section_recently_played),
+                    keyPrefix = "hist",
+                    tracks = recentHistory.take(15),
+                    onPlayAt = { idx -> onPlaySongFromSection(recentHistory.take(15), idx) },
+                )
+            }
+        }
+
+        if (favorites.isNotEmpty()) {
+            item(key = "home-favorites") {
+                HomeSongRail(
+                    title = stringResource(R.string.section_favorites),
+                    keyPrefix = "fav",
+                    tracks = favorites.take(15),
+                    onPlayAt = { idx -> onPlaySongFromSection(favorites.take(15), idx) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeSongRail(
+    title: String,
+    keyPrefix: String,
+    tracks: List<Track>,
+    onPlayAt: (Int) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = title,
+            color = AlunaraPalette.PrimaryText,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(tracks.size, key = { idx -> "$keyPrefix-${tracks[idx].id}" }) { index ->
+                val song = tracks[index]
+                TvMediaCard(
+                    title = song.title,
+                    subtitle = song.primaryArtistName,
+                    thumbnailUrl = song.thumbnailUrl,
+                    onClick = { onPlayAt(index) },
+                )
             }
         }
     }
