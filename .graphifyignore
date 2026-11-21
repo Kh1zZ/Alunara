@@ -1,0 +1,4 @@
+# Re-include local PRD & UI/UX specs for Graphify indexing while keeping them ignored in Git
+!.production/
+!.production/*
+!.production/**
