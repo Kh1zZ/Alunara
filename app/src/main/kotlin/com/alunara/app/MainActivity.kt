@@ -1,6 +1,7 @@
 package com.alunara.app
 
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -19,6 +20,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,11 +43,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -53,13 +57,19 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -67,6 +77,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.alunara.app.playback.PlaybackSessionManager
 import com.alunara.app.ui.components.DockedMiniPlayer
+import com.alunara.app.ui.components.safeRequestFocus
 import com.alunara.app.ui.screens.CatalogDetailScreen
 import com.alunara.app.ui.screens.CatalogTarget
 import com.alunara.app.ui.screens.HomeScreen
@@ -76,12 +87,17 @@ import com.alunara.app.ui.screens.SearchScreen
 import com.alunara.app.ui.screens.SettingsScreen
 import com.alunara.app.ui.screens.YouTubeWebViewLoginScreen
 import com.alunara.app.ui.theme.AlunaraDimens
-import com.alunara.app.ui.theme.AlunaraPalette
+import com.alunara.app.ui.theme.AlunaraDisplayPrefs
+import com.alunara.app.ui.theme.AlunaraDisplayPrefsStore
 import com.alunara.app.ui.theme.AlunaraTheme
+import com.alunara.app.ui.theme.AlunaraTypography
+import com.alunara.app.ui.theme.LocalAlunaraColors
+import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
 import com.alunara.core.domain.contract.MusicEngine
 import com.alunara.core.domain.model.AlbumRef
 import com.alunara.core.domain.model.ArtistRef
 import com.alunara.core.domain.model.HomeSection
+import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.SearchResults
 import kotlinx.coroutines.Dispatchers
@@ -114,11 +130,18 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         val container = (application as AlunaraApplication).container
+        val prefsStore = AlunaraDisplayPrefsStore(applicationContext)
         setContent {
-            AlunaraTheme {
+            var displayPrefs by remember { mutableStateOf(prefsStore.load()) }
+            AlunaraTheme(displayPrefs = displayPrefs) {
                 AlunaraTvApp(
                     musicEngine = container.musicEngine,
                     sessionManager = container.playbackSessionManager,
+                    displayPrefs = displayPrefs,
+                    onUpdateDisplayPrefs = { updated ->
+                        displayPrefs = updated
+                        prefsStore.save(updated)
+                    },
                 )
             }
         }
@@ -129,7 +152,11 @@ class MainActivity : ComponentActivity() {
 private fun AlunaraTvApp(
     musicEngine: MusicEngine,
     sessionManager: PlaybackSessionManager,
+    displayPrefs: AlunaraDisplayPrefs,
+    onUpdateDisplayPrefs: (AlunaraDisplayPrefs) -> Unit,
 ) {
+    val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
     val sessionState by sessionManager.uiState.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
 
@@ -139,6 +166,8 @@ private fun AlunaraTvApp(
     var showWebViewLogin by rememberSaveable { mutableStateOf(false) }
     var railFocused by remember { mutableStateOf(false) }
     val railHomeFocusRequester = remember { FocusRequester() }
+    val browsePaneFocusRequester = remember { FocusRequester() }
+    var focusRestoreTick by remember { mutableIntStateOf(0) }
 
     // Home feed state (auto-refreshes when auth scope transitions Guest <-> Authenticated)
     var homeSections by remember { mutableStateOf<List<HomeSection>>(emptyList()) }
@@ -240,7 +269,10 @@ private fun AlunaraTvApp(
 
     LaunchedEffect(Unit) {
         sessionManager.restorePersistedQueue()
-        railHomeFocusRequester.requestFocus()
+        if (currentDestination != TvDestination.NOW_PLAYING && !showWebViewLogin) {
+            withFrameNanos { }
+            railHomeFocusRequester.safeRequestFocus()
+        }
         if (!homeLoadedOnce) {
             homeLoadedOnce = true
             lastLoadedAuthScopeKey = authScopeKey
@@ -257,30 +289,87 @@ private fun AlunaraTvApp(
         }
     }
 
+    LaunchedEffect(focusRestoreTick) {
+        if (focusRestoreTick > 0) {
+            withFrameNanos { }
+            browsePaneFocusRequester.safeRequestFocus()
+        }
+    }
+
     BackHandler(enabled = showWebViewLogin || currentDestination != TvDestination.HOME || catalogStack.isNotEmpty()) {
         when {
             showWebViewLogin -> {
                 showWebViewLogin = false
+                focusRestoreTick++
             }
 
             currentDestination == TvDestination.NOW_PLAYING -> {
                 currentDestination = lastBrowseDestination
+                focusRestoreTick++
             }
 
             catalogStack.isNotEmpty() -> {
                 catalogStack = catalogStack.dropLast(1)
+                focusRestoreTick++
             }
 
             else -> {
                 currentDestination = TvDestination.HOME
+                focusRestoreTick++
             }
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(AlunaraPalette.Background)) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(colors.background)
+                .onPreviewKeyEvent { keyEvent ->
+                    if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (keyEvent.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
+                            if (sessionState.currentTrack != null) {
+                                sessionManager.togglePlayPause()
+                                true
+                            } else {
+                                false
+                            }
+                        KeyEvent.KEYCODE_MEDIA_PLAY ->
+                            if (sessionState.currentTrack != null && sessionState.status != PlaybackStatus.PLAYING) {
+                                sessionManager.togglePlayPause()
+                                true
+                            } else {
+                                false
+                            }
+                        KeyEvent.KEYCODE_MEDIA_PAUSE ->
+                            if (sessionState.currentTrack != null && sessionState.status == PlaybackStatus.PLAYING) {
+                                sessionManager.togglePlayPause()
+                                true
+                            } else {
+                                false
+                            }
+                        KeyEvent.KEYCODE_MEDIA_NEXT ->
+                            if (sessionState.queueState.currentIndex < sessionState.queueState.items.lastIndex) {
+                                sessionManager.skipNext()
+                                true
+                            } else {
+                                false
+                            }
+                        KeyEvent.KEYCODE_MEDIA_PREVIOUS ->
+                            if (sessionState.queueState.items.isNotEmpty()) {
+                                sessionManager.skipPrevious()
+                                true
+                            } else {
+                                false
+                            }
+                        else -> false
+                    }
+                },
+    ) {
         Crossfade(
             targetState = currentDestination == TvDestination.NOW_PLAYING,
-            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+            animationSpec = tween(durationMillis = prefs.navAnimMs, easing = FastOutSlowInEasing),
             modifier = Modifier.fillMaxSize(),
             label = "root_destination",
         ) { isNowPlaying ->
@@ -315,12 +404,19 @@ private fun AlunaraTvApp(
                 ) {
                     Crossfade(
                         targetState = activeCatalogTarget ?: browseDest,
-                        animationSpec = tween(durationMillis = 160),
+                        animationSpec = tween(durationMillis = prefs.focusAnimMs),
                         modifier =
                             Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
-                                .padding(horizontal = 28.dp, vertical = 20.dp),
+                                .focusRequester(browsePaneFocusRequester)
+                                .focusGroup()
+                                .padding(
+                                    start = 28.dp,
+                                    end = AlunaraDimens.OverscanHorizontal,
+                                    top = AlunaraDimens.OverscanVertical,
+                                    bottom = AlunaraDimens.OverscanVertical,
+                                ),
                         label = "browse_tab",
                     ) { paneTarget ->
                         when (paneTarget) {
@@ -424,6 +520,8 @@ private fun AlunaraTvApp(
                                     },
                                     onOpenWebViewLogin = { showWebViewLogin = true },
                                     onLogout = { sessionManager.logoutAccount() },
+                                    displayPrefs = displayPrefs,
+                                    onUpdateDisplayPrefs = onUpdateDisplayPrefs,
                                 )
 
                             TvDestination.NOW_PLAYING -> Unit
@@ -475,9 +573,11 @@ private fun CollapsibleNavigationRail(
     onRailFocusChanged: (Boolean) -> Unit,
     onSelect: (TvDestination) -> Unit,
 ) {
+    val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
     val railWidth by animateDpAsState(
         targetValue = if (expanded) AlunaraDimens.RailExpandedWidth else AlunaraDimens.RailCollapsedWidth,
-        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = prefs.navAnimMs, easing = FastOutSlowInEasing),
         label = "rail_width",
     )
 
@@ -487,7 +587,7 @@ private fun CollapsibleNavigationRail(
                 Modifier
                     .width(railWidth)
                     .fillMaxHeight()
-                    .background(AlunaraPalette.Surface)
+                    .background(colors.surface)
                     .padding(horizontal = 12.dp, vertical = 18.dp)
                     .onFocusChanged { onRailFocusChanged(it.hasFocus) },
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -509,15 +609,15 @@ private fun CollapsibleNavigationRail(
                 )
                 AnimatedVisibility(
                     visible = expanded,
-                    enter = fadeIn(tween(160)) + expandHorizontally(tween(200)),
-                    exit = fadeOut(tween(100)) + shrinkHorizontally(tween(180)),
+                    enter = fadeIn(tween(prefs.focusAnimMs)) + expandHorizontally(tween(prefs.navAnimMs)),
+                    exit = fadeOut(tween(prefs.focusAnimMs)) + shrinkHorizontally(tween(prefs.navAnimMs)),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
                             text = stringResource(R.string.app_name),
-                            color = AlunaraPalette.PrimaryText,
-                            fontSize = 18.sp,
+                            color = colors.primaryText,
+                            fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                         )
@@ -559,7 +659,7 @@ private fun CollapsibleNavigationRail(
                 Modifier
                     .width(1.dp)
                     .fillMaxHeight()
-                    .background(AlunaraPalette.SecondarySurface),
+                    .background(colors.secondarySurface),
         )
     }
 }
@@ -573,36 +673,38 @@ private fun RailItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
     val bgColor by animateColorAsState(
         targetValue =
             when {
-                focused -> AlunaraPalette.FocusedButtonBg
-                selected -> AlunaraPalette.SecondarySurface
+                focused -> colors.focusedButtonBg
+                selected -> colors.secondarySurface
                 else -> Color.Transparent
             },
-        animationSpec = tween(150),
+        animationSpec = tween(prefs.focusAnimMs),
         label = "rail_item_bg",
     )
     val borderColor by animateColorAsState(
         targetValue =
             when {
-                focused -> AlunaraPalette.FocusRingStrong
-                selected -> AlunaraPalette.PrimaryAccent.copy(alpha = 0.45f)
+                focused -> colors.focusRingStrong
+                selected -> colors.primaryAccent.copy(alpha = 0.55f)
                 else -> Color.Transparent
             },
-        animationSpec = tween(150),
+        animationSpec = tween(prefs.focusAnimMs),
         label = "rail_item_border",
     )
     val tintColor by animateColorAsState(
         targetValue =
             when {
-                focused -> AlunaraPalette.FocusedButtonContent
-                selected -> AlunaraPalette.PrimaryAccent
-                else -> AlunaraPalette.MutedText
+                focused -> colors.focusedButtonContent
+                selected -> colors.primaryAccent
+                else -> colors.mutedText
             },
-        animationSpec = tween(150),
+        animationSpec = tween(prefs.focusAnimMs),
         label = "rail_item_tint",
     )
 
@@ -612,7 +714,11 @@ private fun RailItem(
                 .fillMaxWidth()
                 .height(AlunaraDimens.RailItemHeight)
                 .background(bgColor, shape)
-                .border(BorderStroke(AlunaraDimens.FocusBorderWidth, borderColor), shape)
+                .border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                .semantics {
+                    role = Role.Tab
+                    this.selected = selected
+                }
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(onClick = onClick)
                 .padding(horizontal = 13.dp),
@@ -626,15 +732,15 @@ private fun RailItem(
         )
         AnimatedVisibility(
             visible = expanded,
-            enter = fadeIn(tween(160)) + expandHorizontally(tween(200)),
-            exit = fadeOut(tween(100)) + shrinkHorizontally(tween(180)),
+            enter = fadeIn(tween(prefs.focusAnimMs)) + expandHorizontally(tween(prefs.navAnimMs)),
+            exit = fadeOut(tween(prefs.focusAnimMs)) + shrinkHorizontally(tween(prefs.navAnimMs)),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(modifier = Modifier.width(14.dp))
                 Text(
                     text = label,
-                    color = if (focused) AlunaraPalette.FocusedButtonContent else AlunaraPalette.PrimaryText,
-                    fontSize = 15.sp,
+                    color = if (focused) colors.focusedButtonContent else colors.primaryText,
+                    fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                     fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

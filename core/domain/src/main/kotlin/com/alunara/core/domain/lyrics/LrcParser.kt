@@ -15,6 +15,8 @@ object LrcParser {
     private val WORD_TIMESTAMP_REGEX = Regex("""<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>""")
     private val METADATA_TAG_REGEX = Regex("""^\[(ti|ar|al|au|length|by|offset|re|ve):.*]$""", RegexOption.IGNORE_CASE)
     private val WHITESPACE_REGEX = Regex("""\s+""")
+    private val NUMERIC_HEX_ENTITY_REGEX = Regex("""&#[xX]([0-9a-fA-F]+);""")
+    private val NUMERIC_DEC_ENTITY_REGEX = Regex("""&#(\d+);""")
 
     fun parse(
         provider: LyricsProviderId,
@@ -230,14 +232,39 @@ object LrcParser {
         return merged
     }
 
-    private fun decodeHtmlEntities(input: String): String =
-        input
-            .replace("&quot;", "\"")
-            .replace("&apos;", "'")
-            .replace("&#39;", "'")
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
+    private fun decodeHtmlEntities(input: String): String {
+        if (!input.contains('&')) return input
+        var current = input
+        repeat(2) {
+            current = current.replace("&amp;", "&")
+        }
+        current =
+            current
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&nbsp;", " ")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+        current =
+            NUMERIC_HEX_ENTITY_REGEX.replace(current) { match ->
+                val codePoint = match.groupValues[1].toIntOrNull(16)
+                codePointToString(codePoint, match.value)
+            }
+        return NUMERIC_DEC_ENTITY_REGEX.replace(current) { match ->
+            val codePoint = match.groupValues[1].toIntOrNull()
+            codePointToString(codePoint, match.value)
+        }
+    }
+
+    private fun codePointToString(
+        codePoint: Int?,
+        fallback: String,
+    ): String {
+        if (codePoint == null || !Character.isValidCodePoint(codePoint) || codePoint == 0) {
+            return fallback
+        }
+        return String(Character.toChars(codePoint))
+    }
 
     private fun parseTimestampMs(match: MatchResult): Long? {
         val minutes = match.groupValues[1].toLongOrNull() ?: return null

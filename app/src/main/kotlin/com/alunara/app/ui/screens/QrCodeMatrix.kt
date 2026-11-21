@@ -13,6 +13,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.alunara.app.ui.theme.AlunaraPalette
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -386,7 +387,7 @@ fun QrCodeCanvas(
                 val cellSize = minOf(size.width, size.height) / matrix.size.toFloat()
                 val offsetX = (size.width - cellSize * matrix.size) / 2f
                 val offsetY = (size.height - cellSize * matrix.size) / 2f
-                val inkColor = Color(0xFF0B120E)
+                val inkColor = AlunaraPalette.FocusedButtonContent
                 for (row in 0 until matrix.size) {
                     for (col in 0 until matrix.size) {
                         if (matrix.get(row, col)) {

@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -26,28 +26,41 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.alunara.app.R
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvMediaCard
+import com.alunara.app.ui.components.TvSongListSkeleton
 import com.alunara.app.ui.components.TvSongRow
 import com.alunara.app.ui.theme.AlunaraDimens
-import com.alunara.app.ui.theme.AlunaraPalette
+import com.alunara.app.ui.theme.AlunaraTypography
+import com.alunara.app.ui.theme.LocalAlunaraColors
+import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
 import com.alunara.core.domain.model.AlbumRef
 import com.alunara.core.domain.model.ArtistRef
 import com.alunara.core.domain.model.PlaylistSummary
@@ -70,7 +83,17 @@ fun SearchScreen(
     onOpenPlaylist: (PlaylistSummary) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var fieldFocused by remember { mutableStateOf(false) }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue(query, TextRange(query.length))) }
+    LaunchedEffect(query) {
+        if (textFieldValue.text != query) {
+            textFieldValue = TextFieldValue(query, TextRange(query.length))
+        }
+    }
 
     Column(
         modifier = modifier.fillMaxSize(),
@@ -78,9 +101,10 @@ fun SearchScreen(
     ) {
         Text(
             text = stringResource(R.string.search_headline),
-            color = AlunaraPalette.PrimaryText,
-            fontSize = 22.sp,
+            color = colors.primaryText,
+            fontSize = AlunaraTypography.headline(prefs.textScale),
             fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.focusProperties { canFocus = false },
         )
 
         Row(
@@ -90,43 +114,83 @@ fun SearchScreen(
         ) {
             val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
             val fieldBorderColor by animateColorAsState(
-                targetValue = if (fieldFocused) AlunaraPalette.FocusOutline else AlunaraPalette.SecondarySurface,
-                animationSpec = tween(150),
+                targetValue = if (fieldFocused) colors.focusRingStrong else colors.secondarySurface,
+                animationSpec = tween(prefs.focusAnimMs),
                 label = "search_border",
             )
             Box(
                 modifier =
                     Modifier
                         .weight(1f)
-                        .height(AlunaraDimens.ControlHeight)
-                        .background(AlunaraPalette.Surface, shape)
-                        .border(BorderStroke(AlunaraDimens.FocusBorderWidth, fieldBorderColor), shape)
-                        .padding(horizontal = 14.dp),
+                        .heightIn(min = AlunaraDimens.ControlHeight)
+                        .background(colors.surface, shape)
+                        .border(BorderStroke(colors.focusBorderWidth, fieldBorderColor), shape)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 if (query.isEmpty()) {
                     Text(
                         text = stringResource(R.string.search_hint),
-                        color = AlunaraPalette.DimmedLyrics,
-                        fontSize = 15.sp,
+                        color = colors.dimmedLyrics,
+                        fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                     )
                 }
                 BasicTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
+                    value = textFieldValue,
+                    onValueChange = { updated ->
+                        textFieldValue = updated
+                        if (updated.text != query) {
+                            onQueryChange(updated.text)
+                        }
+                    },
                     singleLine = true,
                     textStyle =
                         TextStyle(
-                            color = AlunaraPalette.PrimaryText,
-                            fontSize = 15.sp,
+                            color = colors.primaryText,
+                            fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                         ),
-                    cursorBrush = SolidColor(AlunaraPalette.PrimaryAccent),
+                    cursorBrush = SolidColor(colors.primaryAccent),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSubmitSearch() }),
+                    keyboardActions =
+                        KeyboardActions(
+                            onSearch = {
+                                keyboardController?.hide()
+                                onSubmitSearch()
+                            },
+                        ),
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .onFocusChanged { fieldFocused = it.isFocused },
+                            .onFocusChanged { fieldFocused = it.isFocused }
+                            .onPreviewKeyEvent { keyEvent ->
+                                if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                val sel = textFieldValue.selection
+                                when (keyEvent.key) {
+                                    Key.DirectionDown -> {
+                                        keyboardController?.hide()
+                                        focusManager.moveFocus(FocusDirection.Down)
+                                    }
+                                    Key.DirectionUp -> {
+                                        keyboardController?.hide()
+                                        focusManager.moveFocus(FocusDirection.Up)
+                                    }
+                                    Key.DirectionLeft ->
+                                        if (sel.collapsed && sel.start == 0) {
+                                            keyboardController?.hide()
+                                            focusManager.moveFocus(FocusDirection.Left)
+                                        } else {
+                                            false
+                                        }
+                                    Key.DirectionRight ->
+                                        if (sel.collapsed && sel.end == textFieldValue.text.length) {
+                                            keyboardController?.hide()
+                                            focusManager.moveFocus(FocusDirection.Right)
+                                        } else {
+                                            false
+                                        }
+                                    else -> false
+                                }
+                            },
                 )
             }
 
@@ -134,25 +198,16 @@ fun SearchScreen(
                 text = stringResource(R.string.search_button),
                 icon = Icons.Rounded.Search,
                 highlighted = true,
-                onClick = onSubmitSearch,
+                onClick = {
+                    keyboardController?.hide()
+                    onSubmitSearch()
+                },
             )
         }
 
         when {
             isLoading -> {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .focusProperties { canFocus = false }
-                            .padding(vertical = 20.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.search_loading),
-                        color = AlunaraPalette.MutedText,
-                        fontSize = 15.sp,
-                    )
-                }
+                TvSongListSkeleton(count = 5)
             }
 
             errorMessage != null -> {
@@ -160,14 +215,14 @@ fun SearchScreen(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .background(AlunaraPalette.ErrorSurface, RoundedCornerShape(10.dp))
+                            .background(colors.errorSurface, RoundedCornerShape(AlunaraDimens.RadiusControl))
                             .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = "${stringResource(R.string.search_error)} ($errorMessage)",
-                        color = AlunaraPalette.ErrorText,
-                        fontSize = 14.sp,
+                        color = colors.errorText,
+                        fontSize = AlunaraTypography.body(prefs.textScale),
                     )
                     TvFocusableButton(
                         text = stringResource(R.string.retry),
@@ -180,16 +235,16 @@ fun SearchScreen(
             results == null -> {
                 Text(
                     text = stringResource(R.string.search_prompt),
-                    color = AlunaraPalette.MutedText,
-                    fontSize = 15.sp,
+                    color = colors.mutedText,
+                    fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                 )
             }
 
             results.songs.isEmpty() && results.albums.isEmpty() && results.artists.isEmpty() && results.playlists.isEmpty() -> {
                 Text(
                     text = stringResource(R.string.search_empty),
-                    color = AlunaraPalette.MutedText,
-                    fontSize = 15.sp,
+                    color = colors.mutedText,
+                    fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                 )
             }
 
@@ -203,12 +258,12 @@ fun SearchScreen(
                         item {
                             Text(
                                 text = stringResource(R.string.section_songs),
-                                color = AlunaraPalette.PrimaryAccent,
-                                fontSize = 15.sp,
+                                color = colors.primaryAccent,
+                                fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
-                        items(results.songs.size, key = { idx -> "song-${results.songs[idx].id}" }) { index ->
+                        items(results.songs.size, key = { idx -> "song-$idx-${results.songs[idx].id}" }) { index ->
                             val song = results.songs[index]
                             TvSongRow(
                                 track = song,
@@ -225,8 +280,8 @@ fun SearchScreen(
                         item {
                             Text(
                                 text = stringResource(R.string.section_albums),
-                                color = AlunaraPalette.PrimaryAccent,
-                                fontSize = 15.sp,
+                                color = colors.primaryAccent,
+                                fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(top = 6.dp),
                             )
@@ -249,8 +304,8 @@ fun SearchScreen(
                         item {
                             Text(
                                 text = stringResource(R.string.section_playlists),
-                                color = AlunaraPalette.PrimaryAccent,
-                                fontSize = 15.sp,
+                                color = colors.primaryAccent,
+                                fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(top = 6.dp),
                             )
@@ -273,8 +328,8 @@ fun SearchScreen(
                         item {
                             Text(
                                 text = stringResource(R.string.section_artists),
-                                color = AlunaraPalette.PrimaryAccent,
-                                fontSize = 15.sp,
+                                color = colors.primaryAccent,
+                                fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(top = 6.dp),
                             )

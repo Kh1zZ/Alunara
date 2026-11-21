@@ -37,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -58,6 +59,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.alunara.app.R
 import com.alunara.app.ui.components.TvFocusableButton
+import com.alunara.app.ui.components.safeRequestFocus
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.core.domain.model.AccountCredentials
@@ -142,7 +144,8 @@ fun YouTubeWebViewLoginScreen(
 
     LaunchedEffect(Unit) {
         companionUrl = companionServer.start()
-        webViewRequester.requestFocus()
+        withFrameNanos { }
+        webViewRequester.safeRequestFocus()
     }
 
     DisposableEffect(Unit) {
@@ -239,7 +242,7 @@ fun YouTubeWebViewLoginScreen(
                                 }
                                 Key.DirectionUp -> {
                                     if (domFocusIndex <= 0) {
-                                        cancelRequester.requestFocus()
+                                        cancelRequester.safeRequestFocus()
                                     } else {
                                         injectHighlightElement(-1)
                                     }

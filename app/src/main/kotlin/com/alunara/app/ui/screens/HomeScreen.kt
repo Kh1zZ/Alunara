@@ -7,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -31,17 +30,22 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.alunara.app.R
 import com.alunara.app.ui.components.TvArtwork
+import com.alunara.app.ui.components.TvCardRowSkeleton
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvMediaCard
 import com.alunara.app.ui.theme.AlunaraDimens
-import com.alunara.app.ui.theme.AlunaraPalette
+import com.alunara.app.ui.theme.AlunaraTypography
+import com.alunara.app.ui.theme.LocalAlunaraColors
+import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
 import com.alunara.core.domain.model.AlbumRef
 import com.alunara.core.domain.model.AuthSessionState
 import com.alunara.core.domain.model.HomeSection
@@ -64,13 +68,19 @@ fun HomeScreen(
     authSession: AuthSessionState = AuthSessionState.Guest,
     onOpenPlaylist: (PlaylistSummary) -> Unit = {},
 ) {
+    val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 16.dp),
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                modifier = Modifier.focusProperties { canFocus = false },
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 Text(
                     text =
                         if (authSession is AuthSessionState.Authenticated) {
@@ -78,8 +88,8 @@ fun HomeScreen(
                         } else {
                             stringResource(R.string.status_badge)
                         },
-                    color = AlunaraPalette.PrimaryAccent,
-                    fontSize = 13.sp,
+                    color = colors.primaryAccent,
+                    fontSize = AlunaraTypography.label(prefs.textScale),
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
@@ -89,8 +99,8 @@ fun HomeScreen(
                         } else {
                             stringResource(R.string.home_headline)
                         },
-                    color = AlunaraPalette.PrimaryText,
-                    fontSize = 24.sp,
+                    color = colors.primaryText,
+                    fontSize = AlunaraTypography.headline(prefs.textScale),
                     fontWeight = FontWeight.SemiBold,
                 )
             }
@@ -107,20 +117,8 @@ fun HomeScreen(
 
         when {
             isLoading && sections.isEmpty() -> {
-                item {
-                    Box(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .focusProperties { canFocus = false }
-                                .padding(vertical = 24.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.home_loading),
-                            color = AlunaraPalette.MutedText,
-                            fontSize = 15.sp,
-                        )
-                    }
+                items(2) {
+                    TvCardRowSkeleton(count = 5)
                 }
             }
 
@@ -130,14 +128,14 @@ fun HomeScreen(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .background(AlunaraPalette.ErrorSurface, RoundedCornerShape(12.dp))
+                                .background(colors.errorSurface, RoundedCornerShape(12.dp))
                                 .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Text(
                             text = "${stringResource(R.string.home_error)} ($errorMessage)",
-                            color = AlunaraPalette.ErrorText,
-                            fontSize = 14.sp,
+                            color = colors.errorText,
+                            fontSize = AlunaraTypography.body(prefs.textScale),
                         )
                         TvFocusableButton(
                             text = stringResource(R.string.retry),
@@ -154,8 +152,8 @@ fun HomeScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
                             text = stringResource(R.string.home_empty),
-                            color = AlunaraPalette.MutedText,
-                            fontSize = 15.sp,
+                            color = colors.mutedText,
+                            fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                         )
                         TvFocusableButton(
                             text = stringResource(R.string.retry),
@@ -171,9 +169,10 @@ fun HomeScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = section.title,
-                            color = AlunaraPalette.PrimaryText,
-                            fontSize = 18.sp,
+                            color = colors.primaryText,
+                            fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
                             fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.focusProperties { canFocus = false },
                         )
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -240,12 +239,15 @@ private fun HomeSongRail(
     tracks: List<Track>,
     onPlayAt: (Int) -> Unit,
 ) {
+    val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = title,
-            color = AlunaraPalette.PrimaryText,
-            fontSize = 18.sp,
+            color = colors.primaryText,
+            fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
             fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.focusProperties { canFocus = false },
         )
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -268,11 +270,18 @@ private fun ContinueQueueCard(
     track: Track,
     onClick: () -> Unit,
 ) {
+    val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+    val bgColor by animateColorAsState(
+        targetValue = if (focused) colors.focusedCardSurface else colors.secondarySurface,
+        animationSpec = tween(prefs.focusAnimMs),
+        label = "continue_bg",
+    )
     val borderColor by animateColorAsState(
-        targetValue = if (focused) AlunaraPalette.FocusOutline else Color.Transparent,
-        animationSpec = tween(150),
+        targetValue = if (focused) colors.focusRingStrong else Color.Transparent,
+        animationSpec = tween(prefs.focusAnimMs),
         label = "continue_border",
     )
 
@@ -280,8 +289,9 @@ private fun ContinueQueueCard(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(AlunaraPalette.SecondarySurface, shape)
-                .border(BorderStroke(AlunaraDimens.FocusBorderWidth, borderColor), shape)
+                .background(bgColor, shape)
+                .border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                .semantics { role = Role.Button }
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(onClick = onClick)
                 .padding(12.dp),
@@ -292,23 +302,23 @@ private fun ContinueQueueCard(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = stringResource(R.string.continue_queue),
-                color = AlunaraPalette.PrimaryAccent,
-                fontSize = 12.sp,
+                color = colors.primaryAccent,
+                fontSize = AlunaraTypography.caption(prefs.textScale),
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
                 text = "${track.title} · ${track.primaryArtistName}",
-                color = AlunaraPalette.PrimaryText,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
+                color = colors.primaryText,
+                fontSize = AlunaraTypography.rowTitle(prefs.textScale),
+                fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         Text(
             text = stringResource(R.string.open_now_playing),
-            color = AlunaraPalette.FocusOutline,
-            fontSize = 13.sp,
+            color = if (focused) colors.focusRingStrong else colors.focusOutline,
+            fontSize = AlunaraTypography.label(prefs.textScale),
             fontWeight = FontWeight.SemiBold,
         )
     }

@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -41,7 +42,9 @@ import com.alunara.app.R
 import com.alunara.app.ui.components.TvArtwork
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvMediaCard
+import com.alunara.app.ui.components.TvSongListSkeleton
 import com.alunara.app.ui.components.TvSongRow
+import com.alunara.app.ui.components.safeRequestFocus
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.core.domain.contract.MusicEngine
@@ -142,7 +145,8 @@ fun CatalogDetailScreen(
     }
 
     LaunchedEffect(target) {
-        primaryFocusRequester.requestFocus()
+        withFrameNanos { }
+        primaryFocusRequester.safeRequestFocus()
     }
 
     val badgeLabel =
@@ -228,19 +232,7 @@ fun CatalogDetailScreen(
 
         when (val state = uiState) {
             CatalogDetailUiState.Loading -> {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .focusProperties { canFocus = false }
-                            .padding(vertical = 20.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.catalog_loading),
-                        color = AlunaraPalette.MutedText,
-                        fontSize = 15.sp,
-                    )
-                }
+                TvSongListSkeleton(count = 5)
             }
 
             is CatalogDetailUiState.Error -> {

@@ -25,23 +25,32 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.alunara.app.R
+import com.alunara.app.ui.components.TvCardRowSkeleton
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvMediaCard
 import com.alunara.app.ui.components.TvSongRow
+import com.alunara.app.ui.components.safeRequestFocus
 import com.alunara.app.ui.theme.AlunaraDimens
-import com.alunara.app.ui.theme.AlunaraPalette
+import com.alunara.app.ui.theme.AlunaraTypography
+import com.alunara.app.ui.theme.LocalAlunaraColors
+import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
 import com.alunara.core.domain.model.AuthSessionState
 import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.Track
@@ -72,7 +81,23 @@ fun LibraryScreen(
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
     var selectedTab by rememberSaveable { mutableStateOf(LibraryTab.PLAYLISTS) }
+    var confirmingClearHistory by remember { mutableStateOf(false) }
+    val cancelClearHistoryRequester = remember { FocusRequester() }
+
+    LaunchedEffect(confirmingClearHistory) {
+        if (confirmingClearHistory) {
+            withFrameNanos { }
+            cancelClearHistoryRequester.safeRequestFocus()
+        }
+    }
+    LaunchedEffect(localHistoryCount) {
+        if (localHistoryCount <= 0) {
+            confirmingClearHistory = false
+        }
+    }
 
     Column(
         modifier = modifier.fillMaxSize(),
@@ -85,9 +110,10 @@ fun LibraryScreen(
         ) {
             Text(
                 text = stringResource(R.string.library_headline),
-                color = AlunaraPalette.PrimaryText,
-                fontSize = 22.sp,
+                color = colors.primaryText,
+                fontSize = AlunaraTypography.headline(prefs.textScale),
                 fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.focusProperties { canFocus = false },
             )
             when {
                 authSession is AuthSessionState.Authenticated && selectedTab != LibraryTab.HISTORY -> {
@@ -98,11 +124,11 @@ fun LibraryScreen(
                     )
                 }
 
-                selectedTab == LibraryTab.HISTORY && localHistoryCount > 0 -> {
+                selectedTab == LibraryTab.HISTORY && localHistoryCount > 0 && !confirmingClearHistory -> {
                     TvFocusableButton(
                         text = stringResource(R.string.clear_history),
                         icon = Icons.Rounded.DeleteSweep,
-                        onClick = onClearHistory,
+                        onClick = { confirmingClearHistory = true },
                     )
                 }
             }
@@ -118,13 +144,19 @@ fun LibraryScreen(
                 text = stringResource(R.string.library_tab_playlists, accountPlaylists.size),
                 icon = Icons.Rounded.LibraryMusic,
                 highlighted = selectedTab == LibraryTab.PLAYLISTS,
-                onClick = { selectedTab = LibraryTab.PLAYLISTS },
+                onClick = {
+                    confirmingClearHistory = false
+                    selectedTab = LibraryTab.PLAYLISTS
+                },
             )
             TvFocusableButton(
                 text = stringResource(R.string.library_tab_favorites, favorites.size),
                 icon = Icons.Rounded.Favorite,
                 highlighted = selectedTab == LibraryTab.FAVORITES,
-                onClick = { selectedTab = LibraryTab.FAVORITES },
+                onClick = {
+                    confirmingClearHistory = false
+                    selectedTab = LibraryTab.FAVORITES
+                },
             )
             TvFocusableButton(
                 text = stringResource(R.string.library_tab_history, recentHistory.size),
@@ -134,16 +166,49 @@ fun LibraryScreen(
             )
         }
 
-        if (authSession !is AuthSessionState.Authenticated) {
-            Text(
-                text = stringResource(R.string.library_guest_note),
-                color = AlunaraPalette.MutedText,
-                fontSize = 13.sp,
+        if (confirmingClearHistory && selectedTab == LibraryTab.HISTORY) {
+            Row(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
-                        .padding(12.dp),
+                        .background(colors.errorSurface, RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.clear_history_confirm_prompt),
+                    color = colors.errorText,
+                    fontSize = AlunaraTypography.body(prefs.textScale),
+                    modifier = Modifier.weight(1f),
+                )
+                TvFocusableButton(
+                    text = stringResource(R.string.cancel),
+                    onClick = { confirmingClearHistory = false },
+                    modifier = Modifier.focusRequester(cancelClearHistoryRequester),
+                )
+                TvFocusableButton(
+                    text = stringResource(R.string.confirm_delete_action),
+                    highlighted = true,
+                    onClick = {
+                        confirmingClearHistory = false
+                        onClearHistory()
+                    },
+                )
+            }
+        }
+
+        if (authSession !is AuthSessionState.Authenticated) {
+            Text(
+                text = stringResource(R.string.library_guest_note),
+                color = colors.mutedText,
+                fontSize = AlunaraTypography.label(prefs.textScale),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .padding(12.dp)
+                        .focusProperties { canFocus = false },
             )
         }
 
@@ -154,21 +219,21 @@ fun LibraryScreen(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusCard))
+                                .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusCard))
                                 .padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Text(
                             text = stringResource(R.string.account_playlists_guest_title),
-                            color = AlunaraPalette.PrimaryAccent,
-                            fontSize = 16.sp,
+                            color = colors.primaryAccent,
+                            fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
                             text = stringResource(R.string.account_playlists_guest_desc),
-                            color = AlunaraPalette.MutedText,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
+                            color = colors.mutedText,
+                            fontSize = AlunaraTypography.body(prefs.textScale),
+                            lineHeight = AlunaraTypography.body(prefs.textScale) * 1.45f,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             TvFocusableButton(
@@ -190,17 +255,12 @@ fun LibraryScreen(
                         }
                     }
                 } else if (librarySyncing && accountPlaylists.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.catalog_loading),
-                        color = AlunaraPalette.MutedText,
-                        fontSize = 15.sp,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
+                    TvCardRowSkeleton(count = 5)
                 } else if (accountPlaylists.isEmpty()) {
                     Text(
                         text = stringResource(R.string.account_playlists_empty),
-                        color = AlunaraPalette.MutedText,
-                        fontSize = 15.sp,
+                        color = colors.mutedText,
+                        fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 } else {
@@ -226,8 +286,8 @@ fun LibraryScreen(
                 if (favorites.isEmpty()) {
                     Text(
                         text = stringResource(R.string.favorites_empty),
-                        color = AlunaraPalette.MutedText,
-                        fontSize = 15.sp,
+                        color = colors.mutedText,
+                        fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 } else {
@@ -254,8 +314,8 @@ fun LibraryScreen(
                 if (recentHistory.isEmpty()) {
                     Text(
                         text = stringResource(R.string.history_empty),
-                        color = AlunaraPalette.MutedText,
-                        fontSize = 15.sp,
+                        color = colors.mutedText,
+                        fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 } else {

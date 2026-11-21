@@ -1,10 +1,57 @@
 package com.alunara.app.ui.theme
 
+import android.content.Context
+import android.provider.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
+
+@Immutable
+data class AlunaraColorTokens(
+    val background: Color,
+    val surface: Color,
+    val secondarySurface: Color,
+    val primaryAccent: Color,
+    val primaryText: Color,
+    val mutedText: Color,
+    val dimmedLyrics: Color,
+    val focusOutline: Color,
+    val focusedButtonBg: Color,
+    val focusedButtonContent: Color,
+    val focusedCardSurface: Color,
+    val focusRingStrong: Color,
+    val errorSurface: Color,
+    val errorText: Color,
+    val focusBorderWidth: Dp,
+)
+
+@Immutable
+data class AlunaraDisplayPrefs(
+    val largeText: Boolean = false,
+    val highContrast: Boolean = false,
+    val reduceMotion: Boolean = false,
+) {
+    val textScale: Float
+        get() = if (largeText) LARGE_TEXT_SCALE else 1.0f
+
+    val focusAnimMs: Int
+        get() = if (reduceMotion) 0 else 150
+
+    val navAnimMs: Int
+        get() = if (reduceMotion) 0 else 200
+
+    companion object {
+        const val LARGE_TEXT_SCALE: Float = 1.15f
+    }
+}
 
 /**
  * Locked Fixed Dark Forest Green design tokens (UI/UX Spec §2.1).
@@ -36,6 +83,66 @@ object AlunaraPalette {
     val FocusRingStrong = Color(0xFFFFFFFFL)
     val ErrorSurface = Color(ERROR_SURFACE_HEX)
     val ErrorText = Color(ERROR_TEXT_HEX)
+
+    val DefaultTokens =
+        AlunaraColorTokens(
+            background = Background,
+            surface = Surface,
+            secondarySurface = SecondarySurface,
+            primaryAccent = PrimaryAccent,
+            primaryText = PrimaryText,
+            mutedText = MutedText,
+            dimmedLyrics = DimmedLyrics,
+            focusOutline = FocusOutline,
+            focusedButtonBg = FocusedButtonBg,
+            focusedButtonContent = FocusedButtonContent,
+            focusedCardSurface = FocusedCardSurface,
+            focusRingStrong = FocusRingStrong,
+            errorSurface = ErrorSurface,
+            errorText = ErrorText,
+            focusBorderWidth = 2.5.dp,
+        )
+
+    val HighContrastTokens =
+        AlunaraColorTokens(
+            background = Color(0xFF080E0BL),
+            surface = Color(0xFF14221AL),
+            secondarySurface = Color(0xFF1F3629L),
+            primaryAccent = Color(0xFFA2DEC0L),
+            primaryText = Color(0xFFF3FAF5L),
+            mutedText = Color(0xFFD0E6D8L),
+            dimmedLyrics = Color(0xFFA7C1B1L),
+            focusOutline = Color(0xFFD6F7E5L),
+            focusedButtonBg = Color(0xFFE0FAECL),
+            focusedButtonContent = Color(0xFF050A07L),
+            focusedCardSurface = Color(0xFF284836L),
+            focusRingStrong = Color(0xFFFFFFFFL),
+            errorSurface = Color(0xFF4A2023L),
+            errorText = Color(0xFFFFD0D3L),
+            focusBorderWidth = 3.dp,
+        )
+}
+
+object AlunaraTypography {
+    fun headline(scale: Float): TextUnit = (24f * scale).sp
+
+    fun title(scale: Float): TextUnit = (20f * scale).sp
+
+    fun sectionTitle(scale: Float): TextUnit = (18f * scale).sp
+
+    fun rowTitle(scale: Float): TextUnit = (15f * scale).sp
+
+    fun body(scale: Float): TextUnit = (14f * scale).sp
+
+    fun label(scale: Float): TextUnit = (13f * scale).sp
+
+    fun caption(scale: Float): TextUnit = (12f * scale).sp
+
+    fun lyricActive(scale: Float): TextUnit = (26f * scale).sp
+
+    fun lyricInactive(scale: Float): TextUnit = (19f * scale).sp
+
+    fun lyricPlain(scale: Float): TextUnit = (20f * scale).sp
 }
 
 /**
@@ -45,7 +152,8 @@ object AlunaraDimens {
     val RailCollapsedWidth = 76.dp
     val RailExpandedWidth = 216.dp
     val RailItemHeight = 48.dp
-    val ControlHeight = 44.dp
+    val ControlHeight = 48.dp
+    val QueueActionButtonSize = 34.dp
     val SongRowHeight = 60.dp
     val MiniPlayerHeight = 68.dp
     val CardWidth = 152.dp
@@ -54,27 +162,87 @@ object AlunaraDimens {
     val RadiusControl = 12.dp
     val RadiusCard = 14.dp
     val FocusBorderWidth = 2.5.dp
+    val OverscanHorizontal = 36.dp
+    val OverscanVertical = 22.dp
 }
 
-private val AlunaraColorScheme =
-    darkColorScheme(
-        primary = AlunaraPalette.PrimaryAccent,
-        onPrimary = AlunaraPalette.Background,
-        secondary = AlunaraPalette.SecondarySurface,
-        onSecondary = AlunaraPalette.PrimaryText,
-        background = AlunaraPalette.Background,
-        onBackground = AlunaraPalette.PrimaryText,
-        surface = AlunaraPalette.Surface,
-        onSurface = AlunaraPalette.PrimaryText,
-        surfaceVariant = AlunaraPalette.SecondarySurface,
-        onSurfaceVariant = AlunaraPalette.MutedText,
-        border = AlunaraPalette.FocusOutline,
-    )
+val LocalAlunaraDisplayPrefs = staticCompositionLocalOf { AlunaraDisplayPrefs() }
+val LocalAlunaraColors = staticCompositionLocalOf { AlunaraPalette.DefaultTokens }
+
+class AlunaraDisplayPrefsStore(
+    context: Context,
+) {
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    fun load(): AlunaraDisplayPrefs {
+        val systemReduceMotion = isSystemReduceMotionEnabled(appContext)
+        val reduceMotion =
+            if (prefs.contains(KEY_REDUCE_MOTION)) {
+                prefs.getBoolean(KEY_REDUCE_MOTION, systemReduceMotion)
+            } else {
+                systemReduceMotion
+            }
+        return AlunaraDisplayPrefs(
+            largeText = prefs.getBoolean(KEY_LARGE_TEXT, false),
+            highContrast = prefs.getBoolean(KEY_HIGH_CONTRAST, false),
+            reduceMotion = reduceMotion,
+        )
+    }
+
+    fun save(displayPrefs: AlunaraDisplayPrefs) {
+        prefs
+            .edit()
+            .putBoolean(KEY_LARGE_TEXT, displayPrefs.largeText)
+            .putBoolean(KEY_HIGH_CONTRAST, displayPrefs.highContrast)
+            .putBoolean(KEY_REDUCE_MOTION, displayPrefs.reduceMotion)
+            .apply()
+    }
+
+    companion object {
+        private const val PREFS_NAME = "alunara_display_prefs"
+        private const val KEY_LARGE_TEXT = "large_text"
+        private const val KEY_HIGH_CONTRAST = "high_contrast"
+        private const val KEY_REDUCE_MOTION = "reduce_motion"
+
+        fun isSystemReduceMotionEnabled(context: Context): Boolean =
+            runCatching {
+                Settings.Global.getFloat(
+                    context.contentResolver,
+                    Settings.Global.ANIMATOR_DURATION_SCALE,
+                    1.0f,
+                ) == 0.0f
+            }.getOrDefault(false)
+    }
+}
 
 @Composable
-fun AlunaraTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = AlunaraColorScheme,
-        content = content,
-    )
+fun AlunaraTheme(
+    displayPrefs: AlunaraDisplayPrefs = AlunaraDisplayPrefs(),
+    content: @Composable () -> Unit,
+) {
+    val tokens = if (displayPrefs.highContrast) AlunaraPalette.HighContrastTokens else AlunaraPalette.DefaultTokens
+    val colorScheme =
+        darkColorScheme(
+            primary = tokens.primaryAccent,
+            onPrimary = tokens.background,
+            secondary = tokens.secondarySurface,
+            onSecondary = tokens.primaryText,
+            background = tokens.background,
+            onBackground = tokens.primaryText,
+            surface = tokens.surface,
+            onSurface = tokens.primaryText,
+            surfaceVariant = tokens.secondarySurface,
+            onSurfaceVariant = tokens.mutedText,
+            border = tokens.focusOutline,
+        )
+    CompositionLocalProvider(
+        LocalAlunaraDisplayPrefs provides displayPrefs,
+        LocalAlunaraColors provides tokens,
+    ) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            content = content,
+        )
+    }
 }

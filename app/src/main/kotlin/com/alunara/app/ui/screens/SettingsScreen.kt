@@ -16,25 +16,37 @@ import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Contrast
+import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.MotionPhotosOff
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.alunara.app.R
 import com.alunara.app.ui.components.TvFocusableButton
+import com.alunara.app.ui.components.safeRequestFocus
 import com.alunara.app.ui.theme.AlunaraDimens
-import com.alunara.app.ui.theme.AlunaraPalette
+import com.alunara.app.ui.theme.AlunaraDisplayPrefs
+import com.alunara.app.ui.theme.AlunaraTypography
+import com.alunara.app.ui.theme.LocalAlunaraColors
+import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
 import com.alunara.core.domain.model.AuthSessionState
 
 @Composable
@@ -47,8 +59,20 @@ fun SettingsScreen(
     onOpenWebViewLogin: () -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
+    displayPrefs: AlunaraDisplayPrefs = AlunaraDisplayPrefs(),
+    onUpdateDisplayPrefs: (AlunaraDisplayPrefs) -> Unit = {},
 ) {
+    val colors = LocalAlunaraColors.current
+    val activePrefs = LocalAlunaraDisplayPrefs.current
     var confirmingLogout by remember { mutableStateOf(false) }
+    val cancelLogoutRequester = remember { FocusRequester() }
+
+    LaunchedEffect(confirmingLogout) {
+        if (confirmingLogout) {
+            withFrameNanos { }
+            cancelLogoutRequester.safeRequestFocus()
+        }
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -58,32 +82,64 @@ fun SettingsScreen(
         item {
             Text(
                 text = stringResource(R.string.settings_headline),
-                color = AlunaraPalette.PrimaryText,
-                fontSize = 22.sp,
+                color = colors.primaryText,
+                fontSize = AlunaraTypography.headline(activePrefs.textScale),
                 fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.focusProperties { canFocus = false },
             )
         }
 
         item {
-            Row(
+            SettingsToggleRow(
+                label = stringResource(R.string.autoplay_label),
+                actionLabel = if (autoplayEnabled) stringResource(R.string.state_on) else stringResource(R.string.state_off),
+                icon = if (autoplayEnabled) Icons.Rounded.CheckCircle else Icons.Rounded.AutoAwesome,
+                highlighted = autoplayEnabled,
+                onClick = onToggleAutoplay,
+            )
+        }
+
+        item {
+            Column(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+                        .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    text = stringResource(R.string.autoplay_label),
-                    color = AlunaraPalette.PrimaryText,
-                    fontSize = 15.sp,
+                    text = stringResource(R.string.display_section_title),
+                    color = colors.primaryAccent,
+                    fontSize = AlunaraTypography.body(activePrefs.textScale),
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.focusProperties { canFocus = false },
                 )
-                TvFocusableButton(
-                    text = if (autoplayEnabled) stringResource(R.string.state_on) else stringResource(R.string.state_off),
-                    icon = if (autoplayEnabled) Icons.Rounded.CheckCircle else Icons.Rounded.AutoAwesome,
-                    highlighted = autoplayEnabled,
-                    onClick = onToggleAutoplay,
+                SettingsInlineToggle(
+                    label = stringResource(R.string.text_size_label),
+                    actionLabel =
+                        if (displayPrefs.largeText) {
+                            stringResource(R.string.text_size_large)
+                        } else {
+                            stringResource(R.string.text_size_normal)
+                        },
+                    icon = Icons.Rounded.FormatSize,
+                    highlighted = displayPrefs.largeText,
+                    onClick = { onUpdateDisplayPrefs(displayPrefs.copy(largeText = !displayPrefs.largeText)) },
+                )
+                SettingsInlineToggle(
+                    label = stringResource(R.string.high_contrast_label),
+                    actionLabel = if (displayPrefs.highContrast) stringResource(R.string.state_on) else stringResource(R.string.state_off),
+                    icon = Icons.Rounded.Contrast,
+                    highlighted = displayPrefs.highContrast,
+                    onClick = { onUpdateDisplayPrefs(displayPrefs.copy(highContrast = !displayPrefs.highContrast)) },
+                )
+                SettingsInlineToggle(
+                    label = stringResource(R.string.reduce_motion_label),
+                    actionLabel = if (displayPrefs.reduceMotion) stringResource(R.string.state_on) else stringResource(R.string.state_off),
+                    icon = Icons.Rounded.MotionPhotosOff,
+                    highlighted = displayPrefs.reduceMotion,
+                    onClick = { onUpdateDisplayPrefs(displayPrefs.copy(reduceMotion = !displayPrefs.reduceMotion)) },
                 )
             }
         }
@@ -93,7 +149,7 @@ fun SettingsScreen(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
                         .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -104,13 +160,13 @@ fun SettingsScreen(
                     Icon(
                         imageVector = Icons.Rounded.Security,
                         contentDescription = null,
-                        tint = AlunaraPalette.PrimaryAccent,
+                        tint = colors.primaryAccent,
                         modifier = Modifier.size(18.dp),
                     )
                     Text(
                         text = stringResource(R.string.account_section_title),
-                        color = AlunaraPalette.PrimaryAccent,
-                        fontSize = 14.sp,
+                        color = colors.primaryAccent,
+                        fontSize = AlunaraTypography.body(activePrefs.textScale),
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
@@ -124,27 +180,32 @@ fun SettingsScreen(
                     }
                 Text(
                     text = scopeText,
-                    color = AlunaraPalette.PrimaryText,
-                    fontSize = 14.sp,
+                    color = colors.primaryText,
+                    fontSize = AlunaraTypography.rowTitle(activePrefs.textScale),
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
                     text = stringResource(R.string.account_keystore_status),
-                    color = AlunaraPalette.PrimaryAccent,
-                    fontSize = 13.sp,
+                    color = colors.primaryAccent,
+                    fontSize = AlunaraTypography.label(activePrefs.textScale),
                 )
                 Text(
-                    text = stringResource(R.string.account_fg04_note),
-                    color = AlunaraPalette.MutedText,
-                    fontSize = 13.sp,
-                    lineHeight = 19.sp,
+                    text =
+                        if (authSession is AuthSessionState.Authenticated) {
+                            stringResource(R.string.account_synced_note)
+                        } else {
+                            stringResource(R.string.account_fg04_note)
+                        },
+                    color = colors.mutedText,
+                    fontSize = AlunaraTypography.label(activePrefs.textScale),
+                    lineHeight = AlunaraTypography.label(activePrefs.textScale) * 1.45f,
                 )
 
                 if (authLoading) {
                     Text(
                         text = stringResource(R.string.login_verifying),
-                        color = AlunaraPalette.PrimaryAccent,
-                        fontSize = 13.sp,
+                        color = colors.primaryAccent,
+                        fontSize = AlunaraTypography.label(activePrefs.textScale),
                         fontWeight = FontWeight.Medium,
                     )
                 }
@@ -152,8 +213,8 @@ fun SettingsScreen(
                 if (!authErrorMessage.isNullOrBlank()) {
                     Text(
                         text = stringResource(R.string.login_error_prefix, authErrorMessage),
-                        color = AlunaraPalette.ErrorText,
-                        fontSize = 13.sp,
+                        color = colors.errorText,
+                        fontSize = AlunaraTypography.label(activePrefs.textScale),
                     )
                 }
 
@@ -178,10 +239,15 @@ fun SettingsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
                                 text = stringResource(R.string.logout_confirm_prompt),
-                                color = AlunaraPalette.ErrorText,
-                                fontSize = 13.sp,
+                                color = colors.errorText,
+                                fontSize = AlunaraTypography.label(activePrefs.textScale),
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                TvFocusableButton(
+                                    text = stringResource(R.string.cancel),
+                                    onClick = { confirmingLogout = false },
+                                    modifier = Modifier.focusRequester(cancelLogoutRequester),
+                                )
                                 TvFocusableButton(
                                     text = stringResource(R.string.logout_confirm_action),
                                     icon = Icons.AutoMirrored.Rounded.Logout,
@@ -190,10 +256,6 @@ fun SettingsScreen(
                                         confirmingLogout = false
                                         onLogout()
                                     },
-                                )
-                                TvFocusableButton(
-                                    text = stringResource(R.string.cancel),
-                                    onClick = { confirmingLogout = false },
                                 )
                             }
                         }
@@ -207,7 +269,7 @@ fun SettingsScreen(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
                         .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -218,23 +280,85 @@ fun SettingsScreen(
                     Icon(
                         imageVector = Icons.Rounded.Info,
                         contentDescription = null,
-                        tint = AlunaraPalette.PrimaryAccent,
+                        tint = colors.primaryAccent,
                         modifier = Modifier.size(18.dp),
                     )
                     Text(
                         text = stringResource(R.string.compliance_summary),
-                        color = AlunaraPalette.PrimaryAccent,
-                        fontSize = 13.sp,
+                        color = colors.primaryAccent,
+                        fontSize = AlunaraTypography.label(activePrefs.textScale),
                         fontWeight = FontWeight.Medium,
                     )
                 }
                 Text(
                     text = stringResource(R.string.attribution_text),
-                    color = AlunaraPalette.MutedText,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
+                    color = colors.mutedText,
+                    fontSize = AlunaraTypography.body(activePrefs.textScale),
+                    lineHeight = AlunaraTypography.body(activePrefs.textScale) * 1.45f,
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsToggleRow(
+    label: String,
+    actionLabel: String,
+    icon: ImageVector,
+    highlighted: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = LocalAlunaraColors.current
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        SettingsInlineToggle(
+            label = label,
+            actionLabel = actionLabel,
+            icon = icon,
+            highlighted = highlighted,
+            onClick = onClick,
+        )
+    }
+}
+
+@Composable
+private fun SettingsInlineToggle(
+    label: String,
+    actionLabel: String,
+    icon: ImageVector,
+    highlighted: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = LocalAlunaraColors.current
+    val activePrefs = LocalAlunaraDisplayPrefs.current
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            color = colors.primaryText,
+            fontSize = AlunaraTypography.rowTitle(activePrefs.textScale),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .padding(end = 12.dp)
+                    .focusProperties { canFocus = false },
+        )
+        TvFocusableButton(
+            text = actionLabel,
+            icon = icon,
+            highlighted = highlighted,
+            onClick = onClick,
+        )
     }
 }

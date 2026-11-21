@@ -102,4 +102,25 @@ class LrcParserTest {
         assertEquals("Misteri lenyap senang", repaired.lines[1].text)
         assertEquals(3, repaired.lines[1].words.size)
     }
+
+    @Test
+    fun parse_decodesNumericHexDoubleEncodedAndNamedHtmlEntities() {
+        val syncedRaw =
+            """
+            [00:01.00] You don&#x27;t judge &amp; I&amp;#x27;ve been hurt
+            [00:03.00] Say &quot;hello&quot;&#39;world&nbsp;now
+            """.trimIndent()
+        val synced = LrcParser.parse(LyricsProviderId.SIMPMUSIC, syncedRaw) as LyricsDocument.Synced
+        assertEquals("You don't judge & I've been hurt", synced.lines[0].text)
+        assertEquals("Say \"hello\"'world now", synced.lines[1].text)
+
+        val wordRaw = "[00:05.00] <00:05.00>I&#x27;ve <00:05.50>tried"
+        val wordDoc = LrcParser.parse(LyricsProviderId.SIMPMUSIC, wordRaw) as LyricsDocument.Synced
+        assertEquals("I've tried", wordDoc.lines[0].text)
+        assertEquals("I've ", wordDoc.lines[0].words[0].text)
+
+        val plainRaw = "Won&#x27;t stop&nbsp;now"
+        val plainDoc = LrcParser.parse(LyricsProviderId.LRCLIB, plainRaw) as LyricsDocument.Plain
+        assertEquals("Won't stop now", plainDoc.text)
+    }
 }

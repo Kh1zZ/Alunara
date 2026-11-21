@@ -2,8 +2,8 @@
 
 **Alunara** (`com.alunara.app`) is an independent, audio-only YouTube Music client built specifically for entry-level **Android TV** devices running **Android 9 (API 28)+** with **1 GB RAM** (reference hardware: **Changhong L32G7N**).
 
-> **Current Status:** `Milestone M3.3 — Personalized Account Experience & Companion Login (0.1.0-alpha)`  
-> M3.3 builds on M3/M3.1/M3.2 with auth-reactive Personalized Home (`PlaylistItem` mixes, continuation shelves, and `ChartsPage`), QR Code Phone Companion WebView login (`QrCodeMatrix` + `LocalLoginCompanionServer` + direct D-pad DOM navigation), reordered 3-tab YouTube-synced `LibraryScreen` (`Playlist` > `Favorit` > `Riwayat` with `LM` & `FEmusic_history`), and interactive `NowPlayingScreen` `Lirik <-> Antrean` panel powered by YouTube `RDAMVM` radio recommendations & `QueueFilterChip` filters. Verified with `60 / 60` unit tests across `16` suites and live on physical Changhong `AI PONT` TV (`192.168.100.124:5555`); see [docs/M3_VERIFICATION_REPORT.md](docs/M3_VERIFICATION_REPORT.md).
+> **Current Status:** `Milestone M3.3 + Pre-M4 Android TV 10-Foot UI/UX Polish (0.1.0-alpha)`  
+> M3.3 builds on M3/M3.1/M3.2 with auth-reactive Personalized Home (`PlaylistItem` mixes, continuation shelves, and `ChartsPage`), QR Code Phone Companion WebView login (`QrCodeMatrix` + `LocalLoginCompanionServer` + direct D-pad DOM navigation), reordered 3-tab YouTube-synced `LibraryScreen` (`Playlist` > `Favorit` > `Riwayat` with `LM` & `FEmusic_history`), interactive `NowPlayingScreen` `Lirik <-> Antrean` radio queue, and full Pre-M4 Android TV 10-foot UI/UX polish (Display & TV Accessibility settings, `safeRequestFocus` & Search D-pad focus exit, inline destructive confirmations, HTML lyrics entity decoding, Coil downsampling, skeletons, idle control dim, hardware media keys, and localized user copy). Verified with `62 / 62` unit tests across `16` suites and live on physical Changhong `AI PONT` TV (`192.168.100.124:5555`); see [docs/M3_VERIFICATION_REPORT.md](docs/M3_VERIFICATION_REPORT.md).
 
 ---
 
