@@ -423,6 +423,7 @@ private fun AlunaraTvApp(
         if (isNowPlaying) {
             NowPlayingScreen(
                 sessionState = sessionState,
+                positionMsFlow = sessionManager.positionMsFlow,
                 onTogglePlayPause = { sessionManager.togglePlayPause() },
                 onSkipPrevious = { sessionManager.skipPrevious() },
                 onSkipNext = { sessionManager.skipNext() },
@@ -432,6 +433,7 @@ private fun AlunaraTvApp(
                 onSwitchLyricsProvider = { sessionManager.cycleLyricsProvider() },
                 onAdjustLyricsSync = { delta -> sessionManager.adjustLyricsSyncOffset(delta) },
                 onResetLyricsSync = { sessionManager.resetLyricsSyncOffset() },
+                onToggleRomanizedLyrics = { sessionManager.toggleRomanizedLyrics() },
                 onPlayQueueAt = { idx -> sessionManager.playTrackAt(idx) },
                 onMoveQueueItem = { from, to -> sessionManager.moveQueueItem(from, to) },
                 onRemoveQueueItem = { idx -> sessionManager.removeFromQueue(idx) },

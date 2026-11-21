@@ -9,6 +9,7 @@ import com.alunara.core.domain.contract.LyricsEngine
 import com.alunara.core.domain.contract.MusicEngine
 import com.alunara.core.domain.contract.PlaybackLifecycleController
 import com.alunara.core.domain.contract.QueueStore
+import com.alunara.core.domain.lyrics.LyricsRomanizer
 import com.alunara.core.domain.lyrics.LyricsSyncResolver
 import com.alunara.core.domain.model.AccountCredentials
 import com.alunara.core.domain.model.AccountProfile
@@ -73,6 +74,9 @@ data class PlaybackSessionUiState(
     val audioQuality: AudioQualityPreset = AudioQualityPreset.AUTO,
     val activeStreamCodecLabel: String? = null,
     val lyricsSyncOffsetMs: Long = 0L,
+    val showRomanizedLyrics: Boolean = false,
+    val hasRomanizedLyrics: Boolean = false,
+    val hasPartialKanjiNotice: Boolean = false,
 ) {
     val currentTrack: Track?
         get() = queueState.currentItem?.track
@@ -101,6 +105,8 @@ class PlaybackSessionManager(
     private val accountSessionStore: AccountSessionStore = NoOpAccountSessionStore,
     private val playbackPreferences: PlaybackPreferences = InMemoryPlaybackPreferences(),
     private val onBackgroundServiceStateChanged: (shouldRunService: Boolean) -> Unit = {},
+    private val isLowMemoryPressure: () -> Boolean = { false },
+    private val prefetchDelayMs: Long = DEFAULT_PREFETCH_DELAY_MS,
     private val retryPolicy: RetryPolicy = RetryPolicy(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     mainDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
@@ -111,10 +117,13 @@ class PlaybackSessionManager(
             PlaybackSessionUiState(audioQuality = playbackPreferences.getAudioQuality()),
         )
     val uiState: StateFlow<PlaybackSessionUiState> = mutableUiState.asStateFlow()
+    private val mutablePositionMs = MutableStateFlow(0L)
+    val positionMsFlow: StateFlow<Long> = mutablePositionMs.asStateFlow()
 
     private var resolveJob: Job? = null
     private var retryJob: Job? = null
     private var lyricsJob: Job? = null
+    private var prefetchJob: Job? = null
     private var tickerJob: Job? = null
     private var persistJob: Job? = null
     private var radioJob: Job? = null
@@ -155,6 +164,7 @@ class PlaybackSessionManager(
                             consecutiveTrackFailures = 0
                             recordCurrentItemToHistoryIfNeeded()
                             startTickerIfNeeded()
+                            scheduleNextTrackLyricsPrefetch()
                         } else {
                             stopTicker()
                         }
@@ -184,9 +194,11 @@ class PlaybackSessionManager(
                     }
                     recordCurrentItemToHistoryIfNeeded()
                     startTickerIfNeeded()
+                    scheduleNextTrackLyricsPrefetch()
                 } else {
                     stopTicker()
                     val pos = playerController.currentPositionMs()
+                    mutablePositionMs.value = pos
                     mutableUiState.update { state ->
                         val nextStatus =
                             when (state.status) {
@@ -263,6 +275,7 @@ class PlaybackSessionManager(
             val mergedFavoriteIds = (favorites.map { it.id } + librarySnapshot.likedTracks.map { it.id }).toSet()
 
             val syncOffsetMs = item?.track?.id?.let { id -> playbackPreferences.getLyricsSyncOffsetMs(id) } ?: 0L
+            mutablePositionMs.value = normalized.positionMs
             mutableUiState.update {
                 it.copy(
                     queueState = normalized,
@@ -407,6 +420,7 @@ class PlaybackSessionManager(
                         ?.id
                         ?.let(playbackPreferences::getLyricsSyncOffsetMs)
                         ?: 0L
+                mutablePositionMs.value = 0L
                 mutableUiState.update {
                     it.copy(
                         queueState = nextQueue,
@@ -419,8 +433,13 @@ class PlaybackSessionManager(
                 persistQueueAsync(nextQueue)
             }
         } else {
+            prefetchJob?.cancel()
+            prefetchJob = null
             mutableUiState.update { it.copy(queueState = nextQueue) }
             persistQueueAsync(nextQueue)
+            if (playerController.isPlaying()) {
+                scheduleNextTrackLyricsPrefetch()
+            }
         }
     }
 
@@ -428,9 +447,14 @@ class PlaybackSessionManager(
         fromIndex: Int,
         toIndex: Int,
     ) {
+        prefetchJob?.cancel()
+        prefetchJob = null
         val nextQueue = QueueReducer.reduce(mutableUiState.value.queueState, QueueAction.Move(fromIndex, toIndex))
         mutableUiState.update { it.copy(queueState = nextQueue) }
         persistQueueAsync(nextQueue)
+        if (playerController.isPlaying()) {
+            scheduleNextTrackLyricsPrefetch()
+        }
     }
 
     fun clearQueue() {
@@ -442,6 +466,7 @@ class PlaybackSessionManager(
         consecutiveTrackFailures = 0
         lastAutoplayExtendedTrackId = null
         val empty = mutableUiState.value.queueState.copy(items = emptyList(), currentIndex = -1, positionMs = 0L)
+        mutablePositionMs.value = 0L
         mutableUiState.update { state ->
             state.copy(
                 queueState = empty,
@@ -453,6 +478,9 @@ class PlaybackSessionManager(
                 selectedLyricsProvider = null,
                 activeLyricIndex = -1,
                 lyricsSyncOffsetMs = 0L,
+                showRomanizedLyrics = false,
+                hasRomanizedLyrics = false,
+                hasPartialKanjiNotice = false,
                 activeStreamCodecLabel = null,
                 errorMessage = null,
                 queueChips = emptyList(),
@@ -540,6 +568,9 @@ class PlaybackSessionManager(
                 }
                 if (nextQueue != currentQueue) {
                     persistQueueAsync(nextQueue)
+                    if (playerController.isPlaying()) {
+                        scheduleNextTrackLyricsPrefetch()
+                    }
                 }
             }
     }
@@ -763,6 +794,7 @@ class PlaybackSessionManager(
         if (playerController.hasActivePlayer) {
             playerController.seekTo(safePos)
         }
+        mutablePositionMs.value = safePos
         mutableUiState.update { state ->
             val updatedQueue = QueueReducer.reduce(state.queueState, QueueAction.UpdatePosition(safePos))
             state.copy(
@@ -826,6 +858,16 @@ class PlaybackSessionManager(
         applyLyricsSyncOffset(trackId, 0L)
     }
 
+    fun toggleRomanizedLyrics() {
+        mutableUiState.update { state ->
+            if (!state.hasRomanizedLyrics) {
+                state
+            } else {
+                state.copy(showRomanizedLyrics = !state.showRomanizedLyrics)
+            }
+        }
+    }
+
     private fun applyLyricsSyncOffset(
         trackId: String,
         offsetMs: Long,
@@ -855,6 +897,10 @@ class PlaybackSessionManager(
      */
     fun onAppBackgrounded() {
         val state = mutableUiState.value
+        prefetchJob?.cancel()
+        prefetchJob = null
+        radioJob?.cancel()
+        radioJob = null
         if (state.queueState.currentItem == null) {
             onAppBackgroundedOrStopped()
             return
@@ -866,6 +912,7 @@ class PlaybackSessionManager(
                 state.positionMs
             }
         val updatedQueue = QueueReducer.reduce(state.queueState, QueueAction.UpdatePosition(capturedPosition))
+        mutablePositionMs.value = capturedPosition
         mutableUiState.update { current ->
             current.copy(
                 queueState = updatedQueue,
@@ -890,6 +937,7 @@ class PlaybackSessionManager(
         onBackgroundServiceStateChanged(false)
 
         val updatedQueue = QueueReducer.reduce(mutableUiState.value.queueState, QueueAction.UpdatePosition(capturedPosition))
+        mutablePositionMs.value = capturedPosition
         mutableUiState.update { state ->
             state.copy(
                 queueState = updatedQueue,
@@ -934,6 +982,7 @@ class PlaybackSessionManager(
             return
         }
         val trackOffsetMs = playbackPreferences.getLyricsSyncOffsetMs(track.id)
+        mutablePositionMs.value = startPositionMs
         mutableUiState.update {
             it.copy(
                 queueState = nextQueue,
@@ -1121,6 +1170,7 @@ class PlaybackSessionManager(
                         applyQueueAndStartTrack(extended, startPositionMs = 0L)
                     } else {
                         mutableUiState.update {
+                            mutablePositionMs.value = it.durationMs
                             it.copy(
                                 status = PlaybackStatus.ENDED,
                                 positionMs = it.durationMs,
@@ -1133,6 +1183,7 @@ class PlaybackSessionManager(
         }
 
         mutableUiState.update {
+            mutablePositionMs.value = it.durationMs
             it.copy(
                 status = PlaybackStatus.ENDED,
                 positionMs = it.durationMs,
@@ -1153,25 +1204,59 @@ class PlaybackSessionManager(
                         selectedLyricsProvider = preferredProvider,
                         lyrics = LyricsDocument.Unavailable(""),
                         activeLyricIndex = -1,
+                        showRomanizedLyrics = false,
+                        hasRomanizedLyrics = false,
+                        hasPartialKanjiNotice = false,
                     )
                 }
-                val doc =
+                val summary =
                     withContext(ioDispatcher) {
-                        try {
-                            lyricsEngine.fetchLyrics(track, preferredProvider)
-                        } catch (cancel: CancellationException) {
-                            throw cancel
-                        } catch (t: Throwable) {
-                            LyricsDocument.Unavailable(t.message ?: "Lyrics unavailable")
-                        }
+                        val fetched =
+                            try {
+                                lyricsEngine.fetchLyrics(track, preferredProvider)
+                            } catch (cancel: CancellationException) {
+                                throw cancel
+                            } catch (t: Throwable) {
+                                LyricsDocument.Unavailable(t.message ?: "Lyrics unavailable")
+                            }
+                        LyricsRomanizer.attachRomanization(fetched)
                     }
                 if (!isActive || mutableUiState.value.currentTrack?.id != track.id) return@launch
                 mutableUiState.update { state ->
                     state.copy(
-                        lyrics = doc,
+                        lyrics = summary.document,
                         lyricsLoading = false,
-                        activeLyricIndex = computeActiveLyricIndex(doc, state.positionMs, state.lyricsSyncOffsetMs),
+                        activeLyricIndex = computeActiveLyricIndex(summary.document, state.positionMs, state.lyricsSyncOffsetMs),
+                        hasRomanizedLyrics = summary.hasRomanizableLines,
+                        hasPartialKanjiNotice = summary.hasUnsupportedKanji,
                     )
+                }
+            }
+    }
+
+    private fun scheduleNextTrackLyricsPrefetch() {
+        prefetchJob?.cancel()
+        prefetchJob = null
+        val state = mutableUiState.value
+        if (isLowMemoryPressure()) return
+        val nextTrack = state.queueState.items.getOrNull(state.queueState.currentIndex + 1)?.track ?: return
+        val currentId = state.currentTrack?.id ?: return
+
+        prefetchJob =
+            scope.launch {
+                if (prefetchDelayMs > 0L) {
+                    delay(prefetchDelayMs)
+                }
+                val latest = mutableUiState.value
+                if (!isActive ||
+                    latest.currentTrack?.id != currentId ||
+                    latest.status != PlaybackStatus.PLAYING ||
+                    isLowMemoryPressure()
+                ) {
+                    return@launch
+                }
+                withContext(ioDispatcher) {
+                    runCatching { lyricsEngine.fetchLyrics(nextTrack, null) }
                 }
             }
     }
@@ -1182,15 +1267,37 @@ class PlaybackSessionManager(
             scope.launch {
                 while (isActive && playerController.isPlaying()) {
                     val pos = playerController.currentPositionMs()
-                    val dur = resolveDurationMs(mutableUiState.value.currentTrack)
-                    mutableUiState.update { state ->
-                        state.copy(
-                            positionMs = pos,
-                            durationMs = dur,
-                            activeLyricIndex = computeActiveLyricIndex(state.lyrics, pos, state.lyricsSyncOffsetMs),
+                    mutablePositionMs.value = pos
+                    val currentState = mutableUiState.value
+                    val dur = resolveDurationMs(currentState.currentTrack)
+                    val isWordSynced =
+                        currentState.lyrics is LyricsDocument.Synced && currentState.lyrics.isWordSynced
+                    val tickDelay =
+                        if (isWordSynced) {
+                            WORD_SYNC_TICKER_INTERVAL_MS
+                        } else {
+                            LINE_SYNC_TICKER_INTERVAL_MS
+                        }
+                    val newActiveIndex =
+                        computeActiveLyricIndex(
+                            currentState.lyrics,
+                            pos,
+                            currentState.lyricsSyncOffsetMs,
                         )
+                    if (
+                        newActiveIndex != currentState.activeLyricIndex ||
+                        (pos / 1_000L) != (currentState.positionMs / 1_000L) ||
+                        dur != currentState.durationMs
+                    ) {
+                        mutableUiState.update { state ->
+                            state.copy(
+                                positionMs = pos,
+                                durationMs = dur,
+                                activeLyricIndex = computeActiveLyricIndex(state.lyrics, pos, state.lyricsSyncOffsetMs),
+                            )
+                        }
                     }
-                    delay(100L)
+                    delay(tickDelay)
                 }
             }
     }
@@ -1207,6 +1314,8 @@ class PlaybackSessionManager(
         retryJob = null
         lyricsJob?.cancel()
         lyricsJob = null
+        prefetchJob?.cancel()
+        prefetchJob = null
         radioJob?.cancel()
         radioJob = null
         stopTicker()
@@ -1250,6 +1359,12 @@ class PlaybackSessionManager(
             }
         val kbps = (source.bitrateBps ?: 0) / 1_000
         return if (kbps > 0) "$codec · $kbps kbps" else codec
+    }
+
+    companion object {
+        private const val DEFAULT_PREFETCH_DELAY_MS: Long = 3_000L
+        private const val WORD_SYNC_TICKER_INTERVAL_MS: Long = 80L
+        private const val LINE_SYNC_TICKER_INTERVAL_MS: Long = 250L
     }
 }
 

@@ -29,7 +29,9 @@ import com.alunara.core.domain.policy.AudioQualityPreset
 import com.alunara.core.domain.policy.FailureCategory
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -608,5 +610,67 @@ class PlaybackSessionManagerTest {
             assertFalse(player.hasActivePlayer)
             assertEquals(PlaybackStatus.IDLE, manager.uiState.value.status)
             assertFalse(serviceStates.last())
+        }
+
+    @Test
+    fun nextTrackLyricsPrefetch_runsAfterPlaybackStartsAndCancelsOnLowMemoryOrQueueClear() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val fetchedIds = mutableListOf<String>()
+            val recordingLyricsEngine =
+                object : LyricsEngine {
+                    override suspend fun fetchLyrics(
+                        track: Track,
+                        preferredProvider: LyricsProviderId?,
+                    ): LyricsDocument {
+                        fetchedIds += track.id
+                        return LyricsDocument.Synced(
+                            provider = LyricsProviderId.LRCLIB,
+                            lines = listOf(SyncedLyricLine(startTimeMs = 1_000L, text = "서투른 우리를")),
+                        )
+                    }
+                }
+            val player = FakePlayerControl()
+            var lowMemory = false
+            val t1 = Track(id = "p1", title = "Current Track")
+            val t2 = Track(id = "p2", title = "Next Track")
+
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = FakeMusicEngine(),
+                    lyricsEngine = recordingLyricsEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = player,
+                    isLowMemoryPressure = { lowMemory },
+                    prefetchDelayMs = 100L,
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+
+            manager.playTracks(listOf(t1, t2), startIndex = 0)
+            advanceUntilIdle()
+            manager.playerListener.onPlaybackStateChanged(Player.STATE_READY)
+            advanceTimeBy(150L)
+            runCurrent()
+
+            // First p1 lyrics, then bounded prefetch of 1 next track (p2), plus romanization toggle
+            assertEquals(listOf("p1", "p2"), fetchedIds)
+            assertTrue(manager.uiState.value.hasRomanizedLyrics)
+            assertFalse(manager.uiState.value.showRomanizedLyrics)
+            manager.toggleRomanizedLyrics()
+            assertTrue(manager.uiState.value.showRomanizedLyrics)
+
+            // Under runtime memory pressure, new playback skips prefetch
+            fetchedIds.clear()
+            lowMemory = true
+            manager.playTrackAt(0)
+            advanceUntilIdle()
+            manager.playerListener.onPlaybackStateChanged(Player.STATE_READY)
+            advanceTimeBy(150L)
+            runCurrent()
+            assertEquals(listOf("p1"), fetchedIds)
+
+            manager.clearQueue()
+            advanceUntilIdle()
         }
 }

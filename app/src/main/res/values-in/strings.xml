@@ -88,12 +88,16 @@
     <string name="lyrics_switch_provider">Ganti sumber</string>
     <string name="lyrics_unavailable_provider">Lirik tidak tersedia dari %1$s. Pilih Ganti sumber untuk mencoba penyedia lain.</string>
     <string name="lyrics_unavailable_generic">Lirik tidak tersedia untuk lagu ini.</string>
-    <string name="lyrics_sync_label">Sinkron Lirik</string>
-    <string name="lyrics_sync_minus_10">-10 ms</string>
-    <string name="lyrics_sync_plus_10">+10 ms</string>
+    <string name="lyrics_sync_minus">-</string>
+    <string name="lyrics_sync_minus_cd">Undur lirik 10 ms</string>
+    <string name="lyrics_sync_plus">+</string>
+    <string name="lyrics_sync_plus_cd">Maju lirik 10 ms</string>
+    <string name="lyrics_sync_reset">Reset</string>
     <string name="lyrics_sync_reset_cd">Reset sinkron lirik ke 0 ms</string>
     <string name="lyrics_sync_zero">0 ms</string>
-    <string name="lyrics_sync_hint">Tahan = ±100ms</string>
+    <string name="lyrics_toggle_romaji">Romaji</string>
+    <string name="lyrics_toggle_original">Asli</string>
+    <string name="lyrics_partial_kanji_note">Kanji dipertahankan asli</string>
     <string name="header_search_hint">Cari lagu, album, atau artis di YouTube Music…</string>
     <string name="audio_quality_section_title">Kualitas Suara</string>
     <string name="audio_quality_subtitle">Berlaku langsung tanpa memutus lagu. Preset rendah hemat kuota di Wi-Fi lambat.</string>

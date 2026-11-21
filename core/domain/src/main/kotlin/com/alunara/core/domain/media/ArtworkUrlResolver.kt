@@ -60,7 +60,7 @@ object ArtworkUrlResolver {
                     ArtworkTier.HERO -> currentFile == "/default.jpg" || currentFile == "/mqdefault.jpg" || currentFile == "/hqdefault.jpg"
                 }
             if (shouldUpgrade) {
-                return normalized.substring(0, match.range.first) + targetFile + query
+                return normalized.substring(0, match.range.first) + targetFile
             }
         }
 

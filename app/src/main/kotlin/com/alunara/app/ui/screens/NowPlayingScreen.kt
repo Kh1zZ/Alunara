@@ -2,7 +2,9 @@ package com.alunara.app.ui.screens
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -21,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -49,8 +50,10 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -71,16 +74,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -90,23 +97,26 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.alunara.app.R
 import com.alunara.app.playback.PlaybackSessionUiState
+import com.alunara.app.ui.components.TvArtworkContentScale
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvIconButton
 import com.alunara.app.ui.components.TvSongRow
 import com.alunara.app.ui.components.formatDurationMs
 import com.alunara.app.ui.components.safeRequestFocus
+import com.alunara.app.ui.theme.AlunaraColorTokens
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraTypography
 import com.alunara.app.ui.theme.LocalAlunaraColors
 import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
-import com.alunara.core.domain.lyrics.LyricsSyncResolver
 import com.alunara.core.domain.media.ArtworkTier
 import com.alunara.core.domain.media.ArtworkUrlResolver
 import com.alunara.core.domain.model.LyricsDocument
@@ -114,14 +124,23 @@ import com.alunara.core.domain.model.LyricsProviderId
 import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.QueueFilterChip
 import com.alunara.core.domain.model.QueueState
+import com.alunara.core.domain.model.SyncedLyricLine
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
+import kotlin.math.abs
 
 private const val IDLE_DIM_TIMEOUT_MS = 10_000L
+private val SmoothDecelerateEasing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
 
 private enum class NowPlayingRightPanelMode {
     LYRICS,
     QUEUE,
 }
+
+@Immutable
+private data class StableSyncedLyricLine(
+    val value: SyncedLyricLine,
+)
 
 @Composable
 fun NowPlayingScreen(
@@ -134,8 +153,10 @@ fun NowPlayingScreen(
     onStartRadio: () -> Unit,
     onSwitchLyricsProvider: () -> Unit,
     modifier: Modifier = Modifier,
+    positionMsFlow: StateFlow<Long>? = null,
     onAdjustLyricsSync: (Long) -> Unit = {},
     onResetLyricsSync: () -> Unit = {},
+    onToggleRomanizedLyrics: () -> Unit = {},
     onPlayQueueAt: (Int) -> Unit = {},
     onMoveQueueItem: (Int, Int) -> Unit = { _, _ -> },
     onRemoveQueueItem: (Int) -> Unit = {},
@@ -214,7 +235,7 @@ fun NowPlayingScreen(
                 AsyncImage(
                     model = heroRequest,
                     contentDescription = track.title,
-                    contentScale = ContentScale.Crop,
+                    contentScale = TvArtworkContentScale,
                     onError = {
                         if (!useFallbackArt && activeArtUrl != rawThumb && !rawThumb.isNullOrBlank()) {
                             useFallbackArt = true
@@ -469,6 +490,19 @@ fun NowPlayingScreen(
                     highlighted = rightPanelMode == NowPlayingRightPanelMode.QUEUE,
                     onClick = { rightPanelMode = NowPlayingRightPanelMode.QUEUE },
                 )
+                if (sessionState.hasRomanizedLyrics && rightPanelMode == NowPlayingRightPanelMode.LYRICS) {
+                    TvFocusableButton(
+                        text =
+                            if (sessionState.showRomanizedLyrics) {
+                                stringResource(R.string.lyrics_toggle_original)
+                            } else {
+                                stringResource(R.string.lyrics_toggle_romaji)
+                            },
+                        icon = Icons.Rounded.Translate,
+                        highlighted = sessionState.showRomanizedLyrics,
+                        onClick = onToggleRomanizedLyrics,
+                    )
+                }
             }
 
             Crossfade(
@@ -484,8 +518,11 @@ fun NowPlayingScreen(
                             isLoading = sessionState.lyricsLoading,
                             selectedProvider = sessionState.selectedLyricsProvider,
                             activeLineIndex = sessionState.activeLyricIndex,
-                            positionMs = sessionState.positionMs,
+                            positionMsFlow = positionMsFlow,
+                            fallbackPositionMs = if (positionMsFlow != null) 0L else sessionState.positionMs,
                             lyricsSyncOffsetMs = sessionState.lyricsSyncOffsetMs,
+                            showRomanizedLyrics = sessionState.showRomanizedLyrics,
+                            hasPartialKanjiNotice = sessionState.hasPartialKanjiNotice,
                             queueCount = sessionState.queueState.items.size,
                             onSwitchLyricsProvider = onSwitchLyricsProvider,
                             onAdjustLyricsSync = onAdjustLyricsSync,
@@ -876,8 +913,11 @@ private fun PersistentReadOnlyLyricsPanel(
     isLoading: Boolean,
     selectedProvider: LyricsProviderId?,
     activeLineIndex: Int,
-    positionMs: Long,
+    positionMsFlow: StateFlow<Long>?,
+    fallbackPositionMs: Long,
     lyricsSyncOffsetMs: Long,
+    showRomanizedLyrics: Boolean,
+    hasPartialKanjiNotice: Boolean,
     queueCount: Int,
     onSwitchLyricsProvider: () -> Unit,
     onAdjustLyricsSync: (Long) -> Unit,
@@ -903,10 +943,17 @@ private fun PersistentReadOnlyLyricsPanel(
             else -> null
         }
 
+    val partialKanjiSuffix =
+        if (showRomanizedLyrics && hasPartialKanjiNotice) {
+            " · ${stringResource(R.string.lyrics_partial_kanji_note)}"
+        } else {
+            ""
+        }
+
     val sourceCaption =
         activeProvider?.let { provider ->
             val base = stringResource(R.string.lyrics_source_format, providerDisplayName(provider))
-            if (modeLabel != null) "$base · $modeLabel" else base
+            if (modeLabel != null) "$base · $modeLabel$partialKanjiSuffix" else "$base$partialKanjiSuffix"
         }
 
     Column(
@@ -916,7 +963,7 @@ private fun PersistentReadOnlyLyricsPanel(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 text = sourceCaption ?: stringResource(R.string.lyrics_switch_provider),
@@ -930,6 +977,14 @@ private fun PersistentReadOnlyLyricsPanel(
                         .focusProperties { canFocus = false },
             )
 
+            if (lyrics is LyricsDocument.Synced) {
+                CompactLyricSyncControls(
+                    offsetMs = lyricsSyncOffsetMs,
+                    onStep = onAdjustLyricsSync,
+                    onReset = onResetLyricsSync,
+                )
+            }
+
             TvIconButton(
                 icon = Icons.Rounded.SwapHoriz,
                 contentDescription = stringResource(R.string.lyrics_switch_provider),
@@ -939,16 +994,7 @@ private fun PersistentReadOnlyLyricsPanel(
             )
         }
 
-        if (lyrics is LyricsDocument.Synced) {
-            LyricSyncControlBar(
-                offsetMs = lyricsSyncOffsetMs,
-                onStep = onAdjustLyricsSync,
-                onReset = onResetLyricsSync,
-            )
-        }
-
-        // Read-only lyrics viewport tailored for 32-inch 10-foot viewing distance
-        val effectivePositionMs = (positionMs + lyricsSyncOffsetMs).coerceAtLeast(0L)
+        // Read-only ArchiveTune-animated lyrics viewport tailored for 1 GB Android TV
         Box(
             modifier =
                 Modifier
@@ -966,6 +1012,7 @@ private fun PersistentReadOnlyLyricsPanel(
                 }
 
                 lyrics is LyricsDocument.Synced -> {
+                    val stableLines = remember(lyrics) { lyrics.lines.map(::StableSyncedLyricLine) }
                     val listState = rememberLazyListState()
                     LaunchedEffect(activeLineIndex, prefs.reduceMotion) {
                         if (activeLineIndex >= 0) {
@@ -986,60 +1033,31 @@ private fun PersistentReadOnlyLyricsPanel(
                                 .focusProperties { canFocus = false },
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
-                        itemsIndexed(lyrics.lines) { idx, line ->
+                        itemsIndexed(
+                            items = stableLines,
+                            key = { idx, line -> "${idx}_${line.value.startTimeMs}" },
+                        ) { idx, line ->
                             val isActive = idx == activeLineIndex
-                            if (isActive && line.hasWordSync) {
-                                val activeWordIdx = LyricsSyncResolver.findActiveWordIndex(line.words, effectivePositionMs)
-                                val annotated =
-                                    buildAnnotatedString {
-                                        line.words.forEachIndexed { wIdx, word ->
-                                            val style =
-                                                when {
-                                                    wIdx == activeWordIdx ->
-                                                        SpanStyle(
-                                                            color = colors.focusOutline,
-                                                            fontWeight = FontWeight.Bold,
-                                                        )
-                                                    wIdx < activeWordIdx ->
-                                                        SpanStyle(
-                                                            color = colors.primaryText,
-                                                            fontWeight = FontWeight.SemiBold,
-                                                        )
-                                                    else ->
-                                                        SpanStyle(
-                                                            color = colors.mutedText.copy(alpha = 0.50f),
-                                                            fontWeight = FontWeight.Medium,
-                                                        )
-                                                }
-                                            withStyle(style) {
-                                                append(word.text)
-                                            }
-                                        }
-                                    }
-                                Text(
-                                    text = annotated,
-                                    fontSize = AlunaraTypography.lyricActive(prefs.textScale),
-                                    lineHeight = AlunaraTypography.lyricActive(prefs.textScale) * 1.38f,
-                                )
-                            } else {
-                                Text(
-                                    text = line.text,
-                                    color = if (isActive) colors.primaryText else colors.dimmedLyrics,
-                                    fontSize =
-                                        if (isActive) {
-                                            AlunaraTypography.lyricActive(prefs.textScale)
-                                        } else {
-                                            AlunaraTypography.lyricInactive(prefs.textScale)
-                                        },
-                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
-                                    lineHeight =
-                                        if (isActive) {
-                                            AlunaraTypography.lyricActive(prefs.textScale) * 1.38f
-                                        } else {
-                                            AlunaraTypography.lyricInactive(prefs.textScale) * 1.45f
-                                        },
-                                )
-                            }
+                            val distance = if (activeLineIndex < 0) 2 else abs(idx - activeLineIndex)
+                            val nextLineStartMs =
+                                stableLines
+                                    .getOrNull(idx + 1)
+                                    ?.value
+                                    ?.startTimeMs
+                                    ?: (line.value.startTimeMs + 5_000L)
+                            SyncedLyricRowItem(
+                                line = line,
+                                nextLineStartMs = nextLineStartMs,
+                                distanceFromActive = distance,
+                                isActive = isActive,
+                                showRomanized = showRomanizedLyrics,
+                                positionMsFlow = positionMsFlow,
+                                fallbackPositionMs = fallbackPositionMs,
+                                lyricsSyncOffsetMs = lyricsSyncOffsetMs,
+                                reduceMotion = prefs.reduceMotion,
+                                colors = colors,
+                                textScale = prefs.textScale,
+                            )
                         }
                     }
                 }
@@ -1114,7 +1132,171 @@ private fun providerDisplayName(provider: LyricsProviderId): String =
     }
 
 @Composable
-private fun LyricSyncControlBar(
+private fun SyncedLyricRowItem(
+    line: StableSyncedLyricLine,
+    nextLineStartMs: Long,
+    distanceFromActive: Int,
+    isActive: Boolean,
+    showRomanized: Boolean,
+    positionMsFlow: StateFlow<Long>?,
+    fallbackPositionMs: Long,
+    lyricsSyncOffsetMs: Long,
+    reduceMotion: Boolean,
+    colors: AlunaraColorTokens,
+    textScale: Float,
+) {
+    val density = LocalDensity.current
+    val targetAlpha =
+        when (distanceFromActive) {
+            0 -> 1.0f
+            1 -> 0.54f
+            2 -> 0.34f
+            else -> 0.20f
+        }
+
+    // Single Animatable per row drives alpha, scale, and lift together via GPU graphicsLayer
+    val animatedAlpha by animateFloatAsState(
+        targetValue = targetAlpha,
+        animationSpec =
+            if (reduceMotion) {
+                snap()
+            } else {
+                tween(durationMillis = 360, easing = SmoothDecelerateEasing)
+            },
+        label = "lyric_row_alpha",
+    )
+
+    // Constant base font size prevents text relayout when active line switches; emphasis uses GPU graphicsLayer scale
+    val baseFontSize = AlunaraTypography.lyricActive(textScale) * 0.94f
+    val lineHeight = baseFontSize * 1.40f
+    val rowModifier =
+        Modifier
+            .fillMaxWidth()
+            .padding(end = 18.dp)
+            .graphicsLayer {
+                val activeProgress = ((animatedAlpha - 0.54f) / 0.46f).coerceIn(0f, 1f)
+                val scale = if (reduceMotion) 1f else 1f + 0.04f * activeProgress
+                val liftDp = if (reduceMotion) 0f else -2f * activeProgress
+                alpha = animatedAlpha
+                scaleX = scale
+                scaleY = scale
+                translationY = liftDp * density.density
+                transformOrigin = TransformOrigin(0f, 0.5f)
+            }
+
+    if (isActive && line.value.hasWordSync && !showRomanized) {
+        ActiveWordSyncedLyricText(
+            line = line,
+            nextLineStartMs = nextLineStartMs,
+            positionMsFlow = positionMsFlow,
+            fallbackPositionMs = fallbackPositionMs,
+            lyricsSyncOffsetMs = lyricsSyncOffsetMs,
+            reduceMotion = reduceMotion,
+            baseFontSize = baseFontSize,
+            lineHeight = lineHeight,
+            colors = colors,
+            modifier = rowModifier,
+        )
+    } else {
+        val romanized = line.value.romanizedText
+        val displayText = if (showRomanized && !romanized.isNullOrBlank()) romanized else line.value.text
+        Text(
+            text = displayText,
+            color = colors.primaryText,
+            fontSize = baseFontSize,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+            lineHeight = lineHeight,
+            modifier = rowModifier,
+        )
+    }
+}
+
+@Composable
+private fun ActiveWordSyncedLyricText(
+    line: StableSyncedLyricLine,
+    nextLineStartMs: Long,
+    positionMsFlow: StateFlow<Long>?,
+    fallbackPositionMs: Long,
+    lyricsSyncOffsetMs: Long,
+    reduceMotion: Boolean,
+    baseFontSize: TextUnit,
+    lineHeight: TextUnit,
+    colors: AlunaraColorTokens,
+    modifier: Modifier = Modifier,
+) {
+    val rawPosMs =
+        if (positionMsFlow != null) {
+            positionMsFlow.collectAsStateWithLifecycle().value
+        } else {
+            fallbackPositionMs
+        }
+    val posMs = (rawPosMs + lyricsSyncOffsetMs).coerceAtLeast(0L)
+    val words = line.value.words
+    var activeWordIndex = -1
+    var passedWordCount = 0
+    var quantizedSmoothStep = 0
+    for (wIdx in words.indices) {
+        val wordStartMs = words[wIdx].startTimeMs
+        val wordEndMs =
+            words
+                .getOrNull(wIdx + 1)
+                ?.startTimeMs
+                ?.coerceAtLeast(wordStartMs + 1L)
+                ?: minOf(nextLineStartMs, wordStartMs + 650L).coerceAtLeast(wordStartMs + 1L)
+        if (posMs > wordEndMs) {
+            passedWordCount = wIdx + 1
+        } else if (posMs >= wordStartMs) {
+            activeWordIndex = wIdx
+            val linear =
+                ((posMs - wordStartMs).toFloat() / (wordEndMs - wordStartMs).coerceAtLeast(1L))
+                    .coerceIn(0f, 1f)
+            val smooth =
+                if (reduceMotion) {
+                    1f
+                } else {
+                    linear * linear * (3f - 2f * linear)
+                }
+            quantizedSmoothStep = if (reduceMotion) 4 else (smooth * 4f).toInt().coerceIn(0, 4)
+            break
+        } else {
+            break
+        }
+    }
+
+    val annotated =
+        remember(line, activeWordIndex, passedWordCount, quantizedSmoothStep, reduceMotion, colors) {
+            val smoothProgress = quantizedSmoothStep / 4f
+            buildAnnotatedString {
+                words.forEachIndexed { wIdx, word ->
+                    val wordColor =
+                        when {
+                            wIdx < passedWordCount -> colors.primaryText
+                            wIdx == activeWordIndex ->
+                                lerp(colors.primaryText.copy(alpha = 0.52f), colors.focusOutline, smoothProgress)
+                            else -> colors.mutedText.copy(alpha = 0.38f)
+                        }
+                    withStyle(
+                        SpanStyle(
+                            color = wordColor,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                    ) {
+                        append(word.text)
+                    }
+                }
+            }
+        }
+
+    Text(
+        text = annotated,
+        fontSize = baseFontSize,
+        lineHeight = lineHeight,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun CompactLyricSyncControls(
     offsetMs: Long,
     onStep: (Long) -> Unit,
     onReset: () -> Unit,
@@ -1130,28 +1312,31 @@ private fun LyricSyncControlBar(
         }
 
     Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(colors.surface.copy(alpha = 0.65f), RoundedCornerShape(AlunaraDimens.RadiusControl))
-                .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        LyricSyncStepButton(
+            label = stringResource(R.string.lyrics_sync_minus),
+            accessibilityLabel = stringResource(R.string.lyrics_sync_minus_cd),
+            deltaMs = -10L,
+            onStep = onStep,
+        )
         Text(
-            text = stringResource(R.string.lyrics_sync_label),
-            color = colors.mutedText,
+            text = offsetLabel,
+            color = if (offsetMs != 0L) colors.primaryAccent else colors.mutedText,
             fontSize = AlunaraTypography.label(prefs.textScale),
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             modifier = Modifier.focusProperties { canFocus = false },
         )
         LyricSyncStepButton(
-            label = stringResource(R.string.lyrics_sync_minus_10),
-            deltaMs = -10L,
+            label = stringResource(R.string.lyrics_sync_plus),
+            accessibilityLabel = stringResource(R.string.lyrics_sync_plus_cd),
+            deltaMs = 10L,
             onStep = onStep,
         )
-        val pillShape = RoundedCornerShape(8.dp)
-        val pillBg by animateColorAsState(
+        val resetShape = RoundedCornerShape(8.dp)
+        val resetBg by animateColorAsState(
             targetValue =
                 when {
                     resetFocused -> colors.focusedButtonBg
@@ -1161,7 +1346,7 @@ private fun LyricSyncControlBar(
             animationSpec = tween(prefs.focusAnimMs),
             label = "lyric_sync_reset_bg",
         )
-        val pillBorder by animateColorAsState(
+        val resetBorder by animateColorAsState(
             targetValue =
                 when {
                     resetFocused -> colors.focusRingStrong
@@ -1175,14 +1360,13 @@ private fun LyricSyncControlBar(
         Box(
             modifier =
                 Modifier
-                    .height(34.dp)
-                    .widthIn(min = 68.dp)
-                    .clip(pillShape)
-                    .background(pillBg, pillShape)
-                    .border(BorderStroke(colors.focusBorderWidth, pillBorder), pillShape)
+                    .height(AlunaraDimens.QueueActionButtonSize)
+                    .clip(resetShape)
+                    .background(resetBg, resetShape)
+                    .border(BorderStroke(colors.focusBorderWidth, resetBorder), resetShape)
                     .semantics {
                         role = Role.Button
-                        stateDescription = resetCd
+                        contentDescription = resetCd
                     }
                     .onFocusChanged { resetFocused = it.isFocused }
                     .clickable(onClick = onReset)
@@ -1190,7 +1374,7 @@ private fun LyricSyncControlBar(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = offsetLabel,
+                text = stringResource(R.string.lyrics_sync_reset),
                 color =
                     when {
                         resetFocused -> colors.focusedButtonContent
@@ -1202,28 +1386,13 @@ private fun LyricSyncControlBar(
                 maxLines = 1,
             )
         }
-        LyricSyncStepButton(
-            label = stringResource(R.string.lyrics_sync_plus_10),
-            deltaMs = 10L,
-            onStep = onStep,
-        )
-        Text(
-            text = stringResource(R.string.lyrics_sync_hint),
-            color = colors.dimmedLyrics,
-            fontSize = AlunaraTypography.caption(prefs.textScale),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .focusProperties { canFocus = false },
-        )
     }
 }
 
 @Composable
 private fun LyricSyncStepButton(
     label: String,
+    accessibilityLabel: String,
     deltaMs: Long,
     onStep: (Long) -> Unit,
 ) {
@@ -1247,11 +1416,14 @@ private fun LyricSyncStepButton(
     Box(
         modifier =
             Modifier
-                .height(34.dp)
+                .size(AlunaraDimens.QueueActionButtonSize)
                 .clip(shape)
                 .background(bg, shape)
                 .border(BorderStroke(colors.focusBorderWidth, border), shape)
-                .semantics { role = Role.Button }
+                .semantics {
+                    role = Role.Button
+                    contentDescription = accessibilityLabel
+                }
                 .onFocusChanged { focused = it.isFocused }
                 .onPreviewKeyEvent { keyEvent ->
                     val isSelectKey =
@@ -1278,15 +1450,14 @@ private fun LyricSyncStepButton(
                     } else {
                         onStep(deltaMs)
                     }
-                }
-                .padding(horizontal = 10.dp),
+                },
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
             color = if (focused) colors.focusedButtonContent else colors.primaryText,
-            fontSize = AlunaraTypography.label(prefs.textScale),
-            fontWeight = FontWeight.SemiBold,
+            fontSize = AlunaraTypography.rowTitle(prefs.textScale),
+            fontWeight = FontWeight.Bold,
             maxLines = 1,
         )
     }

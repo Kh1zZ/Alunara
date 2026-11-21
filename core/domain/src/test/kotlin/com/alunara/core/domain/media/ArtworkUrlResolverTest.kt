@@ -38,11 +38,11 @@ class ArtworkUrlResolverTest {
     fun resolve_upgradesYtImgThumbnailsSafelyPerTier() {
         val mqUrl = "https://i.ytimg.com/vi/video123/mqdefault.jpg?sqp=abc"
         assertEquals(
-            "https://i.ytimg.com/vi/video123/hqdefault.jpg?sqp=abc",
+            "https://i.ytimg.com/vi/video123/hqdefault.jpg",
             ArtworkUrlResolver.resolve(mqUrl, ArtworkTier.THUMBNAIL),
         )
         assertEquals(
-            "https://i.ytimg.com/vi/video123/sddefault.jpg?sqp=abc",
+            "https://i.ytimg.com/vi/video123/sddefault.jpg",
             ArtworkUrlResolver.resolve(mqUrl, ArtworkTier.HERO),
         )
 

@@ -188,4 +188,83 @@ class ArchiveTuneLyricsAdapterTest {
             val doc = adapter.fetchLyrics(sampleTrack)
             assertTrue(doc is LyricsDocument.Unavailable)
         }
+
+    @Test
+    fun fetchLyrics_hedgesSlowPrimaryWithinMaxTwoConcurrentRequests() =
+        runTest {
+            val active = AtomicInteger(0)
+            val maxObserved = AtomicInteger(0)
+            val hedgeCalls = AtomicInteger(0)
+            val adapter =
+                ArchiveTuneLyricsAdapter(
+                    providers =
+                        listOf(
+                            FakeProvider(LyricsProviderId.SIMPMUSIC, 500L, active, maxObserved) {
+                                Result.success("[00:05.00]Slow line")
+                            },
+                            FakeProvider(LyricsProviderId.LRCLIB, 20L, active, maxObserved) {
+                                hedgeCalls.incrementAndGet()
+                                Result.success("[00:05.00] <00:05.00>Fast <00:05.40>hedge")
+                            },
+                            FakeProvider(LyricsProviderId.KUGOU, 10L, active, maxObserved) {
+                                error("Third provider should not be called after hedged word-sync succeeds")
+                            },
+                        ),
+                    maxConcurrentRequests = 2,
+                    hedgeDelayMs = 150L,
+                )
+
+            val doc = adapter.fetchLyrics(sampleTrack) as LyricsDocument.Synced
+            assertEquals(LyricsProviderId.LRCLIB, doc.provider)
+            assertEquals(1, hedgeCalls.get())
+            assertTrue(maxObserved.get() in 1..2)
+        }
+
+    @Test
+    fun fetchLyrics_fastCleanWordSyncShortCircuitsHedgedProvider() =
+        runTest {
+            val active = AtomicInteger(0)
+            val maxObserved = AtomicInteger(0)
+            val adapter =
+                ArchiveTuneLyricsAdapter(
+                    providers =
+                        listOf(
+                            FakeProvider(LyricsProviderId.SIMPMUSIC, 20L, active, maxObserved) {
+                                Result.success("[00:05.00] <00:05.00>Instant <00:05.40>clean")
+                            },
+                            FakeProvider(LyricsProviderId.LRCLIB, 10L, active, maxObserved) {
+                                error("Fast clean word-sync within hedge delay should short-circuit hedged call")
+                            },
+                        ),
+                    maxConcurrentRequests = 2,
+                    hedgeDelayMs = 280L,
+                )
+
+            val doc = adapter.fetchLyrics(sampleTrack) as LyricsDocument.Synced
+            assertEquals(LyricsProviderId.SIMPMUSIC, doc.provider)
+        }
+
+    @Test
+    fun fetchLyrics_rejectsDurationMismatchedSyncedLyricsInFavorOfValidProvider() =
+        runTest {
+            val active = AtomicInteger(0)
+            val maxObserved = AtomicInteger(0)
+            val adapter =
+                ArchiveTuneLyricsAdapter(
+                    providers =
+                        listOf(
+                            FakeProvider(LyricsProviderId.SIMPMUSIC, 10L, active, maxObserved) {
+                                // sampleTrack durationSeconds is 210s; 08:20 (500s) is severely mismatched
+                                Result.success("[08:20.00] <08:20.00>Wrong <08:20.50>song")
+                            },
+                            FakeProvider(LyricsProviderId.LRCLIB, 10L, active, maxObserved) {
+                                Result.success("[00:12.00]Accurate track lyrics")
+                            },
+                        ),
+                )
+
+            val doc = adapter.fetchLyrics(sampleTrack) as LyricsDocument.Synced
+            assertEquals(LyricsProviderId.LRCLIB, doc.provider)
+            assertEquals("Accurate track lyrics", doc.lines.single().text)
+        }
 }

@@ -14,6 +14,8 @@ import com.alunara.app.playback.PlaybackPreferences
 import com.alunara.app.playback.PlaybackSessionManager
 import com.alunara.app.playback.SharedPreferencesPlaybackPreferencesStore
 import com.alunara.app.playback.SinglePlayerLifecycleController
+import com.alunara.core.data.cache.CacheBudgetDecision
+import com.alunara.core.data.cache.CacheBudgetManager
 import com.alunara.core.data.db.AlunaraDatabase
 import com.alunara.core.data.store.CachedLyricsRepository
 import com.alunara.core.data.store.KeystoreAccountSessionStore
@@ -35,6 +37,8 @@ import java.util.concurrent.TimeUnit
  */
 class AppContainer(
     context: Context,
+    private val cacheBudget: CacheBudgetDecision = CacheBudgetManager.computeBudget(DEFAULT_STORAGE_BYTES),
+    private val isLowMemoryPressure: () -> Boolean = { false },
 ) {
     private val appContext = context.applicationContext
 
@@ -78,9 +82,16 @@ class AppContainer(
     }
 
     val lyricsEngine: LyricsEngine by lazy {
+        val maxEntries =
+            if (cacheBudget.dynamicCacheLimitBytes <= 32L * 1024L * 1024L) {
+                100
+            } else {
+                300
+            }
         CachedLyricsRepository(
             delegate = ArchiveTuneLyricsAdapter(),
             cacheDao = database.lyricsCacheDao(),
+            maxCachedEntries = maxEntries,
         )
     }
 
@@ -98,6 +109,7 @@ class AppContainer(
             accountSessionStore = accountSessionStore,
             playbackPreferences = playbackPreferences,
             onBackgroundServiceStateChanged = ::syncPlaybackServiceState,
+            isLowMemoryPressure = isLowMemoryPressure,
         )
     }
 
@@ -126,5 +138,9 @@ class AppContainer(
                 appContext.stopService(intent)
             }
         }
+    }
+
+    companion object {
+        private const val DEFAULT_STORAGE_BYTES: Long = 512L * 1024L * 1024L
     }
 }

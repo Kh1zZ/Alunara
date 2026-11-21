@@ -18,6 +18,7 @@ class CachedLyricsRepository(
     private val delegate: LyricsEngine,
     private val cacheDao: LyricsCacheDao,
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
+    private val maxCachedEntries: Int = MAX_CACHED_LYRICS_ENTRIES,
 ) : LyricsEngine {
     override suspend fun fetchLyrics(
         track: Track,
@@ -69,7 +70,7 @@ class CachedLyricsRepository(
                         isNegativeCache = false,
                     ),
                 )
-                cacheDao.deleteOldest(MAX_CACHED_LYRICS_ENTRIES)
+                cacheDao.deleteOldest(maxCachedEntries.coerceAtLeast(25))
             }
 
             is LyricsDocument.Plain -> {
@@ -84,7 +85,7 @@ class CachedLyricsRepository(
                         isNegativeCache = false,
                     ),
                 )
-                cacheDao.deleteOldest(MAX_CACHED_LYRICS_ENTRIES)
+                cacheDao.deleteOldest(maxCachedEntries.coerceAtLeast(25))
             }
 
             is LyricsDocument.Unavailable -> {

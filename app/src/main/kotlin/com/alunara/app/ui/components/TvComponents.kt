@@ -36,10 +36,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.ScaleFactor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -68,6 +70,31 @@ import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.Track
 import java.util.Locale
 import kotlin.math.roundToInt
+
+/**
+ * Crops out the top and bottom 12.5% black letterbox bars baked into 4:3 YouTube thumbnails
+ * (`hqdefault` 480x360, `sddefault` 640x480) while behaving identically to [ContentScale.Crop]
+ * on 1:1 square covers and 16:9 frames.
+ */
+object TvArtworkContentScale : ContentScale {
+    override fun computeScaleFactor(
+        srcSize: Size,
+        dstSize: Size,
+    ): ScaleFactor {
+        if (srcSize.width <= 0f || srcSize.height <= 0f) return ScaleFactor(1f, 1f)
+        val srcAspect = srcSize.width / srcSize.height
+        val effectiveSrcHeight =
+            if (srcAspect in 1.28f..1.39f) {
+                srcSize.height * 0.74f
+            } else {
+                srcSize.height
+            }
+        val widthScale = dstSize.width / srcSize.width
+        val heightScale = dstSize.height / effectiveSrcHeight
+        val maxScale = maxOf(widthScale, heightScale)
+        return ScaleFactor(maxScale, maxScale)
+    }
+}
 
 @Composable
 fun TvArtwork(
@@ -108,7 +135,7 @@ fun TvArtwork(
             AsyncImage(
                 model = request,
                 contentDescription = contentDescription,
-                contentScale = ContentScale.Crop,
+                contentScale = TvArtworkContentScale,
                 onError = {
                     if (!useFallbackOriginal && activeUrl != url && !url.isNullOrBlank()) {
                         useFallbackOriginal = true

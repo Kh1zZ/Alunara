@@ -2,8 +2,8 @@
 
 **Alunara** (`com.alunara.app`) is an independent, audio-only YouTube Music client built specifically for entry-level **Android TV** devices running **Android 9 (API 28)+** with **1 GB RAM** (reference hardware: **Changhong L32G7N**).
 
-> **Current Status:** `Milestone M3.4 — Background MediaSession, Header Search, Crisp Artwork, Lyric Sync & Audio Quality (0.1.0-alpha)`  
-> M3.4 builds on M3.3 and the Pre-M4 UI/UX polish with a global Header Search Bar + 3-item Navigation Rail (`Beranda`, `Koleksi`, `Pengaturan`), tiered HD artwork resolution (`256px`/`360px`/`720px`) with automatic background Coil memory trim, per-track manual lyric sync (`±10 ms` / hold `±100 ms`), 4-preset Audio Quality switching (`Otomatis`/`Rendah`/`Sedang`/`Tinggi`) with live codec/bitrate badge, cleaned `NowPlayingScreen` transport row, and `AlunaraPlaybackService` (`MediaSessionService`) background playback for Android TV. Verified with `70 / 70` unit tests across `17` suites, `0` touched lint issues, and live on physical Changhong `AI PONT` TV (`192.168.100.124:5555`); see [docs/M3_VERIFICATION_REPORT.md](docs/M3_VERIFICATION_REPORT.md).
+> **Current Status:** `Milestone M4 — Lyrics Engine, ArchiveTune TV Animation, Compact Sync & Artwork Crop (0.1.0-alpha)`  
+> M4 adds hedged ArchiveTune-style lyrics provider ranking (`280 ms` hedge delay, max 2 concurrent fetches, `+60s` duration mismatch rejection), TV-optimized smoothstep & distance-graded lyric animation (`positionMsFlow` isolation, single `Animatable` per row, zero `Modifier.blur()`), inline compact lyric sync controls (`-`, `0 ms`, `+`, `Reset`), offline JP Hepburn/KR Revised Romanization with honest Kanji preservation, bounded 1-track prefetch gated by memory pressure, `CacheBudgetManager` runtime Coil/Room limits, and `TvArtworkContentScale` top-bar letterbox crop fix. Verified with `79 / 79` unit tests across `18` suites, `0` touched lint issues, and live on physical Changhong `AI PONT` Android 11 TV (`192.168.100.124:5555`: GPU 50th pct `7 ms`, active PSS `128.5 MiB`, background PSS `101.6 MiB`, `0` logcat errors); see [docs/M4_VERIFICATION_REPORT.md](docs/M4_VERIFICATION_REPORT.md).
 
 ---
 
