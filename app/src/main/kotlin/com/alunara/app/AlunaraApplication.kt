@@ -11,6 +11,7 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.allowHardware
 import coil3.request.allowRgb565
 import coil3.request.crossfade
 import com.alunara.core.data.cache.CacheBudgetDecision
@@ -61,6 +62,7 @@ class AlunaraApplication :
         val diskCapBytes = min(IMAGE_DISK_CACHE_BYTES, cacheBudgetDecision.dynamicCacheLimitBytes / 2L).coerceAtLeast(MIN_IMAGE_DISK_CACHE_BYTES)
         return ImageLoader
             .Builder(context)
+            .allowHardware(true)
             .allowRgb565(true)
             .crossfade(false)
             .components {

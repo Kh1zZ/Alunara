@@ -183,7 +183,12 @@ class LocalLoginCompanionServer(
                             CompanionAction.SUBMIT_COOKIE -> "Cookie sesi dikirim ke TV — memverifikasi akun YouTube Music."
                         }
                     if (isAjax) {
-                        writeResponse(output, 200, "application/json; charset=utf-8", """{"ok":true,"message":${escapeJsonString(feedback)}}""")
+                        writeResponse(
+                            output,
+                            200,
+                            "application/json; charset=utf-8",
+                            """{"ok":true,"step":${escapeJsonString(currentStep)},"hint":${escapeJsonString(lastStatusHint)},"message":${escapeJsonString(feedback)}}""",
+                        )
                     } else {
                         writeResponse(output, 200, "text/html; charset=utf-8", buildMobileHtml(sessionToken, feedback, statusJson = buildStatusJson()))
                     }
@@ -393,11 +398,13 @@ class LocalLoginCompanionServer(
                     .hintLine { font-size:12.5px; color:#85BDA0; font-weight:600; margin-top:6px; }
                     .banner { padding:12px 14px; border-radius:12px; border:1px solid #355442; background:#163826; color:#E3EEE5; font-size:13.5px; font-weight:600; margin-bottom:14px; }
                     .banner.err { background:#3E2224; border-color:#F4B8BC; color:#F4B8BC; }
-                    .card { background:#1D2B22; border:1px solid #26382D; border-radius:16px; padding:16px; margin-bottom:12px; transition:border-color 0.2s; }
-                    .card.current { border-color:#B5E6CC; box-shadow:0 0 0 1px rgba(181,230,204,0.35); }
-                    .cardHead { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-                    .badge { font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; background:#26382D; color:#85BDA0; }
+                    .card { background:#1D2B22; border:1px solid #26382D; border-radius:16px; padding:16px; margin-bottom:12px; transition:border-color 0.2s, opacity 0.2s; }
+                    .card.current { border-color:#B5E6CC; box-shadow:0 0 0 1px rgba(181,230,204,0.35); opacity:1; }
+                    .card.completed { opacity:0.68; border-color:#2C4637; }
+                    .cardHead { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; gap:8px; }
+                    .badge { font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; background:#26382D; color:#85BDA0; white-space:nowrap; }
                     .card.current .badge { background:#C8F0DA; color:#0B120E; }
+                    .card.completed .badge { background:#1A3526; color:#85BDA0; }
                     h2 { margin:0; font-size:16px; color:#E3EEE5; }
                     .sub { margin:0 0 12px; font-size:12.5px; color:#B2C4B7; line-height:1.45; }
                     label { display:block; font-size:12.5px; font-weight:600; margin-bottom:6px; color:#B5E6CC; }
@@ -432,10 +439,10 @@ class LocalLoginCompanionServer(
                   <div id="card-email" class="card">
                     <div class="cardHead">
                       <h2>Langkah 1 · Email Google</h2>
-                      <span class="badge">Email / No. HP</span>
+                      <span id="badge-email" class="badge">Langkah 1</span>
                     </div>
                     <p class="sub">Isi alamat Gmail akun YouTube Music Anda, lalu tekan tombol untuk mengisi &amp; lanjut otomatis di TV.</p>
-                    <form method="post" action="/submit?t=$token">
+                    <form class="wizardForm" method="post" action="/submit?t=$token">
                       <input type="hidden" name="action" value="email">
                       <label for="emailInput">Email / Nomor HP</label>
                       <input id="emailInput" name="value" type="email" autocomplete="username" placeholder="nama@gmail.com" required>
@@ -446,10 +453,10 @@ class LocalLoginCompanionServer(
                   <div id="card-password" class="card">
                     <div class="cardHead">
                       <h2>Langkah 2 · Sandi Akun Google</h2>
-                      <span class="badge">Sandi</span>
+                      <span id="badge-password" class="badge">Langkah 2</span>
                     </div>
                     <p class="sub">Setelah layar TV berpindah ke halaman sandi, isi kata sandi Anda di sini (bisa pakai Password Manager HP).</p>
-                    <form method="post" action="/submit?t=$token">
+                    <form class="wizardForm" method="post" action="/submit?t=$token">
                       <input type="hidden" name="action" value="password">
                       <label for="passwordInput">Kata Sandi</label>
                       <input id="passwordInput" name="value" type="password" autocomplete="current-password" placeholder="Masukkan kata sandi Google" required>
@@ -460,10 +467,10 @@ class LocalLoginCompanionServer(
                   <div id="card-verify" class="card">
                     <div class="cardHead">
                       <h2>Langkah 3 · Verifikasi 2-Langkah (2FA)</h2>
-                      <span class="badge">Prompt / OTP</span>
+                      <span id="badge-verify" class="badge">Langkah 3</span>
                     </div>
                     <p class="sub">Jika muncul notifikasi <strong>Google Prompt ("Ya, itu saya")</strong> di HP Anda, cukup ketuk konfirmasi di HP. Bila Google meminta kode angka/SMS di TV, ketik kodenya di bawah ini:</p>
-                    <form method="post" action="/submit?t=$token">
+                    <form class="wizardForm" method="post" action="/submit?t=$token">
                       <input type="hidden" name="action" value="text">
                       <label for="otpInput">Kode OTP / Teks di Kolom Aktif TV</label>
                       <input id="otpInput" name="value" type="text" autocomplete="one-time-code" placeholder="Contoh: 123456">
@@ -489,7 +496,7 @@ class LocalLoginCompanionServer(
                     <details>
                       <summary>Mode Lanjutan · Paste Cookie music.youtube.com Langsung</summary>
                       <p class="sub" style="margin-top:10px;">Jika Anda sudah login di browser HP/PC, tempel cookie dari <code>music.youtube.com</code> (harus memuat <code>SAPISID</code> / <code>__Secure-3PAPISID</code>) untuk masuk instan dalam 1 klik:</p>
-                      <form method="post" action="/submit?t=$token">
+                      <form class="wizardForm" method="post" action="/submit?t=$token">
                         <input type="hidden" name="action" value="cookie">
                         <label for="cookieInput">Cookie Header</label>
                         <textarea id="cookieInput" name="value" placeholder="Tempel string cookie music.youtube.com di sini..." required></textarea>
@@ -502,6 +509,7 @@ class LocalLoginCompanionServer(
                 <script>
                   var token = ${escapeJsonString(token)};
                   var stepOrder = ['email', 'password', 'verify', 'done'];
+                  var lastSyncedStep = null;
                   function applyTvState(st) {
                     if (!st || !st.step) return;
                     var hintEl = document.getElementById('tvStepHint');
@@ -518,8 +526,28 @@ class LocalLoginCompanionServer(
                       var card = document.getElementById('card-' + name);
                       if (card) {
                         card.classList.toggle('current', name === st.step);
+                        card.classList.toggle('completed', i < activeIdx);
+                      }
+                      var badge = document.getElementById('badge-' + name);
+                      if (badge) {
+                        if (i < activeIdx) badge.textContent = 'Selesai ✓';
+                        else if (i === activeIdx) badge.textContent = 'Aktif di TV';
+                        else badge.textContent = 'Langkah ' + (i + 1);
                       }
                     });
+                    if (lastSyncedStep !== st.step) {
+                      var isTransition = lastSyncedStep !== null;
+                      lastSyncedStep = st.step;
+                      var activeCard = document.getElementById('card-' + st.step);
+                      if (activeCard && isTransition) {
+                        try { activeCard.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+                        var inputId = st.step === 'password' ? 'passwordInput' : (st.step === 'verify' ? 'otpInput' : 'emailInput');
+                        var targetInput = document.getElementById(inputId);
+                        if (targetInput && (st.step === 'password' || (st.step === 'verify' && (st.hint || '').toLowerCase().indexOf('otp') >= 0))) {
+                          setTimeout(function() { try { targetInput.focus(); } catch (_) {} }, 250);
+                        }
+                      }
+                    }
                   }
                   function showBanner(msg, ok) {
                     var b = document.getElementById('liveBanner');
@@ -528,15 +556,48 @@ class LocalLoginCompanionServer(
                     b.className = 'banner ' + (ok ? 'ok' : 'err');
                     b.style.display = 'block';
                   }
+                  function burstPoll() {
+                    setTimeout(pollStatus, 250);
+                    setTimeout(pollStatus, 650);
+                    setTimeout(pollStatus, 1200);
+                    setTimeout(pollStatus, 1900);
+                  }
                   function sendRemote(actionName) {
                     fetch('/submit?t=' + encodeURIComponent(token), {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                       body: 'action=' + encodeURIComponent(actionName) + '&ajax=1'
                     }).then(function(r) { return r.json(); })
-                      .then(function(res) { showBanner(res.message || 'Terkirim ke TV', !!res.ok); pollStatus(); })
+                      .then(function(res) { showBanner(res.message || 'Terkirim ke TV', !!res.ok); pollStatus(); burstPoll(); })
                       .catch(function() { showBanner('Gagal menghubungi layar TV di Wi-Fi lokal.', false); });
                   }
+                  Array.from(document.querySelectorAll('form.wizardForm')).forEach(function(form) {
+                    form.addEventListener('submit', function(ev) {
+                      ev.preventDefault();
+                      var actionEl = form.querySelector('input[name="action"]');
+                      var valueEl = form.querySelector('input[name="value"], textarea[name="value"]');
+                      var btn = form.querySelector('button[type="submit"]');
+                      var actionVal = actionEl ? actionEl.value : '';
+                      var inputVal = valueEl ? valueEl.value : '';
+                      if (btn) btn.disabled = true;
+                      fetch('/submit?t=' + encodeURIComponent(token), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: 'action=' + encodeURIComponent(actionVal) + '&value=' + encodeURIComponent(inputVal) + '&ajax=1'
+                      }).then(function(r) { return r.json(); })
+                        .then(function(res) {
+                          if (btn) btn.disabled = false;
+                          showBanner(res.message || 'Terkirim ke TV', !!res.ok);
+                          if (res.step) applyTvState({ step: res.step, hint: res.hint || '', host: '' });
+                          pollStatus();
+                          burstPoll();
+                        })
+                        .catch(function() {
+                          if (btn) btn.disabled = false;
+                          showBanner('Gagal menghubungi layar TV di Wi-Fi lokal.', false);
+                        });
+                    });
+                  });
                   function pollStatus() {
                     fetch('/status?t=' + encodeURIComponent(token), { cache: 'no-store' })
                       .then(function(r) { return r.ok ? r.json() : null; })
@@ -544,7 +605,7 @@ class LocalLoginCompanionServer(
                       .catch(function() {});
                   }
                   applyTvState($statusJson);
-                  setInterval(pollStatus, 1500);
+                  setInterval(pollStatus, 750);
                 </script>
                 </body>
                 </html>

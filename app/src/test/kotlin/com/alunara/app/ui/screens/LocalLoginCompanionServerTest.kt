@@ -41,8 +41,32 @@ class LocalLoginCompanionServerTest {
         assertTrue(html.contains("prev_focus"))
         assertTrue(html.contains("next_focus"))
         assertTrue(html.contains("Paste Cookie"))
+        assertTrue(html.contains("wizardForm"))
+        assertTrue(html.contains("burstPoll"))
         assertFalse(html.contains("<script>alert(1)</script>"))
         assertTrue(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;OK"))
+    }
+
+    @Test
+    fun buildStatusJson_tracksStepTransitionsSynchronously() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            val server = LocalLoginCompanionServer(scope = scope) {}
+            assertTrue(server.buildStatusJson().contains(""""step":"email""""))
+
+            server.currentStep = LocalLoginCompanionServer.STEP_PASSWORD
+            server.lastStatusHint = "Langkah 2 dari 3 · Masukkan Kata Sandi"
+            assertTrue(server.buildStatusJson().contains(""""step":"password""""))
+
+            server.currentStep = LocalLoginCompanionServer.STEP_VERIFY
+            server.lastStatusHint = "Langkah 3 dari 3 · Konfirmasi Google Prompt"
+            assertTrue(server.buildStatusJson().contains(""""step":"verify""""))
+
+            server.currentStep = LocalLoginCompanionServer.STEP_DONE
+            assertTrue(server.buildStatusJson().contains(""""step":"done""""))
+        } finally {
+            scope.cancel()
+        }
     }
 
     @Test

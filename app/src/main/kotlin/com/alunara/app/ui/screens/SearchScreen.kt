@@ -272,7 +272,7 @@ fun SearchScreen(
                     contentPadding = PaddingValues(bottom = 12.dp),
                 ) {
                     if (results.songs.isNotEmpty()) {
-                        item {
+                        item(key = "hdr-songs", contentType = "search-header") {
                             Text(
                                 text = stringResource(R.string.section_songs),
                                 color = colors.primaryAccent,
@@ -280,7 +280,11 @@ fun SearchScreen(
                                 fontWeight = FontWeight.SemiBold,
                             )
                         }
-                        items(results.songs.size, key = { idx -> "song-$idx-${results.songs[idx].id}" }) { index ->
+                        items(
+                            count = results.songs.size,
+                            key = { idx -> "song-$idx-${results.songs[idx].id}" },
+                            contentType = { "search-song-row" },
+                        ) { index ->
                             val song = results.songs[index]
                             TvSongRow(
                                 track = song,
@@ -294,7 +298,7 @@ fun SearchScreen(
                     }
 
                     if (results.albums.isNotEmpty()) {
-                        item {
+                        item(key = "hdr-albums", contentType = "search-header") {
                             Text(
                                 text = stringResource(R.string.section_albums),
                                 color = colors.primaryAccent,
@@ -303,9 +307,13 @@ fun SearchScreen(
                                 modifier = Modifier.padding(top = 6.dp),
                             )
                         }
-                        item {
+                        item(key = "rail-albums", contentType = "search-rail") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                items(results.albums, key = { "alb-${it.id}" }) { album ->
+                                items(
+                                    items = results.albums,
+                                    key = { "alb-${it.id}" },
+                                    contentType = { "search-album-card" },
+                                ) { album ->
                                     TvMediaCard(
                                         title = album.title,
                                         subtitle = album.artists.joinToString(", ") { it.name },
@@ -318,7 +326,7 @@ fun SearchScreen(
                     }
 
                     if (results.playlists.isNotEmpty()) {
-                        item {
+                        item(key = "hdr-playlists", contentType = "search-header") {
                             Text(
                                 text = stringResource(R.string.section_playlists),
                                 color = colors.primaryAccent,
@@ -327,9 +335,13 @@ fun SearchScreen(
                                 modifier = Modifier.padding(top = 6.dp),
                             )
                         }
-                        item {
+                        item(key = "rail-playlists", contentType = "search-rail") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                items(results.playlists, key = { "pl-${it.id}" }) { playlist ->
+                                items(
+                                    items = results.playlists,
+                                    key = { "pl-${it.id}" },
+                                    contentType = { "search-playlist-card" },
+                                ) { playlist ->
                                     TvMediaCard(
                                         title = playlist.title,
                                         subtitle = playlist.author ?: playlist.trackCountText.orEmpty(),
@@ -342,7 +354,7 @@ fun SearchScreen(
                     }
 
                     if (results.artists.isNotEmpty()) {
-                        item {
+                        item(key = "hdr-artists", contentType = "search-header") {
                             Text(
                                 text = stringResource(R.string.section_artists),
                                 color = colors.primaryAccent,
@@ -351,9 +363,13 @@ fun SearchScreen(
                                 modifier = Modifier.padding(top = 6.dp),
                             )
                         }
-                        item {
+                        item(key = "rail-artists", contentType = "search-rail") {
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                items(results.artists, key = { "art-${it.id ?: it.name}" }) { artist ->
+                                items(
+                                    items = results.artists,
+                                    key = { "art-${it.id ?: it.name}" },
+                                    contentType = { "search-artist-card" },
+                                ) { artist ->
                                     TvMediaCard(
                                         title = artist.name,
                                         subtitle = "",

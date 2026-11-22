@@ -1,8 +1,6 @@
 package com.alunara.app.ui.screens
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,9 +22,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -74,7 +78,7 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 16.dp),
     ) {
-        item {
+        item(key = "home-header", contentType = "home-header") {
             Column(
                 modifier = Modifier.focusProperties { canFocus = false },
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -105,7 +109,7 @@ fun HomeScreen(
         }
 
         if (resumeTrack != null) {
-            item {
+            item(key = "home-continue", contentType = "home-continue") {
                 ContinueQueueCard(
                     track = resumeTrack,
                     onClick = onContinueQueue,
@@ -115,7 +119,7 @@ fun HomeScreen(
 
         when {
             isLoading && sections.isEmpty() -> {
-                items(2) {
+                items(2, contentType = { "home-skeleton" }) {
                     TvCardRowSkeleton(count = 5)
                 }
             }
@@ -163,7 +167,11 @@ fun HomeScreen(
             }
 
             else -> {
-                items(sections, key = { it.title }) { section ->
+                items(
+                    items = sections,
+                    key = { it.title },
+                    contentType = { "home-section" },
+                ) { section ->
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = section.title,
@@ -175,7 +183,11 @@ fun HomeScreen(
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(section.playlists, key = { pl -> "p-${section.title}-${pl.id}" }) { playlist ->
+                            items(
+                                items = section.playlists,
+                                key = { pl -> "p-${section.title}-${pl.id}" },
+                                contentType = { "home-playlist-card" },
+                            ) { playlist ->
                                 TvMediaCard(
                                     title = playlist.title,
                                     subtitle = playlist.author ?: playlist.trackCountText.orEmpty(),
@@ -183,7 +195,11 @@ fun HomeScreen(
                                     onClick = { onOpenPlaylist(playlist) },
                                 )
                             }
-                            items(section.songs.size, key = { idx -> "s-${section.title}-$idx-${section.songs[idx].id}" }) { index ->
+                            items(
+                                count = section.songs.size,
+                                key = { idx -> "s-${section.title}-$idx-${section.songs[idx].id}" },
+                                contentType = { "home-song-card" },
+                            ) { index ->
                                 val song = section.songs[index]
                                 TvMediaCard(
                                     title = song.title,
@@ -192,10 +208,15 @@ fun HomeScreen(
                                     onClick = { onPlaySongFromSection(section.songs, index) },
                                 )
                             }
-                            items(section.albums, key = { alb -> "a-${section.title}-${alb.id}" }) { album ->
+                            items(
+                                items = section.albums,
+                                key = { alb -> "a-${section.title}-${alb.id}" },
+                                contentType = { "home-album-card" },
+                            ) { album ->
+                                val artistLine = remember(album.artists) { album.artists.joinToString(", ") { it.name } }
                                 TvMediaCard(
                                     title = album.title,
-                                    subtitle = album.artists.joinToString(", ") { it.name },
+                                    subtitle = artistLine,
                                     thumbnailUrl = album.thumbnailUrl,
                                     onClick = { onOpenAlbum(album) },
                                 )
@@ -207,23 +228,25 @@ fun HomeScreen(
         }
 
         if (recentHistory.isNotEmpty()) {
-            item(key = "home-recent-history") {
+            item(key = "home-recent-history", contentType = "home-song-rail") {
+                val recentSlice = remember(recentHistory) { recentHistory.take(15) }
                 HomeSongRail(
                     title = stringResource(R.string.section_recently_played),
                     keyPrefix = "hist",
-                    tracks = recentHistory.take(15),
-                    onPlayAt = { idx -> onPlaySongFromSection(recentHistory.take(15), idx) },
+                    tracks = recentSlice,
+                    onPlayAt = { idx -> onPlaySongFromSection(recentSlice, idx) },
                 )
             }
         }
 
         if (favorites.isNotEmpty()) {
-            item(key = "home-favorites") {
+            item(key = "home-favorites", contentType = "home-song-rail") {
+                val favSlice = remember(favorites) { favorites.take(15) }
                 HomeSongRail(
                     title = stringResource(R.string.section_favorites),
                     keyPrefix = "fav",
-                    tracks = favorites.take(15),
-                    onPlayAt = { idx -> onPlaySongFromSection(favorites.take(15), idx) },
+                    tracks = favSlice,
+                    onPlayAt = { idx -> onPlaySongFromSection(favSlice, idx) },
                 )
             }
         }
@@ -250,7 +273,11 @@ private fun HomeSongRail(
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(tracks.size, key = { idx -> "$keyPrefix-${tracks[idx].id}" }) { index ->
+            items(
+                count = tracks.size,
+                key = { idx -> "$keyPrefix-${tracks[idx].id}" },
+                contentType = { "home-song-card" },
+            ) { index ->
                 val song = tracks[index]
                 TvMediaCard(
                     title = song.title,
@@ -263,6 +290,8 @@ private fun HomeSongRail(
     }
 }
 
+private val ContinueCardShape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+
 @Composable
 private fun ContinueQueueCard(
     track: Track,
@@ -271,16 +300,30 @@ private fun ContinueQueueCard(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
-    val bgColor = if (focused) colors.focusedCardSurface else colors.secondarySurface
-    val borderColor = if (focused) colors.focusRingStrong else Color.Transparent
 
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(bgColor, shape)
-                .border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                .clip(ContinueCardShape)
+                .drawBehind {
+                    val cr = CornerRadius(AlunaraDimens.RadiusControl.toPx())
+                    drawRoundRect(
+                        color = if (focused) colors.focusedCardSurface else colors.secondarySurface,
+                        cornerRadius = cr,
+                    )
+                    if (focused) {
+                        val strokePx = colors.focusBorderWidth.toPx()
+                        val inset = strokePx / 2f
+                        drawRoundRect(
+                            color = colors.focusRingStrong,
+                            topLeft = Offset(inset, inset),
+                            size = Size(size.width - strokePx, size.height - strokePx),
+                            cornerRadius = cr,
+                            style = Stroke(width = strokePx),
+                        )
+                    }
+                }
                 .semantics { role = Role.Button }
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(onClick = onClick)
@@ -300,14 +343,14 @@ private fun ContinueQueueCard(
                 text = "${track.title} · ${track.primaryArtistName}",
                 color = colors.primaryText,
                 fontSize = AlunaraTypography.rowTitle(prefs.textScale),
-                fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         Text(
             text = stringResource(R.string.open_now_playing),
-            color = if (focused) colors.focusRingStrong else colors.focusOutline,
+            color = colors.focusRingStrong,
             fontSize = AlunaraTypography.label(prefs.textScale),
             fontWeight = FontWeight.SemiBold,
         )

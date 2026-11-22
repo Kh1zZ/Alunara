@@ -85,3 +85,31 @@ Installed `app-release.apk` (`21,837,216` bytes / `20.83 MiB`, `versionCode=2`, 
    - **APKs & Signing (`apksigner verify` `exit 0`, Scheme v3 `CN=Alunara Android TV`, RSA 4096-bit):**
      - `app-debug.apk`: `93,469,004` bytes (`89.14 MiB`)
      - `app-release.apk` (R8 + Resource Shrunk + Production Signed): **`21,867,926` bytes (`20.85 MiB`)**
+
+---
+
+## 6. Milestone M5.2 — 60 FPS Android TV Navigation, Fixed Non-Reflow Sidebar & Real-Time TV ↔ Phone Login Step Sync
+
+Adopted key Compose, R8, Coil, and hoisted-callback optimizations inspired by `ca-nim ft gemini`, plus closed the SPA desync gap in Google TV WebView sign-in:
+
+1. **R8 Full Mode & Compose Source-Trace Stripping (`gradle.properties`, `app/proguard-rules.pro`):**
+   - Enabled `android.enableR8.fullMode=true`.
+   - Added `-assumenosideeffects` for `androidx.compose.runtime.ComposerKt.sourceInformation*` and `-allowaccessmodification` in `app/proguard-rules.pro` so release composable calls do not allocate/format debug source-location strings during focus/scroll traversal.
+   - Expanded `app/compose-stability.conf` (`com.alunara.core.domain.contract.**`, `PlaybackSessionManager`, `kotlinx.coroutines.flow.StateFlow`) and added `.allowHardware(true)` in `AlunaraApplication.kt`.
+
+2. **Elimination of Main-Thread Text Re-Layout, Layout Thrashing & Unskipped Recompositions (`TvComponents.kt`, `MainActivity.kt`, Screens):**
+   - **Fixed-Width Non-Reflow Left Rail (`FixedNavigationRail` in `MainActivity.kt`, `AlunaraDimens.RailCollapsedWidth = 104.dp`):** Replaced focus-expanding rail width transitions (`76.dp <-> 216.dp`) with a constant `104.dp` compact icon + label rail (`Beranda`, `Koleksi`, `Pengaturan` fitting without ellipsis) using `RailFocusTracker` updated via `hostView.post` (zero state writes on rail enter/exit) and `drawBehind` focus borders.
+   - **Zero-Recomposition Card/Row Focus Drawing (`TvComponents.kt`, `HomeScreen.kt`):** Moved `focused`/`rowFocused` state reads strictly inside `Modifier.drawBehind` for `TvMediaCard`, `TvSongRow`, and `ContinueQueueCard`, kept `FontWeight` constant across focus states (eliminating CPU `StaticLayout` text re-shaping on D-pad key presses), hoisted shared `RoundedCornerShape` instances to file top level, and memoized `subtitle` / `durationText` / `.take(15)` slices.
+   - **Hoisted Screen Callbacks & `contentType` Reuse (`MainActivity.kt`, `HomeScreen.kt`, `LibraryScreen.kt`, `SearchScreen.kt`, `CatalogDetailScreen.kt`, `NowPlayingScreen.kt`):** Hoisted all screen/player/rail callbacks into `remember(...)` blocks reading `sessionManager.uiState.value`, added `contentType` across `LazyColumn`/`LazyRow`/`LazyVerticalGrid` items, and disabled hero cover crossfade in `NowPlayingScreen`.
+
+3. **Real-Time TV ↔ Phone Login Step Synchronization (`YouTubeWebViewLoginScreen.kt`, `LocalLoginCompanionServer.kt`):**
+   - **Continuous SPA Step Watcher (`INSTALL_STEP_WATCHER_JS` + `WebViewClient.doUpdateVisitedHistory`):** Replaced one-shot `onPageFinished` detection with a persistent `MutationObserver` + `450ms` interval watcher paired with `doUpdateVisitedHistory` (`pushState` hook) and `inferStepFromUrl(url)` (`email` -> `password` -> `verify` Push/OTP -> `done`), plus `onMusicHomeReached` fallback extraction.
+   - **AJAX Companion Forms Without Page Reload (`LocalLoginCompanionServer.kt`):** Included `"step"` and `"hint"` in `POST /submit` JSON responses, intercepted all `.wizardForm` submits via `fetch` (`ajax=1`), added `burstPoll()` + `750ms` `/status` polling, and synced card badges (`Aktif di TV` / `Selesai ✓`), smooth scroll, and input auto-focus to match the TV WebView stage in real time.
+
+4. **M5.2 Automated Verification & Live Hardware Benchmark (`Changhong AI PONT`, `192.168.100.124:5555`):**
+   - **Unit Tests & Lint:** **`83 / 83` passed across `19` suites** (`0` failed, `0` skipped, including `buildStatusJson_tracksStepTransitionsSynchronously`); `:app:lintDebug` exited `0`; `:app:assembleRelease` produced `app-release.apk` (`20.87 MB`).
+   - **Physical TV (`Changhong AI PONT`, 1 GB RAM, Android 11):**
+     - **Cold Start:** `TotalTime: 1,123 ms`, `WaitTime: 1,130 ms`.
+     - **Home D-Pad Navigation (`dumpsys gfxinfo com.alunara.app`, `24` frames):** **`50th percentile: 9 ms`**, `90th percentile: 21 ms`, `Number Missed Vsync: 0`, `Number Slow bitmap uploads: 0`, `Number Slow issue draw commands: 0`, **`GPU 50th/90th/95th/99th: 13 / 15 / 15 / 16 ms`**.
+     - **Now Playing (`dumpsys gfxinfo com.alunara.app`, `14` frames):** `50th percentile: 14 ms`, `90th percentile: 21 ms`, `99th percentile: 23 ms`.
+     - **Memory (`dumpsys meminfo com.alunara.app`):** **`TOTAL PSS: 72,288 KB` (`~70.59 MiB`)**.

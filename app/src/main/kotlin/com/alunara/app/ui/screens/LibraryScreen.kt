@@ -318,7 +318,11 @@ fun LibraryScreen(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         contentPadding = PaddingValues(bottom = 16.dp),
                     ) {
-                        items(accountPlaylists, key = { "acc-pl-${it.id}" }) { playlist ->
+                        items(
+                            items = accountPlaylists,
+                            key = { "acc-pl-${it.id}" },
+                            contentType = { "library-playlist-card" },
+                        ) { playlist ->
                             TvMediaCard(
                                 title = playlist.title,
                                 subtitle = playlist.author ?: playlist.trackCountText ?: stringResource(R.string.badge_youtube_synced),
@@ -343,7 +347,11 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(bottom = 12.dp),
                     ) {
-                        items(favorites.size, key = { idx -> "fav-${favorites[idx].id}" }) { index ->
+                        items(
+                            count = favorites.size,
+                            key = { idx -> "fav-${favorites[idx].id}" },
+                            contentType = { "library-song-row" },
+                        ) { index ->
                             val track = favorites[index]
                             TvSongRow(
                                 track = track,
@@ -371,7 +379,11 @@ fun LibraryScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(bottom = 12.dp),
                     ) {
-                        items(recentHistory.size, key = { idx -> "hist-${recentHistory[idx].id}" }) { index ->
+                        items(
+                            count = recentHistory.size,
+                            key = { idx -> "hist-${recentHistory[idx].id}" },
+                            contentType = { "library-song-row" },
+                        ) { index ->
                             val track = recentHistory[index]
                             TvSongRow(
                                 track = track,

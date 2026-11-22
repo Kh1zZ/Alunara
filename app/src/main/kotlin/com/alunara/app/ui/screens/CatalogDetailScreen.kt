@@ -415,7 +415,11 @@ private fun CatalogTrackList(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(bottom = 12.dp),
     ) {
-        items(tracks.size, key = { idx -> "cat-trk-${tracks[idx].id}" }) { index ->
+        items(
+            count = tracks.size,
+            key = { idx -> "cat-trk-${tracks[idx].id}" },
+            contentType = { "catalog-song-row" },
+        ) { index ->
             val track = tracks[index]
             TvSongRow(
                 track = track,
@@ -457,7 +461,7 @@ private fun ArtistDetailContent(
         contentPadding = PaddingValues(bottom = 12.dp),
     ) {
         if (detail.topSongs.isNotEmpty()) {
-            item {
+            item(key = "hdr-top-songs", contentType = "catalog-header") {
                 Text(
                     text = stringResource(R.string.catalog_top_songs),
                     color = colors.primaryAccent,
@@ -465,7 +469,11 @@ private fun ArtistDetailContent(
                     fontWeight = FontWeight.SemiBold,
                 )
             }
-            items(detail.topSongs.size, key = { idx -> "art-song-${detail.topSongs[idx].id}" }) { index ->
+            items(
+                count = detail.topSongs.size,
+                key = { idx -> "art-song-${detail.topSongs[idx].id}" },
+                contentType = { "catalog-song-row" },
+            ) { index ->
                 val song = detail.topSongs[index]
                 TvSongRow(
                     track = song,
@@ -479,7 +487,7 @@ private fun ArtistDetailContent(
         }
 
         if (detail.albums.isNotEmpty()) {
-            item {
+            item(key = "hdr-albums", contentType = "catalog-header") {
                 Text(
                     text = stringResource(R.string.section_albums),
                     color = colors.primaryAccent,
@@ -488,9 +496,13 @@ private fun ArtistDetailContent(
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
-            item {
+            item(key = "rail-albums", contentType = "catalog-rail") {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(detail.albums, key = { "art-alb-${it.id}" }) { album ->
+                    items(
+                        items = detail.albums,
+                        key = { "art-alb-${it.id}" },
+                        contentType = { "catalog-album-card" },
+                    ) { album ->
                         TvMediaCard(
                             title = album.title,
                             subtitle = album.year?.toString() ?: album.artists.joinToString(", ") { it.name },
@@ -503,7 +515,7 @@ private fun ArtistDetailContent(
         }
 
         if (detail.playlists.isNotEmpty()) {
-            item {
+            item(key = "hdr-playlists", contentType = "catalog-header") {
                 Text(
                     text = stringResource(R.string.section_playlists),
                     color = colors.primaryAccent,
@@ -512,9 +524,13 @@ private fun ArtistDetailContent(
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
-            item {
+            item(key = "rail-playlists", contentType = "catalog-rail") {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(detail.playlists, key = { "art-pl-${it.id}" }) { playlist ->
+                    items(
+                        items = detail.playlists,
+                        key = { "art-pl-${it.id}" },
+                        contentType = { "catalog-playlist-card" },
+                    ) { playlist ->
                         TvMediaCard(
                             title = playlist.title,
                             subtitle = playlist.author ?: playlist.trackCountText.orEmpty(),

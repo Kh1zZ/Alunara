@@ -149,9 +149,9 @@ object AlunaraTypography {
  * Shared 10-foot Android TV layout & geometry tokens (960x540 dp logical 720p grid).
  */
 object AlunaraDimens {
-    val RailCollapsedWidth = 76.dp
+    val RailCollapsedWidth = 104.dp
     val RailExpandedWidth = 216.dp
-    val RailItemHeight = 48.dp
+    val RailItemHeight = 56.dp
     val ControlHeight = 48.dp
     val QueueActionButtonSize = 40.dp
     val SongRowHeight = 60.dp

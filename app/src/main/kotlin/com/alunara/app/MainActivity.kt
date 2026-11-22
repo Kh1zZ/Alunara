@@ -44,17 +44,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -64,6 +70,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -93,7 +100,10 @@ import com.alunara.core.domain.model.ArtistRef
 import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.PlaylistSummary
+import com.alunara.core.domain.model.QueueFilterChip
 import com.alunara.core.domain.model.SearchResults
+import com.alunara.core.domain.model.Track
+import com.alunara.core.domain.policy.AudioQualityPreset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -177,7 +187,6 @@ private fun AlunaraTvApp(
     var returnDestBeforeSearch by rememberSaveable { mutableStateOf(TvDestination.HOME) }
     var catalogStack by remember { mutableStateOf<List<CatalogTarget>>(emptyList()) }
     var showWebViewLogin by rememberSaveable { mutableStateOf(false) }
-    var railFocused by remember { mutableStateOf(false) }
     val railHomeFocusRequester = remember { FocusRequester() }
     val browsePaneFocusRequester = remember { FocusRequester() }
     val headerSearchRequester = remember { FocusRequester() }
@@ -244,6 +253,7 @@ private fun AlunaraTvApp(
     }
 
     fun openNowPlaying() {
+        showWebViewLogin = false
         if (currentDestination != TvDestination.NOW_PLAYING) {
             lastBrowseDestination = currentDestination
             currentDestination = TvDestination.NOW_PLAYING
@@ -296,6 +306,81 @@ private fun AlunaraTvApp(
                 initialThumbnailUrl = artist.thumbnailUrl,
             )
     }
+
+    // Hoisted stable callbacks so child screens stay 100% skippable across UI updates
+    val onTogglePlayPause = remember(sessionManager) { { sessionManager.togglePlayPause() } }
+    val onSkipPrevious = remember(sessionManager) { { sessionManager.skipPrevious() } }
+    val onSkipNext = remember(sessionManager) { { sessionManager.skipNext() } }
+    val onSeekBy = remember(sessionManager) { { delta: Long -> sessionManager.seekBy(delta) } }
+    val onToggleFavoriteCurrent = remember(sessionManager) { { sessionManager.toggleFavorite() } }
+    val onToggleFavoriteTrack = remember(sessionManager) { { track: Track -> sessionManager.toggleFavorite(track) } }
+    val onStartRadioCurrent =
+        remember(sessionManager) {
+            {
+                sessionManager.uiState.value.currentTrack?.let { sessionManager.startRadio(it) }
+                Unit
+            }
+        }
+    val onSwitchLyricsProvider = remember(sessionManager) { { sessionManager.cycleLyricsProvider() } }
+    val onAdjustLyricsSync = remember(sessionManager) { { delta: Long -> sessionManager.adjustLyricsSyncOffset(delta) } }
+    val onResetLyricsSync = remember(sessionManager) { { sessionManager.resetLyricsSyncOffset() } }
+    val onToggleRomanizedLyrics = remember(sessionManager) { { sessionManager.toggleRomanizedLyrics() } }
+    val onPlayQueueAt = remember(sessionManager) { { idx: Int -> sessionManager.playTrackAt(idx) } }
+    val onMoveQueueItem = remember(sessionManager) { { from: Int, to: Int -> sessionManager.moveQueueItem(from, to) } }
+    val onRemoveQueueItem = remember(sessionManager) { { idx: Int -> sessionManager.removeFromQueue(idx) } }
+    val onClearQueue = remember(sessionManager) { { sessionManager.clearQueue() } }
+    val onRefreshRadio = remember(sessionManager) { { sessionManager.refreshCurrentTrackRadio() } }
+    val onSelectQueueChip = remember(sessionManager) { { chip: QueueFilterChip? -> sessionManager.selectQueueChip(chip) } }
+    val onPlayTracksAndOpen =
+        remember(sessionManager) {
+            { tracks: List<Track>, idx: Int ->
+                sessionManager.playTracks(tracks, idx)
+                openNowPlaying()
+            }
+        }
+    val onStartRadioSeedAndOpen =
+        remember(sessionManager) {
+            { seed: Track ->
+                sessionManager.startRadio(seed)
+                openNowPlaying()
+            }
+        }
+    val onEnqueueTrack = remember(sessionManager) { { track: Track -> sessionManager.enqueue(track) } }
+    val onEnqueueAllTracks = remember(sessionManager) { { tracks: List<Track> -> sessionManager.enqueueAll(tracks) } }
+    val onOpenAlbumCb = remember { { album: AlbumRef -> openAlbumTarget(album) } }
+    val onOpenPlaylistCb = remember { { playlist: PlaylistSummary -> openPlaylistTarget(playlist) } }
+    val onOpenArtistCb = remember { { artist: ArtistRef -> openArtistTarget(artist) } }
+    val onCatalogBack = remember { { catalogStack = catalogStack.dropLast(1) } }
+    val onOpenNowPlayingCb = remember { { openNowPlaying() } }
+    val onRetryHome = remember { { loadHome(force = true) } }
+    val onQueryChangeCb = remember { { q: String -> searchQuery = q } }
+    val onSubmitSearchCb = remember { { executeSearch() } }
+    val onClearHistoryCb = remember(sessionManager) { { sessionManager.clearHistory() } }
+    val onRefreshLibraryCb = remember(sessionManager) { { sessionManager.refreshAccountLibrary() } }
+    val onOpenWebViewLoginCb = remember { { showWebViewLogin = true } }
+    val onNavigateSearchFromLibrary = remember { { openHeaderSearch(TvDestination.LIBRARY) } }
+    val onNavigateSettingsCb =
+        remember {
+            {
+                catalogStack = emptyList()
+                lastBrowseDestination = TvDestination.SETTINGS
+                currentDestination = TvDestination.SETTINGS
+            }
+        }
+    val onToggleAutoplayCb =
+        remember(sessionManager) {
+            { sessionManager.setAutoplay(!sessionManager.uiState.value.queueState.autoplayEnabled) }
+        }
+    val onLogoutCb = remember(sessionManager) { { sessionManager.logoutAccount() } }
+    val onSelectAudioQualityCb = remember(sessionManager) { { preset: AudioQualityPreset -> sessionManager.setAudioQuality(preset) } }
+    val onSelectRailDest =
+        remember {
+            { dest: TvDestination ->
+                catalogStack = emptyList()
+                lastBrowseDestination = dest
+                currentDestination = dest
+            }
+        }
 
     LaunchedEffect(Unit) {
         sessionManager.restorePersistedQueue()
@@ -414,22 +499,22 @@ private fun AlunaraTvApp(
             NowPlayingScreen(
                 sessionState = sessionState,
                 positionMsFlow = sessionManager.positionMsFlow,
-                onTogglePlayPause = { sessionManager.togglePlayPause() },
-                onSkipPrevious = { sessionManager.skipPrevious() },
-                onSkipNext = { sessionManager.skipNext() },
-                onSeekBy = { delta -> sessionManager.seekBy(delta) },
-                onToggleFavorite = { sessionManager.toggleFavorite() },
-                onStartRadio = { sessionState.currentTrack?.let { sessionManager.startRadio(it) } },
-                onSwitchLyricsProvider = { sessionManager.cycleLyricsProvider() },
-                onAdjustLyricsSync = { delta -> sessionManager.adjustLyricsSyncOffset(delta) },
-                onResetLyricsSync = { sessionManager.resetLyricsSyncOffset() },
-                onToggleRomanizedLyrics = { sessionManager.toggleRomanizedLyrics() },
-                onPlayQueueAt = { idx -> sessionManager.playTrackAt(idx) },
-                onMoveQueueItem = { from, to -> sessionManager.moveQueueItem(from, to) },
-                onRemoveQueueItem = { idx -> sessionManager.removeFromQueue(idx) },
-                onClearQueue = { sessionManager.clearQueue() },
-                onRefreshRadio = { sessionManager.refreshCurrentTrackRadio() },
-                onSelectQueueChip = { chip -> sessionManager.selectQueueChip(chip) },
+                onTogglePlayPause = onTogglePlayPause,
+                onSkipPrevious = onSkipPrevious,
+                onSkipNext = onSkipNext,
+                onSeekBy = onSeekBy,
+                onToggleFavorite = onToggleFavoriteCurrent,
+                onStartRadio = onStartRadioCurrent,
+                onSwitchLyricsProvider = onSwitchLyricsProvider,
+                onAdjustLyricsSync = onAdjustLyricsSync,
+                onResetLyricsSync = onResetLyricsSync,
+                onToggleRomanizedLyrics = onToggleRomanizedLyrics,
+                onPlayQueueAt = onPlayQueueAt,
+                onMoveQueueItem = onMoveQueueItem,
+                onRemoveQueueItem = onRemoveQueueItem,
+                onClearQueue = onClearQueue,
+                onRefreshRadio = onRefreshRadio,
+                onSelectQueueChip = onSelectQueueChip,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -439,8 +524,9 @@ private fun AlunaraTvApp(
                 activeCatalogTarget != null ||
                     browseDest == TvDestination.HOME ||
                     browseDest == TvDestination.LIBRARY
+            val onHeaderSearchClick = remember { { openHeaderSearch(lastBrowseDestination) } }
             Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
-                // Content reserves constant collapsed rail margin so expanding the overlay rail never shifts layout
+                // Content reserves fixed rail width so navigation between rail and content causes zero layout shift
                 Column(
                     modifier =
                         Modifier
@@ -450,7 +536,7 @@ private fun AlunaraTvApp(
                     if (showHeaderSearchBar) {
                         TvHeaderSearchBar(
                             currentQuery = searchQuery,
-                            onClick = { openHeaderSearch(browseDest) },
+                            onClick = onHeaderSearchClick,
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
@@ -492,19 +578,13 @@ private fun AlunaraTvApp(
                                         target = paneTarget,
                                         musicEngine = musicEngine,
                                         activeTrackId = sessionState.currentTrack?.id,
-                                        onBack = { catalogStack = catalogStack.dropLast(1) },
-                                        onPlayTracks = { tracks, idx ->
-                                            sessionManager.playTracks(tracks, idx)
-                                            openNowPlaying()
-                                        },
-                                        onEnqueueTrack = { track -> sessionManager.enqueue(track) },
-                                        onEnqueueAll = { tracks -> sessionManager.enqueueAll(tracks) },
-                                        onStartRadio = { seed ->
-                                            sessionManager.startRadio(seed)
-                                            openNowPlaying()
-                                        },
-                                        onOpenAlbum = { album -> openAlbumTarget(album) },
-                                        onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
+                                        onBack = onCatalogBack,
+                                        onPlayTracks = onPlayTracksAndOpen,
+                                        onEnqueueTrack = onEnqueueTrack,
+                                        onEnqueueAll = onEnqueueAllTracks,
+                                        onStartRadio = onStartRadioSeedAndOpen,
+                                        onOpenAlbum = onOpenAlbumCb,
+                                        onOpenPlaylist = onOpenPlaylistCb,
                                     )
 
                                 TvDestination.HOME ->
@@ -516,14 +596,11 @@ private fun AlunaraTvApp(
                                         recentHistory = mergedHistory,
                                         favorites = mergedFavorites,
                                         authSession = sessionState.authSession,
-                                        onRetry = { loadHome(force = true) },
-                                        onContinueQueue = { openNowPlaying() },
-                                        onPlaySongFromSection = { songs, idx ->
-                                            sessionManager.playTracks(songs, idx)
-                                            openNowPlaying()
-                                        },
-                                        onOpenAlbum = { album -> openAlbumTarget(album) },
-                                        onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
+                                        onRetry = onRetryHome,
+                                        onContinueQueue = onOpenNowPlayingCb,
+                                        onPlaySongFromSection = onPlayTracksAndOpen,
+                                        onOpenAlbum = onOpenAlbumCb,
+                                        onOpenPlaylist = onOpenPlaylistCb,
                                     )
 
                                 TvDestination.SEARCH ->
@@ -533,16 +610,13 @@ private fun AlunaraTvApp(
                                         isLoading = searchLoading,
                                         errorMessage = searchError,
                                         activeTrackId = sessionState.currentTrack?.id,
-                                        onQueryChange = { searchQuery = it },
-                                        onSubmitSearch = { executeSearch() },
-                                        onPlaySong = { songs, idx ->
-                                            sessionManager.playTracks(songs, idx)
-                                            openNowPlaying()
-                                        },
-                                        onEnqueueSong = { track -> sessionManager.enqueue(track) },
-                                        onOpenAlbum = { album -> openAlbumTarget(album) },
-                                        onOpenArtist = { artist -> openArtistTarget(artist) },
-                                        onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
+                                        onQueryChange = onQueryChangeCb,
+                                        onSubmitSearch = onSubmitSearchCb,
+                                        onPlaySong = onPlayTracksAndOpen,
+                                        onEnqueueSong = onEnqueueTrack,
+                                        onOpenAlbum = onOpenAlbumCb,
+                                        onOpenArtist = onOpenArtistCb,
+                                        onOpenPlaylist = onOpenPlaylistCb,
                                         requestInputFocusTick = searchFocusTick,
                                     )
 
@@ -555,22 +629,15 @@ private fun AlunaraTvApp(
                                         authSession = sessionState.authSession,
                                         librarySyncing = sessionState.librarySyncing,
                                         activeTrackId = sessionState.currentTrack?.id,
-                                        onPlayTracks = { tracks, idx ->
-                                            sessionManager.playTracks(tracks, idx)
-                                            openNowPlaying()
-                                        },
-                                        onEnqueueTrack = { track -> sessionManager.enqueue(track) },
-                                        onToggleFavorite = { track -> sessionManager.toggleFavorite(track) },
-                                        onClearHistory = { sessionManager.clearHistory() },
-                                        onRefreshLibrary = { sessionManager.refreshAccountLibrary() },
-                                        onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
-                                        onOpenWebViewLogin = { showWebViewLogin = true },
-                                        onNavigateToSearch = { openHeaderSearch(TvDestination.LIBRARY) },
-                                        onNavigateToSettings = {
-                                            catalogStack = emptyList()
-                                            lastBrowseDestination = TvDestination.SETTINGS
-                                            currentDestination = TvDestination.SETTINGS
-                                        },
+                                        onPlayTracks = onPlayTracksAndOpen,
+                                        onEnqueueTrack = onEnqueueTrack,
+                                        onToggleFavorite = onToggleFavoriteTrack,
+                                        onClearHistory = onClearHistoryCb,
+                                        onRefreshLibrary = onRefreshLibraryCb,
+                                        onOpenPlaylist = onOpenPlaylistCb,
+                                        onOpenWebViewLogin = onOpenWebViewLoginCb,
+                                        onNavigateToSearch = onNavigateSearchFromLibrary,
+                                        onNavigateToSettings = onNavigateSettingsCb,
                                     )
 
                                 TvDestination.SETTINGS ->
@@ -579,13 +646,11 @@ private fun AlunaraTvApp(
                                         authSession = sessionState.authSession,
                                         authLoading = sessionState.authLoading,
                                         authErrorMessage = sessionState.authErrorMessage,
-                                        onToggleAutoplay = {
-                                            sessionManager.setAutoplay(!sessionState.queueState.autoplayEnabled)
-                                        },
-                                        onOpenWebViewLogin = { showWebViewLogin = true },
-                                        onLogout = { sessionManager.logoutAccount() },
+                                        onToggleAutoplay = onToggleAutoplayCb,
+                                        onOpenWebViewLogin = onOpenWebViewLoginCb,
+                                        onLogout = onLogoutCb,
                                         audioQuality = sessionState.audioQuality,
-                                        onSelectAudioQuality = { preset -> sessionManager.setAudioQuality(preset) },
+                                        onSelectAudioQuality = onSelectAudioQualityCb,
                                         displayPrefs = displayPrefs,
                                         onUpdateDisplayPrefs = onUpdateDisplayPrefs,
                                     )
@@ -600,23 +665,17 @@ private fun AlunaraTvApp(
                             sessionState = sessionState,
                             positionMsFlow = sessionManager.positionMsFlow,
                             playPauseFocusRequester = miniPlayerPlayPauseRequester,
-                            onTogglePlayPause = { sessionManager.togglePlayPause() },
-                            onOpenNowPlaying = { openNowPlaying() },
+                            onTogglePlayPause = onTogglePlayPause,
+                            onOpenNowPlaying = onOpenNowPlayingCb,
                         )
                     }
                 }
 
-                CollapsibleNavigationRail(
+                FixedNavigationRail(
                     selected = browseDest,
-                    expanded = railFocused,
                     firstItemRequester = railHomeFocusRequester,
                     contentFocusRequester = browsePaneFocusRequester,
-                    onRailFocusChanged = { railFocused = it },
-                    onSelect = { dest ->
-                        catalogStack = emptyList()
-                        lastBrowseDestination = dest
-                        currentDestination = dest
-                    },
+                    onSelect = onSelectRailDest,
                 )
             }
         }
@@ -634,56 +693,53 @@ private fun AlunaraTvApp(
     }
 }
 
+private val RailControlShape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+
+private class RailFocusTracker(
+    var alreadyFocused: Boolean = false,
+)
+
 @Composable
-private fun CollapsibleNavigationRail(
+private fun FixedNavigationRail(
     selected: TvDestination,
-    expanded: Boolean,
     firstItemRequester: FocusRequester,
     contentFocusRequester: FocusRequester,
-    onRailFocusChanged: (Boolean) -> Unit,
     onSelect: (TvDestination) -> Unit,
 ) {
     val colors = LocalAlunaraColors.current
-    val prefs = LocalAlunaraDisplayPrefs.current
-    val railWidth = if (expanded) AlunaraDimens.RailExpandedWidth else AlunaraDimens.RailCollapsedWidth
+    val hostView = LocalView.current
+    val focusTracker = remember { RailFocusTracker() }
 
     Row(modifier = Modifier.fillMaxHeight()) {
         Column(
             modifier =
                 Modifier
-                    .width(railWidth)
+                    .width(AlunaraDimens.RailCollapsedWidth)
                     .fillMaxHeight()
-                    .clipToBounds()
                     .background(colors.surface)
-                    .padding(horizontal = 12.dp, vertical = 18.dp)
-                    .onFocusChanged { onRailFocusChanged(it.hasFocus) },
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = Alignment.Start,
+                    .padding(horizontal = 8.dp, vertical = 18.dp)
+                    .onFocusChanged { focusState ->
+                        val hasFocusNow = focusState.hasFocus
+                        hostView.post {
+                            focusTracker.alreadyFocused = hasFocusNow
+                        }
+                    },
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Row(
+            Box(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .height(AlunaraDimens.RailItemHeight)
-                        .padding(horizontal = 13.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                        .height(44.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Image(
                     painter = painterResource(R.drawable.ic_alunara_mark),
                     contentDescription = stringResource(R.string.app_name),
                     contentScale = ContentScale.Fit,
-                    modifier = Modifier.size(26.dp),
+                    modifier = Modifier.size(28.dp),
                 )
-                if (expanded) {
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = stringResource(R.string.app_name),
-                        color = colors.primaryText,
-                        fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -709,8 +765,7 @@ private fun CollapsibleNavigationRail(
                             },
                         ),
                     selected = selected == dest,
-                    expanded = expanded,
-                    railAlreadyFocused = expanded,
+                    focusTracker = focusTracker,
                     rightFocusRequester = contentFocusRequester,
                     modifier = if (index == 0) Modifier.focusRequester(firstItemRequester) else Modifier,
                     onClick = { onSelect(dest) },
@@ -732,8 +787,7 @@ private fun RailItem(
     icon: ImageVector,
     label: String,
     selected: Boolean,
-    expanded: Boolean,
-    railAlreadyFocused: Boolean,
+    focusTracker: RailFocusTracker,
     rightFocusRequester: FocusRequester,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
@@ -741,53 +795,70 @@ private fun RailItem(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
-    val bgColor =
-        when {
-            focused -> colors.focusedButtonBg
-            selected -> colors.secondarySurface
-            else -> Color.Transparent
-        }
-    val borderColor =
-        when {
-            focused -> colors.focusRingStrong
-            selected -> colors.primaryAccent.copy(alpha = 0.55f)
-            else -> Color.Transparent
-        }
+    val selectedBorder = remember(colors.primaryAccent) { colors.primaryAccent.copy(alpha = 0.55f) }
     val tintColor =
         when {
             focused -> colors.focusedButtonContent
             selected -> colors.primaryAccent
             else -> colors.mutedText
         }
+    val labelColor =
+        when {
+            focused -> colors.focusedButtonContent
+            selected -> colors.primaryText
+            else -> colors.mutedText
+        }
 
-    Row(
+    Column(
         modifier =
             modifier
                 .fillMaxWidth()
                 .height(AlunaraDimens.RailItemHeight)
                 .focusProperties { right = rightFocusRequester }
-                .background(bgColor, shape)
-                .then(
-                    if (borderColor != Color.Transparent) {
-                        Modifier.border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
-                    } else {
-                        Modifier
-                    },
-                )
+                .clip(RailControlShape)
+                .drawBehind {
+                    val cr = CornerRadius(AlunaraDimens.RadiusControl.toPx())
+                    val bg =
+                        when {
+                            focused -> colors.focusedButtonBg
+                            selected -> colors.secondarySurface
+                            else -> Color.Transparent
+                        }
+                    if (bg != Color.Transparent) {
+                        drawRoundRect(color = bg, cornerRadius = cr)
+                    }
+                    val strokeColor =
+                        when {
+                            focused -> colors.focusRingStrong
+                            selected -> selectedBorder
+                            else -> Color.Transparent
+                        }
+                    if (strokeColor != Color.Transparent) {
+                        val strokePx = colors.focusBorderWidth.toPx()
+                        val inset = strokePx / 2f
+                        drawRoundRect(
+                            color = strokeColor,
+                            topLeft = Offset(inset, inset),
+                            size = Size(size.width - strokePx, size.height - strokePx),
+                            cornerRadius = cr,
+                            style = Stroke(width = strokePx),
+                        )
+                    }
+                }
                 .semantics {
                     role = Role.Tab
                     this.selected = selected
                 }
                 .onFocusChanged { focusState ->
                     focused = focusState.isFocused
-                    if (focusState.isFocused && railAlreadyFocused && !selected) {
+                    if (focusState.isFocused && focusTracker.alreadyFocused && !selected) {
                         onClick()
                     }
                 }
                 .clickable(onClick = onClick)
-                .padding(horizontal = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 2.dp, vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
         Icon(
             imageVector = icon,
@@ -795,17 +866,15 @@ private fun RailItem(
             tint = tintColor,
             modifier = Modifier.size(22.dp),
         )
-        if (expanded) {
-            Spacer(modifier = Modifier.width(14.dp))
-            Text(
-                text = label,
-                color = if (focused) colors.focusedButtonContent else colors.primaryText,
-                fontSize = AlunaraTypography.rowTitle(prefs.textScale),
-                fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Spacer(modifier = Modifier.height(3.dp))
+        Text(
+            text = label,
+            color = labelColor,
+            fontSize = (10.5f * prefs.textScale.coerceAtMost(1.08f)).sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -818,7 +887,6 @@ private fun TvHeaderSearchBar(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
     val bgColor = if (focused) colors.focusedButtonBg else colors.surface
     val borderColor = if (focused) colors.focusRingStrong else colors.secondarySurface
     val iconTint = if (focused) colors.focusedButtonContent else colors.primaryAccent
@@ -833,8 +901,8 @@ private fun TvHeaderSearchBar(
         modifier =
             modifier
                 .height(AlunaraDimens.ControlHeight)
-                .background(bgColor, shape)
-                .border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                .background(bgColor, RailControlShape)
+                .border(BorderStroke(colors.focusBorderWidth, borderColor), RailControlShape)
                 .semantics { role = Role.Button }
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(onClick = onClick)
@@ -852,7 +920,7 @@ private fun TvHeaderSearchBar(
             text = currentQuery.takeIf { it.isNotBlank() } ?: stringResource(R.string.header_search_hint),
             color = textColor,
             fontSize = AlunaraTypography.rowTitle(prefs.textScale),
-            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal,
+            fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),

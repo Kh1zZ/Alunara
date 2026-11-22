@@ -35,13 +35,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.ScaleFactor
@@ -221,6 +225,12 @@ object TvBackdropBlurTransformation : Transformation() {
     }
 }
 
+private val CardCornerShape = RoundedCornerShape(AlunaraDimens.RadiusCard)
+private val ControlCornerShape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+private val ArtworkCornerShape = RoundedCornerShape(10.dp)
+private val SkeletonThumbCornerShape = RoundedCornerShape(8.dp)
+private val SkeletonBarCornerShape = RoundedCornerShape(6.dp)
+
 @Composable
 fun TvArtwork(
     url: String?,
@@ -236,7 +246,7 @@ fun TvArtwork(
     var useFallbackOriginal by remember(url, tier) { mutableStateOf(false) }
     val activeUrl = if (useFallbackOriginal && !url.isNullOrBlank()) url else resolvedUrl
     val pxSize = with(LocalDensity.current) { size.toPx().roundToInt().coerceIn(64, tier.maxPx) }
-    val shape: Shape = if (circular) CircleShape else RoundedCornerShape(10.dp)
+    val shape: Shape = if (circular) CircleShape else ArtworkCornerShape
 
     Box(
         modifier =
@@ -290,7 +300,7 @@ fun TvFocusableButton(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+    val shape = ControlCornerShape
     val bgColor =
         when {
             !enabled -> colors.surface.copy(alpha = 0.45f)
@@ -340,7 +350,7 @@ fun TvFocusableButton(
             text = text,
             color = contentColor,
             fontSize = AlunaraTypography.body(prefs.textScale),
-            fontWeight = if (highlighted || focused) FontWeight.SemiBold else FontWeight.Medium,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -421,19 +431,15 @@ fun TvSongRow(
     val hasSecondary = secondaryActionLabel != null && onSecondaryClick != null
     val mainRowRequester = remember { FocusRequester() }
     val secondaryActionRequester = remember { FocusRequester() }
-    val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
-    val bgColor =
-        when {
-            rowFocused -> colors.focusedCardSurface
-            isActive -> colors.secondarySurface
-            else -> colors.surface
+    val activeBorderColor = remember(colors.primaryAccent) { colors.primaryAccent.copy(alpha = 0.55f) }
+    val subtitle =
+        remember(track.primaryArtistName, track.album?.title) {
+            listOfNotNull(
+                track.primaryArtistName.takeIf { it.isNotBlank() },
+                track.album?.title?.takeIf { it.isNotBlank() },
+            ).joinToString(" · ")
         }
-    val borderColor =
-        when {
-            rowFocused -> colors.focusRingStrong
-            isActive -> colors.primaryAccent.copy(alpha = 0.55f)
-            else -> Color.Transparent
-        }
+    val durationText = remember(track.durationSeconds) { formatDurationSeconds(track.durationSeconds) }
 
     Row(
         modifier = modifier.fillMaxWidth().heightIn(min = AlunaraDimens.SongRowHeight),
@@ -453,14 +459,34 @@ fun TvSongRow(
                             Modifier
                         },
                     )
-                    .background(bgColor, shape)
-                    .then(
-                        if (borderColor != Color.Transparent) {
-                            Modifier.border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
-                        } else {
-                            Modifier
-                        },
-                    )
+                    .clip(ControlCornerShape)
+                    .drawBehind {
+                        val cr = CornerRadius(AlunaraDimens.RadiusControl.toPx())
+                        val bg =
+                            when {
+                                rowFocused -> colors.focusedCardSurface
+                                isActive -> colors.secondarySurface
+                                else -> colors.surface
+                            }
+                        drawRoundRect(color = bg, cornerRadius = cr)
+                        val strokeColor =
+                            when {
+                                rowFocused -> colors.focusRingStrong
+                                isActive -> activeBorderColor
+                                else -> Color.Transparent
+                            }
+                        if (strokeColor != Color.Transparent) {
+                            val strokePx = colors.focusBorderWidth.toPx()
+                            val inset = strokePx / 2f
+                            drawRoundRect(
+                                color = strokeColor,
+                                topLeft = Offset(inset, inset),
+                                size = Size(size.width - strokePx, size.height - strokePx),
+                                cornerRadius = cr,
+                                style = Stroke(width = strokePx),
+                            )
+                        }
+                    }
                     .semantics {
                         role = Role.Button
                         selected = isActive
@@ -477,15 +503,10 @@ fun TvSongRow(
                     text = track.title,
                     color = if (isActive) colors.primaryAccent else colors.primaryText,
                     fontSize = AlunaraTypography.rowTitle(prefs.textScale),
-                    fontWeight = if (isActive || rowFocused) FontWeight.SemiBold else FontWeight.Medium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                val subtitle =
-                    listOfNotNull(
-                        track.primaryArtistName.takeIf { it.isNotBlank() },
-                        track.album?.title?.takeIf { it.isNotBlank() },
-                    ).joinToString(" · ")
                 if (subtitle.isNotBlank()) {
                     Text(
                         text = subtitle,
@@ -496,7 +517,6 @@ fun TvSongRow(
                     )
                 }
             }
-            val durationText = formatDurationSeconds(track.durationSeconds)
             if (durationText.isNotEmpty()) {
                 Text(
                     text = durationText,
@@ -532,23 +552,31 @@ fun TvMediaCard(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(AlunaraDimens.RadiusCard)
-    val bgColor = if (focused) colors.focusedCardSurface else colors.surface
-    val borderColor = if (focused) colors.focusRingStrong else Color.Transparent
 
     Column(
         modifier =
             modifier
                 .width(AlunaraDimens.CardWidth)
                 .heightIn(min = AlunaraDimens.CardHeight)
-                .background(bgColor, shape)
-                .then(
-                    if (borderColor != Color.Transparent) {
-                        Modifier.border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
-                    } else {
-                        Modifier
-                    },
-                )
+                .clip(CardCornerShape)
+                .drawBehind {
+                    val cr = CornerRadius(AlunaraDimens.RadiusCard.toPx())
+                    drawRoundRect(
+                        color = if (focused) colors.focusedCardSurface else colors.surface,
+                        cornerRadius = cr,
+                    )
+                    if (focused) {
+                        val strokePx = colors.focusBorderWidth.toPx()
+                        val inset = strokePx / 2f
+                        drawRoundRect(
+                            color = colors.focusRingStrong,
+                            topLeft = Offset(inset, inset),
+                            size = Size(size.width - strokePx, size.height - strokePx),
+                            cornerRadius = cr,
+                            style = Stroke(width = strokePx),
+                        )
+                    }
+                }
                 .semantics { role = Role.Button }
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(onClick = onClick)
@@ -566,7 +594,7 @@ fun TvMediaCard(
             text = title,
             color = colors.primaryText,
             fontSize = AlunaraTypography.body(prefs.textScale),
-            fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Medium,
+            fontWeight = FontWeight.SemiBold,
             minLines = 2,
             maxLines = 2,
             lineHeight = (18f * prefs.textScale).sp,
@@ -588,19 +616,21 @@ fun TvCardRowSkeleton(
     count: Int = 5,
 ) {
     val colors = LocalAlunaraColors.current
-    val shape = RoundedCornerShape(AlunaraDimens.RadiusCard)
+    val cardBg = remember(colors.surface) { colors.surface.copy(alpha = 0.55f) }
+    val accentBg = remember(colors.secondarySurface) { colors.secondarySurface.copy(alpha = 0.7f) }
+    val subBg = remember(colors.secondarySurface) { colors.secondarySurface.copy(alpha = 0.5f) }
     LazyRow(
         modifier = modifier.focusProperties { canFocus = false },
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         userScrollEnabled = false,
     ) {
-        items(count) {
+        items(count, contentType = { "skeleton-card" }) {
             Column(
                 modifier =
                     Modifier
                         .width(AlunaraDimens.CardWidth)
                         .height(AlunaraDimens.CardHeight)
-                        .background(colors.surface.copy(alpha = 0.55f), shape)
+                        .background(cardBg, CardCornerShape)
                         .padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -608,24 +638,24 @@ fun TvCardRowSkeleton(
                     modifier =
                         Modifier
                             .size(AlunaraDimens.CardArtworkSize)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(colors.secondarySurface.copy(alpha = 0.7f)),
+                            .clip(ArtworkCornerShape)
+                            .background(accentBg),
                 )
                 Box(
                     modifier =
                         Modifier
                             .fillMaxWidth(0.85f)
                             .height(14.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(colors.secondarySurface.copy(alpha = 0.7f)),
+                            .clip(SkeletonBarCornerShape)
+                            .background(accentBg),
                 )
                 Box(
                     modifier =
                         Modifier
                             .fillMaxWidth(0.55f)
                             .height(12.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(colors.secondarySurface.copy(alpha = 0.5f)),
+                            .clip(SkeletonBarCornerShape)
+                            .background(subBg),
                 )
             }
         }
@@ -638,7 +668,9 @@ fun TvSongListSkeleton(
     count: Int = 5,
 ) {
     val colors = LocalAlunaraColors.current
-    val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
+    val rowBg = remember(colors.surface) { colors.surface.copy(alpha = 0.55f) }
+    val accentBg = remember(colors.secondarySurface) { colors.secondarySurface.copy(alpha = 0.7f) }
+    val subBg = remember(colors.secondarySurface) { colors.secondarySurface.copy(alpha = 0.5f) }
     Column(
         modifier = modifier.fillMaxWidth().focusProperties { canFocus = false },
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -649,7 +681,7 @@ fun TvSongListSkeleton(
                     Modifier
                         .fillMaxWidth()
                         .height(AlunaraDimens.SongRowHeight)
-                        .background(colors.surface.copy(alpha = 0.55f), shape)
+                        .background(rowBg, ControlCornerShape)
                         .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -658,8 +690,8 @@ fun TvSongListSkeleton(
                     modifier =
                         Modifier
                             .size(44.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.secondarySurface.copy(alpha = 0.7f)),
+                            .clip(SkeletonThumbCornerShape)
+                            .background(accentBg),
                 )
                 Column(
                     modifier = Modifier.weight(1f),
@@ -670,16 +702,16 @@ fun TvSongListSkeleton(
                             Modifier
                                 .fillMaxWidth(0.45f)
                                 .height(14.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(colors.secondarySurface.copy(alpha = 0.7f)),
+                                .clip(SkeletonBarCornerShape)
+                                .background(accentBg),
                     )
                     Box(
                         modifier =
                             Modifier
                                 .fillMaxWidth(0.28f)
                                 .height(11.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(colors.secondarySurface.copy(alpha = 0.5f)),
+                                .clip(SkeletonBarCornerShape)
+                                .background(subBg),
                     )
                 }
             }

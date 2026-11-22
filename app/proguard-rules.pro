@@ -1,5 +1,13 @@
 # Alunara R8 / ProGuard keep rules for Android TV (API 28+, 1 GB RAM)
 
+# Compose 60 FPS R8 Optimization: Strip sourceInformation debugging traces in release builds
+-assumenosideeffects class androidx.compose.runtime.ComposerKt {
+    void sourceInformation(androidx.compose.runtime.Composer, java.lang.String);
+    void sourceInformationMarkerStart(androidx.compose.runtime.Composer, int, java.lang.String);
+    void sourceInformationMarkerEnd(androidx.compose.runtime.Composer);
+}
+-allowaccessmodification
+
 # Preserve readable file names and line numbers in crash stack traces
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile

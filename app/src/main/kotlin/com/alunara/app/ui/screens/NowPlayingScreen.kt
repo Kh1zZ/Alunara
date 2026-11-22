@@ -306,12 +306,12 @@ fun NowPlayingScreen(
                 ) {
                     if (!activeArtUrl.isNullOrBlank()) {
                         val heroRequest =
-                            remember(activeArtUrl, prefs.reduceMotion) {
+                            remember(activeArtUrl) {
                                 ImageRequest
                                     .Builder(context)
                                     .data(activeArtUrl)
                                     .size(ArtworkTier.HERO.maxPx)
-                                    .crossfade(!prefs.reduceMotion)
+                                    .crossfade(false)
                                     .build()
                             }
                         AsyncImage(
@@ -835,7 +835,7 @@ private fun NowPlayingQueuePanel(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (!hasResetChip) {
-                    item(key = "chip-all") {
+                    item(key = "chip-all", contentType = "queue-chip") {
                         TvFocusableButton(
                             text = stringResource(R.string.queue_chip_all),
                             highlighted = activeChipLabel == null,
@@ -843,7 +843,11 @@ private fun NowPlayingQueuePanel(
                         )
                     }
                 }
-                items(queueChips, key = { "chip-${it.label}-${it.params.orEmpty()}" }) { chip ->
+                items(
+                    items = queueChips,
+                    key = { "chip-${it.label}-${it.params.orEmpty()}" },
+                    contentType = { "queue-chip" },
+                ) { chip ->
                     TvFocusableButton(
                         text = chip.label,
                         highlighted = activeChipLabel == chip.label || (activeChipLabel == null && chip.selected),
@@ -866,7 +870,11 @@ private fun NowPlayingQueuePanel(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 12.dp),
             ) {
-                items(queueState.items.size, key = { idx -> queueState.items[idx].queueItemId }) { index ->
+                items(
+                    count = queueState.items.size,
+                    key = { idx -> queueState.items[idx].queueItemId },
+                    contentType = { "queue-row" },
+                ) { index ->
                     val item = queueState.items[index]
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1188,6 +1196,7 @@ private fun PersistentReadOnlyLyricsPanel(
                         itemsIndexed(
                             items = stableLines,
                             key = { idx, line -> "${idx}_${line.value.startTimeMs}" },
+                            contentType = { _, _ -> "synced-lyric" },
                         ) { idx, line ->
                             val isActive = idx == activeLineIndex
                             val distance = if (activeLineIndex < 0) 2 else abs(idx - activeLineIndex)
@@ -1229,7 +1238,10 @@ private fun PersistentReadOnlyLyricsPanel(
                                 .focusProperties { canFocus = false },
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        itemsIndexed(plainLines) { idx, line ->
+                        itemsIndexed(
+                            items = plainLines,
+                            contentType = { _, _ -> "plain-lyric" },
+                        ) { idx, line ->
                             val roman = romanLines?.getOrNull(idx)
                             if (showRomanizedLyrics && !roman.isNullOrBlank() && roman != line) {
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {

@@ -1,7 +1,9 @@
 package com.alunara.app.ui.screens
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
 import android.net.Uri
+import android.view.KeyEvent as AndroidKeyEvent
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
@@ -11,6 +13,7 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,14 +23,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.QrCode2
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -50,6 +52,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -120,7 +125,27 @@ fun YouTubeWebViewLoginScreen(
     }
 
     fun injectDetectLoginStep() {
-        webViewHolder.value?.evaluateJavascript(DETECT_LOGIN_STEP_JS, null)
+        webViewHolder.value?.evaluateJavascript(CHECK_STEP_ONCE_JS, null)
+    }
+
+    fun scheduleStepSyncChecks(webView: WebView) {
+        webView.postDelayed(
+            {
+                if (!captured.get()) {
+                    webView.evaluateJavascript(INSTALL_STEP_WATCHER_JS, null)
+                    webView.evaluateJavascript(CHECK_STEP_ONCE_JS, null)
+                }
+            },
+            500L,
+        )
+        webView.postDelayed(
+            {
+                if (!captured.get()) {
+                    webView.evaluateJavascript(CHECK_STEP_ONCE_JS, null)
+                }
+            },
+            1150L,
+        )
     }
 
     fun applyManualCookie(rawCookie: String) {
@@ -149,18 +174,22 @@ fun YouTubeWebViewLoginScreen(
                     when (payload.action) {
                         CompanionAction.FILL_EMAIL -> {
                             webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "email"), null)
-                            companionFeedback = "Email dikirim dari HP ke layar TV"
+                            scheduleStepSyncChecks(webView)
+                            companionFeedback = "Email dikirim ke TV — menunggu halaman Sandi Google…"
                         }
                         CompanionAction.FILL_PASSWORD -> {
                             webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "password"), null)
-                            companionFeedback = "Sandi dikirim dari HP ke layar TV"
+                            scheduleStepSyncChecks(webView)
+                            companionFeedback = "Sandi dikirim ke TV — cek verifikasi jika diminta…"
                         }
                         CompanionAction.FILL_TEXT -> {
                             webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "text"), null)
+                            scheduleStepSyncChecks(webView)
                             companionFeedback = "Kode/teks dikirim dari HP ke TV"
                         }
                         CompanionAction.CLICK_NEXT -> {
                             webView.evaluateJavascript(CLICK_NEXT_OR_ACTIVE_JS, null)
+                            scheduleStepSyncChecks(webView)
                             companionFeedback = "Tombol Berikutnya diklik dari HP"
                         }
                         CompanionAction.FOCUS_PREV -> {
@@ -341,6 +370,39 @@ fun YouTubeWebViewLoginScreen(
                             isFocusable = true
                             isFocusableInTouchMode = true
 
+                            setOnKeyListener { _, keyCode, event ->
+                                if (event.action != AndroidKeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                                when (keyCode) {
+                                    AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
+                                        injectHighlightElement(1)
+                                        true
+                                    }
+                                    AndroidKeyEvent.KEYCODE_DPAD_UP -> {
+                                        if (domFocusIndex <= 0) {
+                                            cancelRequester.safeRequestFocus()
+                                        } else {
+                                            injectHighlightElement(-1)
+                                        }
+                                        true
+                                    }
+                                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                        helperFocusInputRequester.safeRequestFocus()
+                                        true
+                                    }
+                                    AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                                    AndroidKeyEvent.KEYCODE_ENTER,
+                                    AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                                        injectClickHighlighted()
+                                        true
+                                    }
+                                    AndroidKeyEvent.KEYCODE_BACK -> {
+                                        onCancel()
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            }
+
                             val cookieManager = CookieManager.getInstance()
                             cookieManager.setAcceptCookie(true)
                             cookieManager.setAcceptThirdPartyCookies(this, true)
@@ -353,6 +415,33 @@ fun YouTubeWebViewLoginScreen(
                                     .replace("Version/4.0 ", "")
 
                             var latestCookie = ""
+                            fun captureMusicCookiesAndYtcfg(view: WebView) {
+                                cookieManager.flush()
+                                val cookie = cookieManager.getCookie(YOUTUBE_MUSIC_ORIGIN).orEmpty()
+                                if (LocalLoginCompanionServer.hasValidSapisidCookie(cookie)) {
+                                    latestCookie = cookie
+                                    currentStep = LocalLoginCompanionServer.STEP_DONE
+                                    companionServer.currentStep = LocalLoginCompanionServer.STEP_DONE
+                                    companionServer.lastStatusHint = "Berhasil masuk YouTube Music — memverifikasi akun…"
+                                    view.evaluateJavascript(buildExtractYtcfgJs(0), null)
+                                }
+                            }
+
+                            fun syncUrlAndHost(url: String?) {
+                                val parsedHost = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
+                                if (!parsedHost.isNullOrBlank()) {
+                                    currentHost = parsedHost
+                                    companionServer.currentHost = parsedHost
+                                }
+                                if (!captured.get()) {
+                                    inferStepFromUrl(url)?.let { (step, hint) ->
+                                        currentStep = step
+                                        companionServer.currentStep = step
+                                        companionServer.lastStatusHint = hint
+                                    }
+                                }
+                            }
+
                             val bridge =
                                 AlunaraAuthJsBridge(
                                     onContext = { visitorData, dataSyncId, attempt ->
@@ -387,12 +476,26 @@ fun YouTubeWebViewLoginScreen(
                                         }
                                     },
                                     onFocusIndex = { idx ->
-                                        domFocusIndex = idx
+                                        webViewHolder.value?.post { domFocusIndex = idx }
                                     },
                                     onStepDetected = { step, hint ->
-                                        currentStep = step
-                                        companionServer.currentStep = step
-                                        companionServer.lastStatusHint = hint
+                                        webViewHolder.value?.post {
+                                            if (!captured.get()) {
+                                                currentStep = step
+                                                companionServer.currentStep = step
+                                                if (hint.isNotBlank()) {
+                                                    companionServer.lastStatusHint = hint
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onMusicHomeReached = {
+                                        val view = webViewHolder.value ?: return@AlunaraAuthJsBridge
+                                        view.post {
+                                            if (!captured.get()) {
+                                                captureMusicCookiesAndYtcfg(view)
+                                            }
+                                        }
                                     },
                                 )
                             addJavascriptInterface(bridge, "AlunaraAuth")
@@ -400,29 +503,44 @@ fun YouTubeWebViewLoginScreen(
                             webChromeClient = WebChromeClient()
                             webViewClient =
                                 object : WebViewClient() {
+                                    override fun onPageStarted(
+                                        view: WebView?,
+                                        url: String?,
+                                        favicon: Bitmap?,
+                                    ) {
+                                        super.onPageStarted(view, url, favicon)
+                                        syncUrlAndHost(url)
+                                    }
+
+                                    override fun doUpdateVisitedHistory(
+                                        view: WebView?,
+                                        url: String?,
+                                        isReload: Boolean,
+                                    ) {
+                                        super.doUpdateVisitedHistory(view, url, isReload)
+                                        syncUrlAndHost(url)
+                                        if (view == null || captured.get()) return
+                                        if (url != null && url.startsWith(YOUTUBE_MUSIC_ORIGIN)) {
+                                            captureMusicCookiesAndYtcfg(view)
+                                        } else {
+                                            view.evaluateJavascript(INSTALL_STEP_WATCHER_JS, null)
+                                            scheduleStepSyncChecks(view)
+                                        }
+                                    }
+
                                     override fun onPageFinished(
                                         view: WebView?,
                                         url: String?,
                                     ) {
                                         super.onPageFinished(view, url)
-                                        val parsedHost = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
-                                        if (!parsedHost.isNullOrBlank()) {
-                                            currentHost = parsedHost
-                                            companionServer.currentHost = parsedHost
-                                        }
-                                        if (url != null && url.startsWith(YOUTUBE_MUSIC_ORIGIN) && !captured.get()) {
-                                            cookieManager.flush()
-                                            val cookie = cookieManager.getCookie(YOUTUBE_MUSIC_ORIGIN).orEmpty()
-                                            if (LocalLoginCompanionServer.hasValidSapisidCookie(cookie)) {
-                                                latestCookie = cookie
-                                                currentStep = LocalLoginCompanionServer.STEP_DONE
-                                                companionServer.currentStep = LocalLoginCompanionServer.STEP_DONE
-                                                companionServer.lastStatusHint = "Berhasil masuk YouTube Music — memverifikasi akun…"
-                                                view?.evaluateJavascript(buildExtractYtcfgJs(0), null)
-                                            }
-                                        } else if (!captured.get()) {
-                                            view?.evaluateJavascript(buildHighlightDomScript(0), null)
-                                            view?.evaluateJavascript(DETECT_LOGIN_STEP_JS, null)
+                                        syncUrlAndHost(url)
+                                        if (view == null || captured.get()) return
+                                        if (url != null && url.startsWith(YOUTUBE_MUSIC_ORIGIN)) {
+                                            captureMusicCookiesAndYtcfg(view)
+                                        } else {
+                                            view.evaluateJavascript(buildHighlightDomScript(0), null)
+                                            view.evaluateJavascript(INSTALL_STEP_WATCHER_JS, null)
+                                            scheduleStepSyncChecks(view)
                                         }
                                     }
                                 }
@@ -434,7 +552,7 @@ fun YouTubeWebViewLoginScreen(
                 )
             }
 
-            // Right Pane: Clear QR Wizard Tutorial + Quick Focusable Helpers
+            // Right Pane: Clear QR Wizard Tutorial + Quick Focusable Helpers (fits completely in 720p TV height)
             Column(
                 modifier =
                     Modifier
@@ -442,8 +560,8 @@ fun YouTubeWebViewLoginScreen(
                         .fillMaxHeight()
                         .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusCard))
                         .border(BorderStroke(1.dp, colors.secondarySurface), RoundedCornerShape(AlunaraDimens.RadiusCard))
-                        .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Row(
@@ -455,21 +573,23 @@ fun YouTubeWebViewLoginScreen(
                         imageVector = Icons.Rounded.QrCode2,
                         contentDescription = null,
                         tint = colors.primaryAccent,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(20.dp),
                     )
                     Text(
                         text = stringResource(R.string.qr_companion_title),
                         color = colors.primaryText,
-                        fontSize = 18.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
                 Text(
                     text = stringResource(R.string.qr_companion_subtitle),
                     color = colors.mutedText,
-                    fontSize = 12.5.sp,
-                    lineHeight = 17.sp,
+                    fontSize = 11.5.sp,
+                    lineHeight = 15.sp,
                     modifier = Modifier.fillMaxWidth().focusProperties { canFocus = false },
                 )
 
@@ -477,35 +597,35 @@ fun YouTubeWebViewLoginScreen(
                 if (activeUrl != null) {
                     QrCodeCanvas(
                         content = activeUrl,
-                        modifier = Modifier.size(182.dp).focusProperties { canFocus = false },
+                        modifier = Modifier.size(124.dp).focusProperties { canFocus = false },
                     )
                     Text(
                         text = activeUrl,
                         color = colors.primaryAccent,
-                        fontSize = 12.5.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.focusProperties { canFocus = false },
                     )
                     Text(
                         text = stringResource(R.string.qr_companion_hint_steps),
                         color = colors.primaryText,
-                        fontSize = 12.5.sp,
-                        lineHeight = 18.sp,
+                        fontSize = 11.5.sp,
+                        lineHeight = 15.5.sp,
                         modifier =
                             Modifier
                                 .fillMaxWidth()
                                 .background(colors.secondarySurface, RoundedCornerShape(10.dp))
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                .padding(horizontal = 10.dp, vertical = 8.dp)
                                 .focusProperties { canFocus = false },
                     )
                 } else {
                     Text(
                         text = stringResource(R.string.qr_companion_unavailable),
                         color = colors.mutedText,
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
                         modifier = Modifier.weight(1f).focusProperties { canFocus = false },
                     )
                 }
@@ -514,11 +634,10 @@ fun YouTubeWebViewLoginScreen(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    TvFocusableButton(
+                    LoginHelperChipButton(
                         text = stringResource(R.string.login_btn_focus_input),
-                        icon = Icons.Rounded.TouchApp,
                         onClick = {
                             injectHighlightElement(0)
                             injectDetectLoginStep()
@@ -534,8 +653,9 @@ fun YouTubeWebViewLoginScreen(
                                     up = cancelRequester
                                 },
                     )
-                    TvFocusableButton(
+                    LoginHelperChipButton(
                         text = stringResource(R.string.login_btn_click_next),
+                        highlighted = true,
                         onClick = {
                             webViewHolder.value?.evaluateJavascript(CLICK_NEXT_OR_ACTIVE_JS, null)
                         },
@@ -549,9 +669,8 @@ fun YouTubeWebViewLoginScreen(
                                     up = cancelRequester
                                 },
                     )
-                    TvFocusableButton(
+                    LoginHelperChipButton(
                         text = stringResource(R.string.login_btn_reload),
-                        icon = Icons.Rounded.Refresh,
                         onClick = { webViewHolder.value?.reload() },
                         modifier =
                             Modifier
@@ -568,34 +687,151 @@ fun YouTubeWebViewLoginScreen(
     }
 }
 
-private const val DETECT_LOGIN_STEP_JS =
+@Composable
+private fun LoginHelperChipButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    highlighted: Boolean = false,
+) {
+    val colors = LocalAlunaraColors.current
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(10.dp)
+    val bgColor =
+        when {
+            focused -> colors.focusedButtonBg
+            highlighted -> colors.secondarySurface
+            else -> colors.background
+        }
+    val fgColor =
+        when {
+            focused -> colors.focusedButtonContent
+            highlighted -> colors.primaryAccent
+            else -> colors.primaryText
+        }
+    val borderColor = if (focused) colors.focusRingStrong else colors.secondarySurface
+
+    Box(
+        modifier =
+            modifier
+                .heightIn(min = 38.dp)
+                .background(bgColor, shape)
+                .border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                .semantics { role = Role.Button }
+                .onFocusChanged { focused = it.isFocused }
+                .clickable(onClick = onClick)
+                .padding(horizontal = 6.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = fgColor,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+private fun inferStepFromUrl(url: String?): Pair<String, String>? {
+    if (url.isNullOrBlank()) return null
+    val lower = url.lowercase()
+    return when {
+        lower.startsWith(YOUTUBE_MUSIC_ORIGIN) || lower.contains("://music.youtube.com") ->
+            LocalLoginCompanionServer.STEP_DONE to "Langkah 4 · Berhasil masuk YouTube Music"
+        lower.contains("/challenge/pwd") || lower.contains("/signin/v2/challenge/pwd") ->
+            LocalLoginCompanionServer.STEP_PASSWORD to "Langkah 2 dari 3 · Masukkan Kata Sandi akun Google"
+        lower.contains("/challenge/dp") || lower.contains("/challenge/ootp") ->
+            LocalLoginCompanionServer.STEP_VERIFY to "Langkah 3 dari 3 · Ketuk 'Ya, itu saya' di notifikasi Google Prompt HP"
+        lower.contains("/challenge/") ->
+            LocalLoginCompanionServer.STEP_VERIFY to "Langkah 3 dari 3 · Verifikasi 2FA / Kode OTP di HP"
+        lower.contains("/identifier") || lower.contains("accounts.google.com/servicelogin") ->
+            LocalLoginCompanionServer.STEP_EMAIL to "Langkah 1 dari 3 · Masukkan Email / No. HP akun Google"
+        else -> null
+    }
+}
+
+private const val CHECK_STEP_ONCE_JS =
     """
     (function() {
         var isVisible = function(el) {
-            if (!el) return false;
+            if (!el || el.disabled) return false;
+            var st = window.getComputedStyle(el);
+            if (!st || st.display === 'none' || st.visibility === 'hidden' || st.opacity === '0') return false;
+            if (el.closest('[aria-hidden="true"], [hidden]')) return false;
             var r = el.getBoundingClientRect();
-            return r.width > 0 && r.height > 0;
+            return r.width > 1 && r.height > 1;
         };
+        var host = window.location.hostname || '';
+        var href = (window.location.href || '').toLowerCase();
+        var headingEl = document.querySelector('#headingText, h1');
+        var heading = headingEl ? (headingEl.innerText || headingEl.textContent || '').trim().replace(/\s+/g, ' ') : '';
+        var hasPassword = Array.from(document.querySelectorAll('input[type="password"], input[name="Passwd"], input[name="password"]')).some(isVisible);
+        var hasEmail = Array.from(document.querySelectorAll('input[type="email"], input[name="identifier"], #identifierId')).some(isVisible);
+        var hasOtp = Array.from(document.querySelectorAll('input[type="tel"], input[name="Pin"], input[id*="totp" i], input[autocomplete="one-time-code"], input[type="number"]')).some(isVisible);
         var step = 'email';
-        var hint = 'Langkah 1: Masukkan Email Google Anda';
-        if (window.location.hostname.indexOf('music.youtube.com') >= 0) {
+        var hint = 'Langkah 1 dari 3 · Masukkan Email / No. HP Google';
+        if (host.indexOf('music.youtube.com') >= 0) {
             step = 'done';
-            hint = 'Berhasil masuk YouTube Music';
-        } else if (Array.from(document.querySelectorAll('input[type="password"]')).some(isVisible)) {
+            hint = 'Langkah 4 · Berhasil masuk YouTube Music — memverifikasi akun…';
+            if (!window.__alunaraMusicNotified && window.AlunaraAuth && window.AlunaraAuth.onMusicHomeReached) {
+                window.__alunaraMusicNotified = true;
+                window.AlunaraAuth.onMusicHomeReached();
+            }
+        } else if (hasPassword) {
             step = 'password';
-            hint = 'Langkah 2: Masukkan Kata Sandi akun Google Anda';
-        } else if (Array.from(document.querySelectorAll('input[type="email"], input[name="identifier"]')).some(isVisible)) {
-            step = 'email';
-            hint = 'Langkah 1: Masukkan Email / No. HP akun Google';
-        } else {
+            hint = heading ? ('Langkah 2 dari 3 · ' + heading) : 'Langkah 2 dari 3 · Masukkan Kata Sandi akun Google';
+        } else if (href.indexOf('/challenge/') >= 0 || hasOtp || document.querySelector('[data-challengetype]')) {
             step = 'verify';
-            hint = 'Langkah 3: Setujui notifikasi Google Prompt di HP atau isi kode OTP';
+            if (hasOtp) {
+                hint = heading ? ('Langkah 3 dari 3 · ' + heading + ' (Isi kode OTP di HP)') : 'Langkah 3 dari 3 · Masukkan Kode Verifikasi OTP';
+            } else {
+                hint = heading ? ('Langkah 3 dari 3 · ' + heading + ' (Konfirmasi di HP)') : 'Langkah 3 dari 3 · Setujui Google Prompt di HP';
+            }
+        } else if (hasEmail) {
+            step = 'email';
+            hint = heading ? ('Langkah 1 dari 3 · ' + heading) : 'Langkah 1 dari 3 · Masukkan Email / No. HP Google';
+        } else if (href.indexOf('/challenge/pwd') >= 0) {
+            step = 'password';
+            hint = 'Langkah 2 dari 3 · Memuat kolom Kata Sandi…';
         }
-        if (window.AlunaraAuth && window.AlunaraAuth.onLoginStep) {
-            window.AlunaraAuth.onLoginStep(step, hint);
+        var sig = step + '|' + hint;
+        if (window.__alunaraLastReportedStep !== sig) {
+            window.__alunaraLastReportedStep = sig;
+            if (window.AlunaraAuth && window.AlunaraAuth.onLoginStep) {
+                window.AlunaraAuth.onLoginStep(step, hint);
+            }
         }
     })();
     """
+
+private val INSTALL_STEP_WATCHER_JS =
+    """
+    (function() {
+        window.__alunaraCheckStep = function() {
+            $CHECK_STEP_ONCE_JS
+        };
+        window.__alunaraCheckStep();
+        if (window.__alunaraStepWatcherInstalled) return;
+        window.__alunaraStepWatcherInstalled = true;
+        var debounceTimer = null;
+        var schedule = function() {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(window.__alunaraCheckStep, 80);
+        };
+        if (window.MutationObserver && document.documentElement) {
+            var obs = new MutationObserver(schedule);
+            obs.observe(document.documentElement, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'disabled']
+            });
+        }
+        setInterval(window.__alunaraCheckStep, 450);
+    })();
+    """.trimIndent()
 
 private fun buildHighlightDomScript(direction: Int): String =
     """
@@ -687,6 +923,10 @@ private fun buildFillAndSubmitScript(
                 if (nextBtn) {
                     nextBtn.click();
                 }
+                if (window.__alunaraCheckStep) {
+                    setTimeout(window.__alunaraCheckStep, 350);
+                    setTimeout(window.__alunaraCheckStep, 900);
+                }
             }, 180);
             return true;
         })();
@@ -707,8 +947,12 @@ private const val CLICK_NEXT_OR_ACTIVE_JS =
     """
     (function() {
         var nextBtn = document.querySelector('#identifierNext button, #identifierNext, #passwordNext button, #passwordNext, button[type="submit"]');
-        if (nextBtn) { nextBtn.click(); return; }
-        if (window.__alunaraActiveEl) { window.__alunaraActiveEl.click(); }
+        if (nextBtn) { nextBtn.click(); }
+        else if (window.__alunaraActiveEl) { window.__alunaraActiveEl.click(); }
+        if (window.__alunaraCheckStep) {
+            setTimeout(window.__alunaraCheckStep, 350);
+            setTimeout(window.__alunaraCheckStep, 900);
+        }
     })();
     """
 
@@ -716,6 +960,7 @@ private class AlunaraAuthJsBridge(
     private val onContext: (visitorData: String?, dataSyncId: String?, attempt: Int) -> Unit,
     private val onFocusIndex: (Int) -> Unit,
     private val onStepDetected: (step: String, hint: String) -> Unit,
+    private val onMusicHomeReached: () -> Unit,
 ) {
     @JavascriptInterface
     fun onYtConfig(
@@ -733,6 +978,11 @@ private class AlunaraAuthJsBridge(
     @JavascriptInterface
     fun onDomFocusIndex(index: Int) {
         onFocusIndex(index)
+    }
+
+    @JavascriptInterface
+    fun onMusicHomeReached() {
+        onMusicHomeReached.invoke()
     }
 
     @JavascriptInterface
