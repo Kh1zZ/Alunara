@@ -1,4 +1,4 @@
-name: Release Beta (Android TV)
+name: Release Alunara (Android TV)
 
 on:
   push:
@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: "Release version name (tanpa awalan 'v', contoh: 0.1.0-beta.1)"
+        description: "Versi rilis tanpa awalan 'v' (contoh: 0.1.0)"
         required: true
-        default: "0.1.0-beta.1"
+        default: "0.1.0"
       publish_release:
-        description: "Publikasikan ke GitHub Releases sebagai Pre-Release"
+        description: "Publikasikan ke GitHub Releases resmi"
         type: boolean
         required: false
         default: true
@@ -20,15 +20,15 @@ permissions:
   contents: write
 
 jobs:
-  release-beta:
-    name: Sign, Optimize (R8) & Publish Beta APK
+  release:
+    name: Build Signed Split APKs (armv7a & armv8a) & Publish Release
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Resolve version metadata
+      - name: Resolve version metadata & changelog section
         id: version
         shell: bash
         run: |
@@ -41,7 +41,45 @@ jobs:
             RAW_TAG="v${VERSION_NAME}"
             PUBLISH_GH_RELEASE="${{ github.event.inputs.publish_release }}"
           fi
-          VERSION_CODE="${{ github.run_number }}"
+
+          VERSION_CODE="$(python3 - "$VERSION_NAME" <<'PY'
+          import sys
+          ver = sys.argv[1].split('-', 1)[0]
+          parts = ver.split('.')
+          major = int(parts[0]) if len(parts) > 0 and parts[0].isdigit() else 0
+          minor = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+          patch = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+          print(max(1, major * 10000 + minor * 100 + patch))
+          PY
+          )"
+
+          mkdir -p dist
+          python3 - "$VERSION_NAME" <<'PY' > dist/release-notes.md
+          import re
+          import sys
+          from pathlib import Path
+
+          version = sys.argv[1]
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          pattern = re.compile(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", re.M | re.S)
+          match = pattern.search(changelog)
+          if not match:
+              sys.stderr.write(f"ERROR: Section ## [{version}] not found in CHANGELOG.md\n")
+              sys.exit(1)
+          notes = match.group(1).strip()
+          footer = (
+              "\n\n---\n"
+              "### Unduhan APK Resmi (Android TV 9+ / API 28+)\n"
+              f"- **32-bit (`armeabi-v7a`, TV RAM 1 GB umum):** `alunara-{version}.armv7a.apk`\n"
+              f"- **64-bit (`arm64-v8a`, Android TV 64-bit modern):** `alunara-{version}.armv8a.apk`\n\n"
+              "### Kredit & Lisensi (GNU GPL v3.0)\n"
+              "Alunara dibangun dengan integrasi [ArchiveTune Core](https://github.com/rukamori/core) & "
+              "[ArchiveTune Lyrics](https://github.com/rukamori/lyrics) oleh [rukamori](https://github.com/rukamori), "
+              "serta [Kuromoji](https://github.com/atilika/kuromoji)."
+          )
+          sys.stdout.write(f"## Alunara v{version}\n\n{notes}{footer}\n")
+          PY
+
           echo "raw_tag=$RAW_TAG" >> "$GITHUB_OUTPUT"
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
@@ -93,80 +131,66 @@ jobs:
             echo "::add-mask::$EPHEMERAL_PASS"
             keytool -genkeypair \
               -keystore "$KS_FILE" \
-              -alias alunara-ci-beta \
+              -alias alunara-ci \
               -keyalg RSA \
               -keysize 4096 \
               -validity 365 \
               -storetype JKS \
-              -dname "CN=Alunara Beta CI, OU=Release, O=Alunara, C=ID" \
+              -dname "CN=Alunara Release CI, OU=Release, O=Alunara, C=ID" \
               -storepass "$EPHEMERAL_PASS" \
               -keypass "$EPHEMERAL_PASS"
             echo "ALUNARA_KEYSTORE_FILE=$KS_FILE" >> "$GITHUB_ENV"
             echo "ALUNARA_KEYSTORE_PASSWORD=$EPHEMERAL_PASS" >> "$GITHUB_ENV"
-            echo "ALUNARA_KEY_ALIAS=alunara-ci-beta" >> "$GITHUB_ENV"
+            echo "ALUNARA_KEY_ALIAS=alunara-ci" >> "$GITHUB_ENV"
             echo "ALUNARA_KEY_PASSWORD=$EPHEMERAL_PASS" >> "$GITHUB_ENV"
-            echo "signing_mode=Ephemeral CI Keystore (Set ALUNARA_KEYSTORE_* Secrets for persistent upgrades)" >> "$GITHUB_OUTPUT"
+            echo "signing_mode=Ephemeral CI Keystore" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Build Signed R8 Release & Debug APKs
+      - name: Build Signed R8 Split Release APKs (armeabi-v7a & arm64-v8a)
         run: |
-          ./gradlew :app:assembleRelease :app:assembleDebug \
+          ./gradlew :app:assembleRelease \
             -PversionName="${{ steps.version.outputs.version_name }}" \
             -PversionCode="${{ steps.version.outputs.version_code }}" \
             --no-daemon
 
-      - name: Verify Release APK signature & package artifacts
+      - name: Verify signatures & rename split APKs
         run: |
           VERSION_NAME="${{ steps.version.outputs.version_name }}"
-          RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
-          DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
-          MAPPING_FILE="app/build/outputs/mapping/release/mapping.txt"
+          APK_32="app/build/outputs/apk/release/app-armeabi-v7a-release.apk"
+          APK_64="app/build/outputs/apk/release/app-arm64-v8a-release.apk"
+
+          test -f "$APK_32"
+          test -f "$APK_64"
 
           APKSIGNER="$(find "${ANDROID_HOME}/build-tools" -name apksigner | sort -V | tail -n 1)"
           if [ -n "$APKSIGNER" ]; then
-            "$APKSIGNER" verify --verbose --print-certs "$RELEASE_APK"
+            "$APKSIGNER" verify --verbose --print-certs "$APK_32"
+            "$APKSIGNER" verify --verbose --print-certs "$APK_64"
           fi
 
           mkdir -p dist
-          cp "$RELEASE_APK" "dist/Alunara-${VERSION_NAME}-android-tv-release.apk"
-          cp "$DEBUG_APK" "dist/Alunara-${VERSION_NAME}-android-tv-debug.apk"
-          if [ -f "$MAPPING_FILE" ]; then
-            cp "$MAPPING_FILE" "dist/Alunara-${VERSION_NAME}-r8-mapping.txt"
-          fi
+          cp "$APK_32" "dist/alunara-${VERSION_NAME}.armv7a.apk"
+          cp "$APK_64" "dist/alunara-${VERSION_NAME}.armv8a.apk"
+          ls -lh "dist/alunara-${VERSION_NAME}.armv7a.apk" "dist/alunara-${VERSION_NAME}.armv8a.apk"
 
-          (cd dist && sha256sum Alunara-${VERSION_NAME}-android-tv-*.apk > SHA256SUMS.txt)
-          cat dist/SHA256SUMS.txt
-
-      - name: Upload Beta Release Artifacts
+      - name: Upload Release Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: alunara-${{ steps.version.outputs.version_name }}-artifacts
+          name: alunara-${{ steps.version.outputs.version_name }}-apks
           retention-days: 30
-          path: dist/
+          path: |
+            dist/alunara-*.apk
+            dist/release-notes.md
 
-      - name: Publish GitHub Pre-Release
+      - name: Publish Official GitHub Release
         if: steps.version.outputs.publish_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.raw_tag }}
-          name: Alunara ${{ steps.version.outputs.version_name }} (Android TV Beta)
-          prerelease: true
-          generate_release_notes: true
+          name: Alunara ${{ steps.version.outputs.version_name }}
+          prerelease: false
+          generate_release_notes: false
+          body_path: dist/release-notes.md
           files: |
-            dist/Alunara-${{ steps.version.outputs.version_name }}-android-tv-release.apk
-            dist/SHA256SUMS.txt
-          body: |
-            ## Alunara ${{ steps.version.outputs.version_name }} (Android TV 9+ / API 28+)
-
-            - **Build mode:** R8 Minified + Resource Shrunk (`armeabi-v7a` & `arm64-v8a`)
-            - **Signing mode:** ${{ steps.keystore.outputs.signing_mode }}
-            - **Target hardware:** Android TV RAM 1 GB (reference: Changhong TV)
-
-            ### Instalasi via ADB
-            ```bash
-            adb connect <IP_TV>:5555
-            adb install -r Alunara-${{ steps.version.outputs.version_name }}-android-tv-release.apk
-            ```
-
-            ### Kredit & Lisensi (GPL-3.0)
-            Alunara dibangun secara independen dengan integrasi base engine [ArchiveTune Core](https://github.com/rukamori/core) dan [ArchiveTune Lyrics](https://github.com/rukamori/lyrics) oleh [rukamori](https://github.com/rukamori), serta [Kuromoji](https://github.com/atilika/kuromoji) untuk romanisasi bahasa Jepang. Source code lengkap tersedia sesuai ketentuan GNU GPL v3.0 (`LICENSE` & `CREDITS.md`).
+            dist/alunara-${{ steps.version.outputs.version_name }}.armv7a.apk
+            dist/alunara-${{ steps.version.outputs.version_name }}.armv8a.apk

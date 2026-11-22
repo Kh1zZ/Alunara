@@ -70,7 +70,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -418,6 +417,10 @@ private fun AlunaraTvApp(
         }
     }
 
+    LaunchedEffect(currentDestination) {
+        sessionManager.setNowPlayingVisible(currentDestination == TvDestination.NOW_PLAYING)
+    }
+
     BackHandler(enabled = showWebViewLogin || currentDestination != TvDestination.HOME || catalogStack.isNotEmpty()) {
         when {
             showWebViewLogin -> {
@@ -499,6 +502,7 @@ private fun AlunaraTvApp(
             NowPlayingScreen(
                 sessionState = sessionState,
                 positionMsFlow = sessionManager.positionMsFlow,
+                activeLyricIndexFlow = sessionManager.activeLyricIndexFlow,
                 onTogglePlayPause = onTogglePlayPause,
                 onSkipPrevious = onSkipPrevious,
                 onSkipNext = onSkipNext,
@@ -793,7 +797,6 @@ private fun RailItem(
     onClick: () -> Unit,
 ) {
     val colors = LocalAlunaraColors.current
-    val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
     val selectedBorder = remember(colors.primaryAccent) { colors.primaryAccent.copy(alpha = 0.55f) }
     val tintColor =
@@ -802,14 +805,8 @@ private fun RailItem(
             selected -> colors.primaryAccent
             else -> colors.mutedText
         }
-    val labelColor =
-        when {
-            focused -> colors.focusedButtonContent
-            selected -> colors.primaryText
-            else -> colors.mutedText
-        }
 
-    Column(
+    Box(
         modifier =
             modifier
                 .fillMaxWidth()
@@ -855,25 +852,14 @@ private fun RailItem(
                         onClick()
                     }
                 }
-                .clickable(onClick = onClick)
-                .padding(horizontal = 2.dp, vertical = 5.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+                .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = label,
             tint = tintColor,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(modifier = Modifier.height(3.dp))
-        Text(
-            text = label,
-            color = labelColor,
-            fontSize = (10.5f * prefs.textScale.coerceAtMost(1.08f)).sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.size(24.dp),
         )
     }
 }

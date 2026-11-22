@@ -14,6 +14,7 @@ object LrcParser {
     private val TIMESTAMP_REGEX = Regex("""\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?]""")
     private val WORD_TIMESTAMP_REGEX = Regex("""<(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?>""")
     private val METADATA_TAG_REGEX = Regex("""^\[(ti|ar|al|au|length|by|offset|re|ve):.*]$""", RegexOption.IGNORE_CASE)
+    private val OFFSET_TAG_REGEX = Regex("""^\[offset:\s*([+-]?\d+)\s*]$""", RegexOption.IGNORE_CASE)
     private val WHITESPACE_REGEX = Regex("""\s+""")
     private val NUMERIC_HEX_ENTITY_REGEX = Regex("""&#[xX]([0-9a-fA-F]+);""")
     private val NUMERIC_DEC_ENTITY_REGEX = Regex("""&#(\d+);""")
@@ -28,10 +29,16 @@ object LrcParser {
 
         val syncedLines = mutableListOf<SyncedLyricLine>()
         val plainLines = mutableListOf<String>()
+        var globalOffsetMs = 0L
 
         rawPayload.lineSequence().forEach { rawLine ->
             val trimmed = rawLine.trim()
             if (trimmed.isEmpty()) return@forEach
+            val offsetMatch = OFFSET_TAG_REGEX.matchEntire(trimmed)
+            if (offsetMatch != null) {
+                globalOffsetMs = offsetMatch.groupValues[1].toLongOrNull() ?: 0L
+                return@forEach
+            }
             if (METADATA_TAG_REGEX.matches(trimmed)) return@forEach
 
             val lineMatches = TIMESTAMP_REGEX.findAll(trimmed).toList()
@@ -71,9 +78,28 @@ object LrcParser {
 
         return when {
             syncedLines.isNotEmpty() -> {
+                val adjustedLines =
+                    if (globalOffsetMs == 0L) {
+                        syncedLines
+                    } else {
+                        syncedLines.map { line ->
+                            val shiftedLineMs = (line.startTimeMs - globalOffsetMs).coerceAtLeast(0L)
+                            val shiftedWords =
+                                if (line.words.isEmpty()) {
+                                    emptyList()
+                                } else {
+                                    line.words.map { w ->
+                                        val shiftedStart = (w.startTimeMs - globalOffsetMs).coerceAtLeast(0L)
+                                        val shiftedEnd = w.endTimeMs?.let { (it - globalOffsetMs).coerceAtLeast(shiftedStart + 1L) }
+                                        w.copy(startTimeMs = shiftedStart, endTimeMs = shiftedEnd)
+                                    }
+                                }
+                            line.copy(startTimeMs = shiftedLineMs, words = shiftedWords)
+                        }
+                    }
                 LyricsDocument.Synced(
                     provider = provider,
-                    lines = syncedLines.sortedBy { it.startTimeMs },
+                    lines = adjustedLines.sortedBy { it.startTimeMs },
                 )
             }
             plainLines.isNotEmpty() -> {
@@ -123,7 +149,7 @@ object LrcParser {
                         line.words
                             .mapNotNull { w ->
                                 val t = w.text.trim()
-                                if (t.isEmpty()) null else SyncedLyricWord(w.startTimeMs, t)
+                                if (t.isEmpty()) null else SyncedLyricWord(w.startTimeMs, t, endTimeMs = w.endTimeMs)
                             }
                     val merged = mergeTokensWithVocab(trimmedWords, refVocab)
                     val spaced =
@@ -187,7 +213,12 @@ object LrcParser {
                     bestWord = accRaw
                 }
             }
-            out += SyncedLyricWord(startTimeMs = tokens[i].startTimeMs, text = bestWord)
+            out +=
+                SyncedLyricWord(
+                    startTimeMs = tokens[i].startTimeMs,
+                    text = bestWord,
+                    endTimeMs = tokens[i + bestK - 1].endTimeMs,
+                )
             i += bestK
         }
         return out
@@ -216,6 +247,9 @@ object LrcParser {
             val wordText = decodeHtmlEntities(body.substring(sliceStart, sliceEnd))
             if (wordText.isNotEmpty()) {
                 rawWords += SyncedLyricWord(startTimeMs = startMs, text = wordText)
+            } else if (rawWords.isNotEmpty() && rawWords.last().endTimeMs == null) {
+                val prev = rawWords.last()
+                rawWords[rawWords.lastIndex] = prev.copy(endTimeMs = startMs.coerceAtLeast(prev.startTimeMs + 1L))
             }
         }
 
@@ -224,7 +258,11 @@ object LrcParser {
         rawWords.forEach { current ->
             val prev = merged.lastOrNull()
             if (prev != null && prev.text.trimEnd().endsWith("-")) {
-                merged[merged.lastIndex] = prev.copy(text = "${prev.text.trimEnd()}${current.text}")
+                merged[merged.lastIndex] =
+                    prev.copy(
+                        text = "${prev.text.trimEnd()}${current.text}",
+                        endTimeMs = current.endTimeMs ?: prev.endTimeMs,
+                    )
             } else {
                 merged += current
             }

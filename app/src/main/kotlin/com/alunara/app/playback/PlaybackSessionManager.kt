@@ -119,6 +119,11 @@ class PlaybackSessionManager(
     val uiState: StateFlow<PlaybackSessionUiState> = mutableUiState.asStateFlow()
     private val mutablePositionMs = MutableStateFlow(0L)
     val positionMsFlow: StateFlow<Long> = mutablePositionMs.asStateFlow()
+    private val mutableActiveLyricIndex = MutableStateFlow(-1)
+    val activeLyricIndexFlow: StateFlow<Int> = mutableActiveLyricIndex.asStateFlow()
+
+    @Volatile
+    private var nowPlayingVisible: Boolean = false
 
     private var resolveJob: Job? = null
     private var retryJob: Job? = null
@@ -467,6 +472,7 @@ class PlaybackSessionManager(
         lastAutoplayExtendedTrackId = null
         val empty = mutableUiState.value.queueState.copy(items = emptyList(), currentIndex = -1, positionMs = 0L)
         mutablePositionMs.value = 0L
+        mutableActiveLyricIndex.value = -1
         mutableUiState.update { state ->
             state.copy(
                 queueState = empty,
@@ -789,6 +795,30 @@ class PlaybackSessionManager(
         seekTo(target)
     }
 
+    fun setNowPlayingVisible(visible: Boolean) {
+        val wasVisible = nowPlayingVisible
+        nowPlayingVisible = visible
+        if (visible) {
+            val state = mutableUiState.value
+            val livePos =
+                if (playerController.hasActivePlayer) {
+                    playerController.currentPositionMs()
+                } else {
+                    mutablePositionMs.value
+                }
+            mutablePositionMs.value = livePos
+            mutableActiveLyricIndex.value =
+                computeActiveLyricIndex(state.lyrics, livePos, state.lyricsSyncOffsetMs)
+            if (!wasVisible && playerController.isPlaying()) {
+                stopTicker()
+                startTickerIfNeeded()
+            }
+        } else if (wasVisible && playerController.isPlaying()) {
+            stopTicker()
+            startTickerIfNeeded()
+        }
+    }
+
     fun seekTo(positionMs: Long) {
         val safePos = positionMs.coerceAtLeast(0L)
         if (playerController.hasActivePlayer) {
@@ -797,10 +827,12 @@ class PlaybackSessionManager(
         mutablePositionMs.value = safePos
         mutableUiState.update { state ->
             val updatedQueue = QueueReducer.reduce(state.queueState, QueueAction.UpdatePosition(safePos))
+            val computedIdx = computeActiveLyricIndex(state.lyrics, safePos, state.lyricsSyncOffsetMs)
+            mutableActiveLyricIndex.value = computedIdx
             state.copy(
                 queueState = updatedQueue,
                 positionMs = safePos,
-                activeLyricIndex = computeActiveLyricIndex(state.lyrics, safePos, state.lyricsSyncOffsetMs),
+                activeLyricIndex = computedIdx,
             )
         }
     }
@@ -881,11 +913,13 @@ class PlaybackSessionManager(
                     if (playerController.hasActivePlayer) {
                         playerController.currentPositionMs()
                     } else {
-                        state.positionMs
+                        mutablePositionMs.value.takeIf { it > 0L } ?: state.positionMs
                     }
+                val computedIdx = computeActiveLyricIndex(state.lyrics, currentPos, offsetMs)
+                mutableActiveLyricIndex.value = computedIdx
                 state.copy(
                     lyricsSyncOffsetMs = offsetMs,
-                    activeLyricIndex = computeActiveLyricIndex(state.lyrics, currentPos, offsetMs),
+                    activeLyricIndex = computedIdx,
                 )
             }
         }
@@ -983,6 +1017,7 @@ class PlaybackSessionManager(
         }
         val trackOffsetMs = playbackPreferences.getLyricsSyncOffsetMs(track.id)
         mutablePositionMs.value = startPositionMs
+        mutableActiveLyricIndex.value = -1
         mutableUiState.update {
             it.copy(
                 queueState = nextQueue,
@@ -1198,6 +1233,7 @@ class PlaybackSessionManager(
         lyricsJob?.cancel()
         lyricsJob =
             scope.launch {
+                mutableActiveLyricIndex.value = -1
                 mutableUiState.update {
                     it.copy(
                         lyricsLoading = true,
@@ -1222,11 +1258,19 @@ class PlaybackSessionManager(
                         LyricsRomanizer.attachRomanization(fetched)
                     }
                 if (!isActive || mutableUiState.value.currentTrack?.id != track.id) return@launch
+                val livePosMs =
+                    if (playerController.hasActivePlayer) {
+                        playerController.currentPositionMs()
+                    } else {
+                        mutablePositionMs.value.takeIf { it > 0L } ?: mutableUiState.value.positionMs
+                    }
                 mutableUiState.update { state ->
+                    val initialIdx = computeActiveLyricIndex(summary.document, livePosMs, state.lyricsSyncOffsetMs)
+                    mutableActiveLyricIndex.value = initialIdx
                     state.copy(
                         lyrics = summary.document,
                         lyricsLoading = false,
-                        activeLyricIndex = computeActiveLyricIndex(summary.document, state.positionMs, state.lyricsSyncOffsetMs),
+                        activeLyricIndex = initialIdx,
                         showRomanizedLyrics = summary.hasRomanizableLines,
                         hasRomanizedLyrics = summary.hasRomanizableLines,
                         hasPartialKanjiNotice = summary.hasUnsupportedKanji,
@@ -1272,34 +1316,25 @@ class PlaybackSessionManager(
                     mutablePositionMs.value = pos
                     val currentState = mutableUiState.value
                     val dur = resolveDurationMs(currentState.currentTrack)
-                    val isWordSynced =
-                        currentState.lyrics is LyricsDocument.Synced && currentState.lyrics.isWordSynced
-                    val tickDelay =
-                        if (isWordSynced) {
-                            WORD_SYNC_TICKER_INTERVAL_MS
-                        } else {
-                            LINE_SYNC_TICKER_INTERVAL_MS
-                        }
-                    val newActiveIndex =
-                        computeActiveLyricIndex(
-                            currentState.lyrics,
-                            pos,
-                            currentState.lyricsSyncOffsetMs,
-                        )
-                    // Only emit UI state snapshots when discrete state changes (active lyric line or duration);
-                    // 1 Hz playback progress flows solely through positionMsFlow so screens never recompose every second.
-                    if (
-                        newActiveIndex != currentState.activeLyricIndex ||
-                        dur != currentState.durationMs
-                    ) {
-                        mutableUiState.update { state ->
-                            state.copy(
-                                positionMs = pos,
-                                durationMs = dur,
-                                activeLyricIndex = computeActiveLyricIndex(state.lyrics, pos, state.lyricsSyncOffsetMs),
-                            )
-                        }
+                    if (dur != currentState.durationMs) {
+                        mutableUiState.update { it.copy(durationMs = dur) }
                     }
+                    // Skip lyric math and run a quiet 1 Hz progress tick when browsing Home/Library/Settings;
+                    // in Now Playing, emit only to isolated positionMsFlow & activeLyricIndexFlow (never uiState).
+                    val tickDelay =
+                        if (nowPlayingVisible) {
+                            mutableActiveLyricIndex.value =
+                                computeActiveLyricIndex(
+                                    currentState.lyrics,
+                                    pos,
+                                    currentState.lyricsSyncOffsetMs,
+                                )
+                            val isWordSynced =
+                                currentState.lyrics is LyricsDocument.Synced && currentState.lyrics.isWordSynced
+                            if (isWordSynced) WORD_SYNC_TICKER_INTERVAL_MS else LINE_SYNC_TICKER_INTERVAL_MS
+                        } else {
+                            BROWSE_TICKER_INTERVAL_MS
+                        }
                     delay(tickDelay)
                 }
             }
@@ -1366,8 +1401,9 @@ class PlaybackSessionManager(
 
     companion object {
         private const val DEFAULT_PREFETCH_DELAY_MS: Long = 3_000L
-        private const val WORD_SYNC_TICKER_INTERVAL_MS: Long = 80L
+        private const val WORD_SYNC_TICKER_INTERVAL_MS: Long = 100L
         private const val LINE_SYNC_TICKER_INTERVAL_MS: Long = 250L
+        private const val BROWSE_TICKER_INTERVAL_MS: Long = 1_000L
     }
 }
 

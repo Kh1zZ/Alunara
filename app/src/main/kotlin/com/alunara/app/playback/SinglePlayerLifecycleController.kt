@@ -91,11 +91,14 @@ class SinglePlayerLifecycleController(
             DefaultLoadControl
                 .Builder()
                 .setBufferDurationsMs(
-                    /* minBufferMs = */ 10_000,
-                    /* maxBufferMs = */ 25_000,
+                    /* minBufferMs = */ 15_000,
+                    /* maxBufferMs = */ 30_000,
                     /* bufferForPlaybackMs = */ 1_500,
                     /* bufferForPlaybackAfterRebufferMs = */ 3_000,
-                ).build()
+                )
+                .setTargetBufferBytes(2 * 1024 * 1024)
+                .setPrioritizeTimeOverSizeThresholds(false)
+                .build()
         val audioAttributes =
             AudioAttributes
                 .Builder()

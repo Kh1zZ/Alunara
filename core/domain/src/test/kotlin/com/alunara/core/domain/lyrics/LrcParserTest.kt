@@ -123,4 +123,42 @@ class LrcParserTest {
         val plainDoc = LrcParser.parse(LyricsProviderId.LRCLIB, plainRaw) as LyricsDocument.Plain
         assertEquals("Won't stop now", plainDoc.text)
     }
+
+    @Test
+    fun parse_appliesLrcGlobalOffsetTagToLinesAndWords() {
+        val rawPositive =
+            """
+            [offset:+500]
+            [00:00.30]Early line
+            [00:02.00]<00:02.00>Halo <00:02.60>dunia
+            """.trimIndent()
+        val posDoc = LrcParser.parse(LyricsProviderId.LRCLIB, rawPositive) as LyricsDocument.Synced
+        assertEquals(0L, posDoc.lines[0].startTimeMs)
+        assertEquals(1_500L, posDoc.lines[1].startTimeMs)
+        assertEquals(1_500L, posDoc.lines[1].words[0].startTimeMs)
+        assertEquals(2_100L, posDoc.lines[1].words[1].startTimeMs)
+
+        val rawNegative =
+            """
+            [offset:-300]
+            [00:05.00]Late line
+            """.trimIndent()
+        val negDoc = LrcParser.parse(LyricsProviderId.SIMPMUSIC, rawNegative) as LyricsDocument.Synced
+        assertEquals(5_300L, negDoc.lines[0].startTimeMs)
+    }
+
+    @Test
+    fun parse_capturesTrailingWordEndTimestampAcrossWordAndRepairMerge() {
+        val raw = "[00:10.00] <00:10.00>Ka<00:10.40>mu <00:11.00>ter<00:11.30>ang<00:12.10>"
+        val parsed = LrcParser.parse(LyricsProviderId.SIMPMUSIC, raw) as LyricsDocument.Synced
+        val words = parsed.lines.single().words
+        assertEquals(4, words.size)
+        assertEquals(12_100L, words.last().endTimeMs)
+
+        val repaired = LrcParser.repairWordBoundaries(parsed, listOf("Kamu terang"))
+        val repairedWords = repaired.lines.single().words
+        assertEquals(2, repairedWords.size)
+        assertEquals("terang", repairedWords[1].text)
+        assertEquals(12_100L, repairedWords[1].endTimeMs)
+    }
 }

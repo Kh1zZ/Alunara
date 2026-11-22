@@ -29,10 +29,19 @@ val hasReleaseKeystore =
         !releaseKeyAlias.isNullOrBlank() &&
         !releaseKeyPassword.isNullOrBlank()
 
-val resolvedVersionCode =
-    providers.gradleProperty("versionCode").orNull?.toIntOrNull()?.coerceAtLeast(1) ?: 3
+fun deriveSemVerCode(versionName: String): Int {
+    val parts = versionName.substringBefore('-').split('.')
+    val major = parts.getOrNull(0)?.toIntOrNull() ?: 0
+    val minor = parts.getOrNull(1)?.toIntOrNull() ?: 1
+    val patch = parts.getOrNull(2)?.toIntOrNull() ?: 0
+    return ((major * 10_000) + (minor * 100) + patch).coerceAtLeast(1)
+}
+
 val resolvedVersionName =
-    providers.gradleProperty("versionName").orNull?.takeIf { it.isNotBlank() } ?: "0.1.0-beta.2"
+    providers.gradleProperty("versionName").orNull?.takeIf { it.isNotBlank() } ?: "0.1.0"
+val resolvedVersionCode =
+    providers.gradleProperty("versionCode").orNull?.toIntOrNull()?.coerceAtLeast(1)
+        ?: deriveSemVerCode(resolvedVersionName)
 
 android {
     namespace = "com.alunara.app"
@@ -75,9 +84,15 @@ android {
                 } else {
                     signingConfigs.getByName("debug")
                 }
-            ndk {
-                abiFilters += listOf("armeabi-v7a", "arm64-v8a")
-            }
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a")
+            isUniversalApk = false
         }
     }
 

@@ -60,14 +60,21 @@ object AudioFormatSelector {
     private fun eligibleAudioPool(candidates: List<AudioFormatCandidate>): List<AudioFormatCandidate>? {
         val audioOnly = candidates.filter { it.isAudioOnly && it.mimeType.startsWith("audio/", ignoreCase = true) }
         if (audioOnly.isEmpty()) return null
-        return audioOnly.filter { it.hasDirectUrl }.ifEmpty { audioOnly }
+        val aacPool = audioOnly.filter { isAacMime(it.mimeType) }
+        val preferredCodecPool = aacPool.ifEmpty { audioOnly }
+        return preferredCodecPool.filter { it.hasDirectUrl }.ifEmpty { preferredCodecPool }
+    }
+
+    private fun isAacMime(mimeType: String): Boolean {
+        val lower = mimeType.lowercase()
+        return "mp4a" in lower || "audio/mp4" in lower || "aac" in lower
     }
 
     private fun codecPriority(mimeType: String): Int {
         val lower = mimeType.lowercase()
         return when {
-            "opus" in lower || "audio/webm" in lower -> 2
-            "mp4a" in lower || "audio/mp4" in lower -> 1
+            isAacMime(lower) -> 2
+            "opus" in lower || "audio/webm" in lower -> 1
             else -> 0
         }
     }

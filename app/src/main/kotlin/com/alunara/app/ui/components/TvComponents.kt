@@ -770,6 +770,13 @@ private fun DockedMiniPlayerContent(
             PlaybackStatus.ERROR -> errorMessage ?: stringResource(R.string.status_error)
             PlaybackStatus.IDLE -> ""
         }
+    val subtitleText =
+        remember(track.primaryArtistName, statusText) {
+            listOfNotNull(
+                track.primaryArtistName.takeIf { it.isNotBlank() },
+                statusText.takeIf { it.isNotBlank() },
+            ).joinToString(" · ")
+        }
 
     Column(modifier = modifier.fillMaxWidth().background(colors.surface)) {
         MiniPlayerProgressStrip(
@@ -802,11 +809,7 @@ private fun DockedMiniPlayerContent(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text =
-                        listOfNotNull(
-                            track.primaryArtistName.takeIf { it.isNotBlank() },
-                            statusText.takeIf { it.isNotBlank() },
-                        ).joinToString(" · "),
+                    text = subtitleText,
                     color = if (status == PlaybackStatus.ERROR) colors.errorText else colors.primaryAccent,
                     fontSize = AlunaraTypography.caption(prefs.textScale),
                     maxLines = 1,
@@ -848,35 +851,27 @@ private fun MiniPlayerProgressStrip(
     positionMsFlow: StateFlow<Long>?,
 ) {
     val colors = LocalAlunaraColors.current
-    val posMs =
-        if (positionMsFlow != null) {
-            positionMsFlow.collectAsStateWithLifecycle().value
-        } else {
-            fallbackPositionMs
-        }
-    val progressFraction =
-        if (durationMs > 0L) {
-            (posMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
+    val posMsState = positionMsFlow?.collectAsStateWithLifecycle()
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .height(2.dp)
-                .background(colors.secondarySurface),
-    ) {
-        if (progressFraction > 0f) {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth(progressFraction)
-                        .height(2.dp)
-                        .background(colors.primaryAccent),
-            )
-        }
-    }
+                .drawBehind {
+                    drawRect(color = colors.secondarySurface)
+                    if (durationMs > 0L) {
+                        val posMs = posMsState?.value ?: fallbackPositionMs
+                        val fraction = (posMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                        val fillWidth = (size.width * fraction).coerceIn(0f, size.width)
+                        if (fillWidth > 0f) {
+                            drawRect(
+                                color = colors.primaryAccent,
+                                size = Size(fillWidth, size.height),
+                            )
+                        }
+                    }
+                },
+    )
 }
 
 fun formatDurationMs(ms: Long): String {

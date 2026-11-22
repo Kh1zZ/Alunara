@@ -379,7 +379,7 @@ class ArchiveTuneMusicAdapterTest {
                 )
 
             val source = adapter.resolveAudioStream("track123").getOrThrow()
-            assertEquals("https://cdn/opus.webm", source.streamUrl)
+            assertEquals("https://cdn/aac.m4a", source.streamUrl)
             assertEquals("IOS", source.clientProfile)
             assertEquals(301_000L, source.expiresAtEpochMs)
             assertFalse(fallbackInvoked.get())

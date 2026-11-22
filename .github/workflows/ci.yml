@@ -62,13 +62,18 @@ jobs:
 
       - name: Summarize APK sizes
         run: |
-          DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
-          RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
-          ls -lh "$DEBUG_APK" "$RELEASE_APK"
+          shopt -s nullglob
+          DEBUG_APKS=(app/build/outputs/apk/debug/*.apk)
+          RELEASE_APKS=(app/build/outputs/apk/release/*.apk)
+          ls -lh "${DEBUG_APKS[@]}" "${RELEASE_APKS[@]}"
           {
             echo "### Alunara Build Summary"
-            echo "- Debug APK: \`$(stat -c%s "$DEBUG_APK")\` bytes"
-            echo "- Release APK (R8): \`$(stat -c%s "$RELEASE_APK")\` bytes"
+            for apk in "${DEBUG_APKS[@]}"; do
+              echo "- Debug (\`$(basename "$apk")\`): \`$(stat -c%s "$apk")\` bytes"
+            done
+            for apk in "${RELEASE_APKS[@]}"; do
+              echo "- Release R8 (\`$(basename "$apk")\`): \`$(stat -c%s "$apk")\` bytes"
+            done
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload test reports & build APKs
@@ -79,8 +84,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
             app/build/outputs/mapping/release/mapping.txt
             app/build/reports/lint-results-debug.html
             **/build/reports/tests/

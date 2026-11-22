@@ -10,6 +10,7 @@ data class SyncedLyricWord(
     val startTimeMs: Long,
     val text: String,
     val romanizedText: String? = null,
+    val endTimeMs: Long? = null,
 )
 
 data class SyncedLyricLine(

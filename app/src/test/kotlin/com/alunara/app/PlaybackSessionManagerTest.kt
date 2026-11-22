@@ -675,4 +675,72 @@ class PlaybackSessionManagerTest {
             manager.clearQueue()
             advanceUntilIdle()
         }
+
+    @Test
+    fun ticker_throttlesInBrowseModeAndEmitsActiveLyricIndexFlowWithoutUiStateChurn() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val player = FakePlayerControl()
+            val track = Track(id = "sync1", title = "Synced Flow", durationSeconds = 120)
+            val syncedEngine =
+                object : LyricsEngine {
+                    override suspend fun fetchLyrics(
+                        track: Track,
+                        preferredProvider: LyricsProviderId?,
+                    ): LyricsDocument {
+                        kotlinx.coroutines.delay(100L)
+                        return LyricsDocument.Synced(
+                            provider = LyricsProviderId.LRCLIB,
+                            lines =
+                                listOf(
+                                    SyncedLyricLine(startTimeMs = 1_000L, text = "First line"),
+                                    SyncedLyricLine(startTimeMs = 2_000L, text = "Second line"),
+                                ),
+                        )
+                    }
+                }
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = FakeMusicEngine(),
+                    lyricsEngine = syncedEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = player,
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+
+            manager.setNowPlayingVisible(false)
+            manager.playTracks(listOf(track), startIndex = 0, autoExpandRadio = false)
+            runCurrent()
+            // Simulate player advancing to 2.5s while lyrics are still fetching
+            player.currentPositionValueMs = 2_500L
+            manager.playerListener.onPlaybackStateChanged(Player.STATE_READY)
+            advanceTimeBy(150L)
+            runCurrent()
+            // Initial active lyric index uses live playback position when lyrics arrive mid-song
+            assertEquals(1, manager.uiState.value.activeLyricIndex)
+            assertEquals(1, manager.activeLyricIndexFlow.value)
+
+            // Ticking at 1 Hz in browse mode updates positionMsFlow without recomputing lyrics
+            player.currentPositionValueMs = 1_100L
+            advanceTimeBy(1_050L)
+            runCurrent()
+            assertEquals(1_100L, manager.positionMsFlow.value)
+            assertEquals(1, manager.activeLyricIndexFlow.value)
+
+            // Opening Now Playing snaps activeLyricIndexFlow immediately and advances without mutating uiState
+            val stateBeforeNowPlaying = manager.uiState.value
+            manager.setNowPlayingVisible(true)
+            assertEquals(0, manager.activeLyricIndexFlow.value)
+            assertEquals(stateBeforeNowPlaying, manager.uiState.value)
+
+            player.currentPositionValueMs = 2_200L
+            advanceTimeBy(300L)
+            runCurrent()
+            assertEquals(1, manager.activeLyricIndexFlow.value)
+            assertEquals(stateBeforeNowPlaying, manager.uiState.value)
+
+            manager.clearQueue()
+            advanceUntilIdle()
+        }
 }

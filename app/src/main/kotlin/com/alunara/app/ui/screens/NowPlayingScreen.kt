@@ -54,8 +54,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -128,8 +128,12 @@ import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.QueueFilterChip
 import com.alunara.core.domain.model.QueueState
 import com.alunara.core.domain.model.SyncedLyricLine
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.onStart
 import kotlin.math.abs
 
 private const val IDLE_DIM_TIMEOUT_MS = 10_000L
@@ -157,6 +161,7 @@ fun NowPlayingScreen(
     onSwitchLyricsProvider: () -> Unit,
     modifier: Modifier = Modifier,
     positionMsFlow: StateFlow<Long>? = null,
+    activeLyricIndexFlow: StateFlow<Int>? = null,
     onAdjustLyricsSync: (Long) -> Unit = {},
     onResetLyricsSync: () -> Unit = {},
     onToggleRomanizedLyrics: () -> Unit = {},
@@ -200,7 +205,13 @@ fun NowPlayingScreen(
     val switchProviderRequester = remember { FocusRequester() }
     val queueRefreshRequester = remember { FocusRequester() }
     var rightPanelMode by remember { mutableStateOf(NowPlayingRightPanelMode.LYRICS) }
-    var lastInteractionMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    val interactionEvents =
+        remember {
+            MutableSharedFlow<Unit>(
+                extraBufferCapacity = 1,
+                onBufferOverflow = BufferOverflow.DROP_OLDEST,
+            )
+        }
     var isIdleDimmed by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -208,11 +219,17 @@ fun NowPlayingScreen(
         playButtonRequester.safeRequestFocus()
     }
 
-    LaunchedEffect(lastInteractionMs, sessionState.status) {
-        isIdleDimmed = false
+    LaunchedEffect(sessionState.status) {
         if (sessionState.status == PlaybackStatus.PLAYING) {
-            delay(IDLE_DIM_TIMEOUT_MS)
-            isIdleDimmed = true
+            interactionEvents
+                .onStart { emit(Unit) }
+                .collectLatest {
+                    isIdleDimmed = false
+                    delay(IDLE_DIM_TIMEOUT_MS)
+                    isIdleDimmed = true
+                }
+        } else {
+            isIdleDimmed = false
         }
     }
 
@@ -227,8 +244,8 @@ fun NowPlayingScreen(
                 .fillMaxSize()
                 .background(colors.background)
                 .onPreviewKeyEvent {
-                    // Track remote activity for UX-17 idle dimming without consuming navigation
-                    lastInteractionMs = System.currentTimeMillis()
+                    // Track remote activity for UX-17 idle dimming without recomposing NowPlayingScreen
+                    interactionEvents.tryEmit(Unit)
                     false
                 },
     ) {
@@ -639,7 +656,8 @@ fun NowPlayingScreen(
                                 lyrics = sessionState.lyrics,
                                 isLoading = sessionState.lyricsLoading,
                                 selectedProvider = sessionState.selectedLyricsProvider,
-                                activeLineIndex = sessionState.activeLyricIndex,
+                                fallbackActiveLineIndex = sessionState.activeLyricIndex,
+                                activeLyricIndexFlow = activeLyricIndexFlow,
                                 positionMsFlow = positionMsFlow,
                                 fallbackPositionMs = if (positionMsFlow != null) 0L else sessionState.positionMs,
                                 lyricsSyncOffsetMs = sessionState.lyricsSyncOffsetMs,
@@ -917,6 +935,8 @@ private fun NowPlayingQueuePanel(
     }
 }
 
+private val SeekBarShape = RoundedCornerShape(10.dp)
+
 @Composable
 private fun SeekableProgressBar(
     positionMsFlow: StateFlow<Long>?,
@@ -927,20 +947,12 @@ private fun SeekableProgressBar(
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
-    val positionMs =
-        if (positionMsFlow != null) {
-            positionMsFlow.collectAsStateWithLifecycle().value
-        } else {
-            fallbackPositionMs
+    val positionMsState = positionMsFlow?.collectAsStateWithLifecycle()
+    val elapsedSec by
+        remember(positionMsState, fallbackPositionMs) {
+            derivedStateOf { ((positionMsState?.value ?: fallbackPositionMs).coerceAtLeast(0L)) / 1000L }
         }
     var focused by remember { mutableStateOf(false) }
-    val fraction =
-        if (durationMs > 0L) {
-            (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
-    val shape = RoundedCornerShape(10.dp)
     val bgColor = if (focused) colors.background.copy(alpha = 0.78f) else Color.Transparent
     val borderColor = if (focused) colors.focusRingStrong else Color.Transparent
     val barThicknessFactor = if (focused) 6f else 4f
@@ -948,16 +960,24 @@ private fun SeekableProgressBar(
     val trackBg = colors.secondarySurface
     val trackFill = colors.primaryAccent
     val thumbColor = if (focused) colors.focusOutline else colors.primaryAccent
-    val progressDesc = "${formatDurationMs(positionMs)} / ${formatDurationMs(durationMs)}"
+    val elapsedLabel = remember(elapsedSec) { formatDurationMs(elapsedSec * 1000L) }
+    val durationLabel = remember(durationMs) { formatDurationMs(durationMs) }
+    val progressDesc = "$elapsedLabel / $durationLabel"
+    val semanticFraction =
+        if (durationMs > 0L) {
+            ((elapsedSec * 1000L).toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
 
     Column(
         modifier =
             modifier
-                .background(bgColor, shape)
-                .border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                .background(bgColor, SeekBarShape)
+                .border(BorderStroke(colors.focusBorderWidth, borderColor), SeekBarShape)
                 .semantics {
                     stateDescription = progressDesc
-                    progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
+                    progressBarRangeInfo = ProgressBarRangeInfo(semanticFraction, 0f..1f)
                 }
                 .onFocusChanged { focused = it.isFocused }
                 .focusable()
@@ -987,6 +1007,13 @@ private fun SeekableProgressBar(
                     .fillMaxWidth()
                     .height(14.dp),
         ) {
+            val posMs = positionMsState?.value ?: fallbackPositionMs
+            val fraction =
+                if (durationMs > 0L) {
+                    (posMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
             val barHeight = barThicknessFactor.dp.toPx()
             val barTop = (size.height - barHeight) / 2f
             val corner = CornerRadius(barHeight / 2f, barHeight / 2f)
@@ -1020,7 +1047,7 @@ private fun SeekableProgressBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = formatDurationMs(positionMs),
+                text = elapsedLabel,
                 color = colors.primaryText,
                 fontSize = AlunaraTypography.caption(prefs.textScale),
                 fontWeight = FontWeight.Medium,
@@ -1035,7 +1062,7 @@ private fun SeekableProgressBar(
                 )
             }
             Text(
-                text = formatDurationMs(durationMs),
+                text = durationLabel,
                 color = colors.mutedText,
                 fontSize = AlunaraTypography.caption(prefs.textScale),
             )
@@ -1048,7 +1075,8 @@ private fun PersistentReadOnlyLyricsPanel(
     lyrics: LyricsDocument,
     isLoading: Boolean,
     selectedProvider: LyricsProviderId?,
-    activeLineIndex: Int,
+    fallbackActiveLineIndex: Int,
+    activeLyricIndexFlow: StateFlow<Int>?,
     positionMsFlow: StateFlow<Long>?,
     fallbackPositionMs: Long,
     lyricsSyncOffsetMs: Long,
@@ -1172,12 +1200,19 @@ private fun PersistentReadOnlyLyricsPanel(
                 }
 
                 lyrics is LyricsDocument.Synced -> {
+                    val activeLineIndex =
+                        if (activeLyricIndexFlow != null) {
+                            activeLyricIndexFlow.collectAsStateWithLifecycle().value
+                        } else {
+                            fallbackActiveLineIndex
+                        }
                     val stableLines = remember(lyrics) { lyrics.lines.map(::StableSyncedLyricLine) }
                     val listState = rememberLazyListState()
                     LaunchedEffect(activeLineIndex, prefs.reduceMotion) {
                         if (activeLineIndex >= 0) {
                             val target = (activeLineIndex - 1).coerceAtLeast(0)
-                            if (prefs.reduceMotion) {
+                            val jumpDistance = abs(target - listState.firstVisibleItemIndex)
+                            if (prefs.reduceMotion || jumpDistance > 3) {
                                 listState.scrollToItem(target)
                             } else {
                                 listState.animateScrollToItem(target)
@@ -1199,7 +1234,7 @@ private fun PersistentReadOnlyLyricsPanel(
                             contentType = { _, _ -> "synced-lyric" },
                         ) { idx, line ->
                             val isActive = idx == activeLineIndex
-                            val distance = if (activeLineIndex < 0) 2 else abs(idx - activeLineIndex)
+                            val distanceTier = (if (activeLineIndex < 0) 2 else abs(idx - activeLineIndex)).coerceAtMost(3)
                             val nextLineStartMs =
                                 stableLines
                                     .getOrNull(idx + 1)
@@ -1209,7 +1244,7 @@ private fun PersistentReadOnlyLyricsPanel(
                             SyncedLyricRowItem(
                                 line = line,
                                 nextLineStartMs = nextLineStartMs,
-                                distanceFromActive = distance,
+                                distanceFromActive = distanceTier,
                                 isActive = isActive,
                                 showRomanized = showRomanizedLyrics,
                                 positionMsFlow = positionMsFlow,
@@ -1375,7 +1410,10 @@ private fun SyncedLyricRowItem(
 
     val romanized = line.value.romanizedText
     val hasDualLine = showRomanized && !romanized.isNullOrBlank()
-    val hasRomanWords = hasDualLine && line.value.words.any { !it.romanizedText.isNullOrBlank() }
+    val hasRomanWords =
+        remember(line, hasDualLine) {
+            hasDualLine && line.value.words.any { !it.romanizedText.isNullOrBlank() }
+        }
 
     if (hasDualLine) {
         val primaryLineHeight = baseFontSize * 1.32f
@@ -1404,7 +1442,7 @@ private fun SyncedLyricRowItem(
                     text = romanized ?: line.value.text,
                     color = colors.primaryText,
                     fontSize = baseFontSize,
-                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     lineHeight = primaryLineHeight,
                 )
             }
@@ -1435,7 +1473,7 @@ private fun SyncedLyricRowItem(
             text = line.value.text,
             color = colors.primaryText,
             fontSize = baseFontSize,
-            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+            fontWeight = FontWeight.Bold,
             lineHeight = lineHeight,
             modifier = rowModifier,
         )
@@ -1468,13 +1506,15 @@ private fun ActiveWordSyncedLyricText(
     var passedWordCount = 0
     var quantizedSmoothStep = 0
     for (wIdx in words.indices) {
-        val wordStartMs = words[wIdx].startTimeMs
+        val word = words[wIdx]
+        val wordStartMs = word.startTimeMs
         val wordEndMs =
-            words
-                .getOrNull(wIdx + 1)
-                ?.startTimeMs
-                ?.coerceAtLeast(wordStartMs + 1L)
-                ?: minOf(nextLineStartMs, wordStartMs + 650L).coerceAtLeast(wordStartMs + 1L)
+            word.endTimeMs?.coerceAtLeast(wordStartMs + 1L)
+                ?: words
+                    .getOrNull(wIdx + 1)
+                    ?.startTimeMs
+                    ?.coerceAtLeast(wordStartMs + 1L)
+                ?: minOf(nextLineStartMs, wordStartMs + 900L).coerceAtLeast(wordStartMs + 1L)
         if (posMs > wordEndMs) {
             passedWordCount = wIdx + 1
         } else if (posMs >= wordStartMs) {
@@ -1488,7 +1528,7 @@ private fun ActiveWordSyncedLyricText(
                 } else {
                     linear * linear * (3f - 2f * linear)
                 }
-            quantizedSmoothStep = if (reduceMotion) 4 else (smooth * 4f).toInt().coerceIn(0, 4)
+            quantizedSmoothStep = if (reduceMotion) 8 else (smooth * 8f).toInt().coerceIn(0, 8)
             break
         } else {
             break
@@ -1497,7 +1537,7 @@ private fun ActiveWordSyncedLyricText(
 
     val annotated =
         remember(line, activeWordIndex, passedWordCount, quantizedSmoothStep, reduceMotion, useRomanizedWords, colors) {
-            val smoothProgress = quantizedSmoothStep / 4f
+            val smoothProgress = quantizedSmoothStep / 8f
             buildAnnotatedString {
                 words.forEachIndexed { wIdx, word ->
                     val wordColor =
