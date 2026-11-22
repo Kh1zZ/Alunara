@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
@@ -74,6 +75,7 @@ import com.alunara.core.domain.media.ArtworkTier
 import com.alunara.core.domain.media.ArtworkUrlResolver
 import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.Track
+import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -103,16 +105,16 @@ object TvArtworkContentScale : ContentScale {
 }
 
 /**
- * Downsamples artwork to a small 144px canvas, crops out any 4:3 YouTube black letterbox bars,
- * and applies a fast 3-pass separable box blur once per track so Now Playing backdrops work
- * smoothly on Android 9–11 TV (API 28+) with zero per-frame GPU blur cost.
+ * Downsamples artwork to a 360px canvas, crops out any 4:3 YouTube black letterbox bars,
+ * and applies a subtle ~20% soft-focus blur once per track so Now Playing backdrops remain
+ * recognizable across Android 9–11 TV (API 28+) with zero per-frame GPU blur cost.
  */
 object TvBackdropBlurTransformation : Transformation() {
-    private const val TARGET_MAX_PX = 144
-    private const val BLUR_RADIUS = 10
-    private const val PASSES = 3
+    private const val TARGET_MAX_PX = 360
+    private const val BLUR_RADIUS = 3
+    private const val PASSES = 2
 
-    override val cacheKey: String = "alunara_tv_backdrop_blur_r10_v1"
+    override val cacheKey: String = "alunara_tv_backdrop_blur_r3_p2_v2"
 
     override suspend fun transform(
         input: Bitmap,
@@ -707,45 +709,53 @@ fun DockedMiniPlayer(
     onTogglePlayPause: () -> Unit,
     onOpenNowPlaying: () -> Unit,
     modifier: Modifier = Modifier,
+    positionMsFlow: StateFlow<Long>? = null,
+) {
+    val track = sessionState.currentTrack ?: return
+    DockedMiniPlayerContent(
+        track = track,
+        status = sessionState.status,
+        errorMessage = sessionState.errorMessage,
+        durationMs = sessionState.durationMs,
+        fallbackPositionMs = if (positionMsFlow != null) 0L else sessionState.positionMs,
+        positionMsFlow = positionMsFlow,
+        onTogglePlayPause = onTogglePlayPause,
+        onOpenNowPlaying = onOpenNowPlaying,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun DockedMiniPlayerContent(
+    track: Track,
+    status: PlaybackStatus,
+    errorMessage: String?,
+    durationMs: Long,
+    fallbackPositionMs: Long,
+    positionMsFlow: StateFlow<Long>?,
+    onTogglePlayPause: () -> Unit,
+    onOpenNowPlaying: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
-    val track = sessionState.currentTrack ?: return
     val statusText =
-        when (sessionState.status) {
+        when (status) {
             PlaybackStatus.RESOLVING -> stringResource(R.string.status_resolving)
             PlaybackStatus.BUFFERING -> stringResource(R.string.status_buffering)
             PlaybackStatus.PLAYING -> stringResource(R.string.status_playing)
             PlaybackStatus.PAUSED -> stringResource(R.string.status_paused)
             PlaybackStatus.ENDED -> stringResource(R.string.status_ended)
-            PlaybackStatus.ERROR -> sessionState.errorMessage ?: stringResource(R.string.status_error)
+            PlaybackStatus.ERROR -> errorMessage ?: stringResource(R.string.status_error)
             PlaybackStatus.IDLE -> ""
-        }
-    val progressFraction =
-        if (sessionState.durationMs > 0L) {
-            (sessionState.positionMs.toFloat() / sessionState.durationMs.toFloat()).coerceIn(0f, 1f)
-        } else {
-            0f
         }
 
     Column(modifier = modifier.fillMaxWidth().background(colors.surface)) {
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(2.dp)
-                    .background(colors.secondarySurface),
-        ) {
-            if (progressFraction > 0f) {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth(progressFraction)
-                            .height(2.dp)
-                            .background(colors.primaryAccent),
-                )
-            }
-        }
+        MiniPlayerProgressStrip(
+            durationMs = durationMs,
+            fallbackPositionMs = fallbackPositionMs,
+            positionMsFlow = positionMsFlow,
+        )
         Row(
             modifier =
                 Modifier
@@ -776,16 +786,16 @@ fun DockedMiniPlayer(
                             track.primaryArtistName.takeIf { it.isNotBlank() },
                             statusText.takeIf { it.isNotBlank() },
                         ).joinToString(" · "),
-                    color = if (sessionState.status == PlaybackStatus.ERROR) colors.errorText else colors.primaryAccent,
+                    color = if (status == PlaybackStatus.ERROR) colors.errorText else colors.primaryAccent,
                     fontSize = AlunaraTypography.caption(prefs.textScale),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
             TvIconButton(
-                icon = if (sessionState.status == PlaybackStatus.PLAYING) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                icon = if (status == PlaybackStatus.PLAYING) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription =
-                    if (sessionState.status == PlaybackStatus.PLAYING) {
+                    if (status == PlaybackStatus.PLAYING) {
                         stringResource(R.string.action_pause)
                     } else {
                         stringResource(R.string.action_play)
@@ -797,6 +807,44 @@ fun DockedMiniPlayer(
                 text = stringResource(R.string.open_now_playing),
                 icon = Icons.Rounded.OpenInFull,
                 onClick = onOpenNowPlaying,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MiniPlayerProgressStrip(
+    durationMs: Long,
+    fallbackPositionMs: Long,
+    positionMsFlow: StateFlow<Long>?,
+) {
+    val colors = LocalAlunaraColors.current
+    val posMs =
+        if (positionMsFlow != null) {
+            positionMsFlow.collectAsStateWithLifecycle().value
+        } else {
+            fallbackPositionMs
+        }
+    val progressFraction =
+        if (durationMs > 0L) {
+            (posMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .background(colors.secondarySurface),
+    ) {
+        if (progressFraction > 0f) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth(progressFraction)
+                        .height(2.dp)
+                        .background(colors.primaryAccent),
             )
         }
     }

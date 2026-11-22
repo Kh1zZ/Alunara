@@ -96,6 +96,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
@@ -220,14 +221,14 @@ fun NowPlayingScreen(
                     false
                 },
     ) {
-        // Layer 1: Full-screen softened & darkened cover artwork spanning behind both left panel and lyrics
+        // Layer 1: Full-screen subtle (~20%) blurred & darkened cover artwork across both left pane and lyrics
         if (!activeArtUrl.isNullOrBlank() && !prefs.highContrast) {
             val backdropRequest =
                 remember(activeArtUrl, prefs.reduceMotion) {
                     ImageRequest
                         .Builder(context)
                         .data(activeArtUrl)
-                        .size(256)
+                        .size(360)
                         .allowHardware(false)
                         .transformations(TvBackdropBlurTransformation)
                         .crossfade(!prefs.reduceMotion)
@@ -245,9 +246,9 @@ fun NowPlayingScreen(
                         .fillMaxSize()
                         .background(
                             Brush.horizontalGradient(
-                                0.0f to colors.background.copy(alpha = 0.60f),
-                                0.45f to colors.background.copy(alpha = 0.68f),
-                                1.0f to colors.background.copy(alpha = 0.78f),
+                                0.0f to colors.background.copy(alpha = 0.48f),
+                                0.45f to colors.background.copy(alpha = 0.60f),
+                                1.0f to colors.background.copy(alpha = 0.72f),
                             ),
                         ),
             )
@@ -257,9 +258,9 @@ fun NowPlayingScreen(
                         .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                0.0f to colors.background.copy(alpha = 0.16f),
-                                0.65f to colors.background.copy(alpha = 0.36f),
-                                1.0f to colors.background.copy(alpha = 0.76f),
+                                0.0f to colors.background.copy(alpha = 0.10f),
+                                0.55f to colors.background.copy(alpha = 0.28f),
+                                1.0f to colors.background.copy(alpha = 0.68f),
                             ),
                         ),
             )
@@ -267,7 +268,7 @@ fun NowPlayingScreen(
 
         // Layer 2: Two-column TV foreground over the blurred full-screen artwork backdrop
         Row(modifier = Modifier.fillMaxSize()) {
-            // Left pane: crisp unblurred album card + track metadata + progress + transport controls
+            // Left pane: vertically centered unblurred album card + track metadata + seekbar + transport controls
             Column(
                 modifier =
                     Modifier
@@ -279,16 +280,17 @@ fun NowPlayingScreen(
                             top = AlunaraDimens.OverscanVertical,
                             bottom = 30.dp,
                         ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterVertically),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val cardShape = RoundedCornerShape(18.dp)
                 Box(
                     modifier =
                         Modifier
-                            .size(212.dp)
+                            .size(220.dp)
                             .clip(cardShape)
                             .background(colors.secondarySurface, cardShape)
-                            .border(1.dp, colors.primaryAccent.copy(alpha = 0.25f), cardShape),
+                            .border(1.dp, colors.primaryAccent.copy(alpha = 0.28f), cardShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (!activeArtUrl.isNullOrBlank()) {
@@ -322,20 +324,21 @@ fun NowPlayingScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
-                // Non-focusable, non-clickable metadata (UI/UX Spec §5.1 / UX-12)
+                // Non-focusable, non-clickable centered metadata (UI/UX Spec §5.1 / UX-12)
                 Column(
                     modifier =
                         Modifier
                             .fillMaxWidth()
                             .focusProperties { canFocus = false },
                     verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         text = track.title,
                         color = colors.primaryText,
                         fontSize = AlunaraTypography.headline(prefs.textScale),
                         fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -349,6 +352,7 @@ fun NowPlayingScreen(
                             text = subtitle,
                             color = colors.mutedText,
                             fontSize = AlunaraTypography.rowTitle(prefs.textScale),
+                            textAlign = TextAlign.Center,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -419,7 +423,7 @@ fun NowPlayingScreen(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IdleDimmableControl(isIdleDimmed = isIdleDimmed) {

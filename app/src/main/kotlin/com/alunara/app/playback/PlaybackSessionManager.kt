@@ -1258,6 +1258,7 @@ class PlaybackSessionManager(
                 }
                 withContext(ioDispatcher) {
                     runCatching { lyricsEngine.fetchLyrics(nextTrack, null) }
+                    runCatching { musicEngine.resolveAudioStream(nextTrack.id, latest.audioQuality) }
                 }
             }
     }

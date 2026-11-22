@@ -600,6 +600,7 @@ private fun AlunaraTvApp(
                     if (sessionState.currentTrack != null) {
                         DockedMiniPlayer(
                             sessionState = sessionState,
+                            positionMsFlow = sessionManager.positionMsFlow,
                             onTogglePlayPause = { sessionManager.togglePlayPause() },
                             onOpenNowPlaying = { openNowPlaying() },
                         )

@@ -19,6 +19,8 @@ import com.alunara.core.domain.policy.AudioFormatCandidate
 import com.alunara.core.domain.policy.AudioFormatSelector
 import com.alunara.core.domain.policy.AudioQualityPreset
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import moe.rukamori.archivetune.innertube.MusicBackend
@@ -58,6 +60,15 @@ class ArchiveTuneMusicAdapter internal constructor(
 
     private val gatekeeperUnlocked = AtomicBoolean(false)
     private val visitorDataMutex = Mutex()
+    private val streamCacheLock = Any()
+    private val streamSourceCache =
+        object : LinkedHashMap<String, AudioStreamSource>(8, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, AudioStreamSource>?): Boolean =
+                size > MAX_STREAM_CACHE_ENTRIES
+        }
+
+    @Volatile
+    private var lastSuccessfulClient: YouTubeClient? = null
 
     fun isGatekeeperUnlocked(): Boolean = gatekeeperUnlocked.get()
 
@@ -103,37 +114,41 @@ class ArchiveTuneMusicAdapter internal constructor(
         }
     }
 
-    override suspend fun fetchGuestHome(): Result<List<HomeSection>> {
-        ensureGatekeeperUnlocked()
-        backend.useLoginForBrowse = backend.hasLoginCookie()
+    override suspend fun fetchGuestHome(): Result<List<HomeSection>> =
+        coroutineScope {
+            ensureGatekeeperUnlocked()
+            backend.useLoginForBrowse = backend.hasLoginCookie()
 
-        return backend.home().map { firstPage ->
-            val sections = mutableListOf<HomeSection>()
-            val seenTitles = mutableSetOf<String>()
+            val homeDeferred = async { backend.home() }
+            val chartsDeferred = async { safeOptionalSuspend { backend.getChartsPage() } }
 
-            fun appendSection(title: String, items: List<YTItem>) {
-                val normalized = items.toHomeSection(title) ?: return
-                if (seenTitles.add(normalized.title)) {
-                    sections += normalized
+            homeDeferred.await().map { firstPage ->
+                val sections = mutableListOf<HomeSection>()
+                val seenTitles = mutableSetOf<String>()
+
+                fun appendSection(title: String, items: List<YTItem>) {
+                    val normalized = items.toHomeSection(title) ?: return
+                    if (seenTitles.add(normalized.title)) {
+                        sections += normalized
+                    }
                 }
-            }
 
-            firstPage.sections.forEach { appendSection(it.title, it.items) }
+                firstPage.sections.forEach { appendSection(it.title, it.items) }
 
-            val continuation = firstPage.continuation
-            if (continuation != null && sections.size < 6) {
-                safeOptionalSuspend { backend.home(continuation = continuation) }
+                val continuation = firstPage.continuation
+                if (continuation != null && sections.size < 6) {
+                    safeOptionalSuspend { backend.home(continuation = continuation) }
+                        ?.sections
+                        ?.forEach { appendSection(it.title, it.items) }
+                }
+
+                chartsDeferred.await()
                     ?.sections
                     ?.forEach { appendSection(it.title, it.items) }
+
+                sections
             }
-
-            safeOptionalSuspend { backend.getChartsPage() }
-                ?.sections
-                ?.forEach { appendSection(it.title, it.items) }
-
-            sections
         }
-    }
 
     private fun List<YTItem>.toHomeSection(title: String): HomeSection? {
         val songs = filterIsInstance<SongItem>().map { it.toDomainTrack() }.distinctBy { it.id }
@@ -376,6 +391,8 @@ class ArchiveTuneMusicAdapter internal constructor(
     }
 
     private companion object {
+        const val MAX_STREAM_CACHE_ENTRIES = 4
+        const val STREAM_CACHE_SAFETY_WINDOW_MS = 30_000L
         val SYSTEM_PLAYLIST_IDS = setOf("LM", "SE")
     }
 
@@ -391,16 +408,32 @@ class ArchiveTuneMusicAdapter internal constructor(
             return Result.failure(IllegalArgumentException("Track id must not be blank"))
         }
 
+        val cacheKey = "$normalizedId:${quality.name}"
+        synchronized(streamCacheLock) {
+            val cached = streamSourceCache[cacheKey]
+            if (cached != null && cached.expiresAtEpochMs > nowEpochMs() + STREAM_CACHE_SAFETY_WINDOW_MS) {
+                return Result.success(cached)
+            }
+            streamSourceCache.remove(cacheKey)
+        }
+
         ensureGatekeeperUnlocked()
         val useLoginContext = backend.hasPlaybackLoginContext()
         val playbackAuth = if (useLoginContext) backend.currentPlaybackAuthState() else ensureGuestAuthState()
-        val guestClients =
+        val defaultClients =
             listOf(
                 YouTubeClient.VISIONOS,
                 YouTubeClient.IOS,
                 YouTubeClient.TVHTML5_SIMPLY,
                 YouTubeClient.ANDROID_VR_1_65_10,
             )
+        val preferred = lastSuccessfulClient
+        val guestClients =
+            if (preferred != null && preferred in defaultClients) {
+                listOf(preferred) + defaultClients.filter { it != preferred }
+            } else {
+                defaultClients
+            }
 
         var lastFailureReason: String? = null
 
@@ -415,7 +448,15 @@ class ArchiveTuneMusicAdapter internal constructor(
                     requireDirectUrl = true,
                     quality = quality,
                 )
-            if (resolved.isSuccess) return resolved
+            if (resolved.isSuccess) {
+                lastSuccessfulClient = client
+                resolved.getOrNull()?.let { src ->
+                    synchronized(streamCacheLock) {
+                        streamSourceCache[cacheKey] = src
+                    }
+                }
+                return resolved
+            }
             lastFailureReason = resolved.exceptionOrNull()?.message
         }
 
@@ -428,17 +469,26 @@ class ArchiveTuneMusicAdapter internal constructor(
                 null
             }
 
+        val webRemixClient = clientForWebFallback()
         val webRemixResult =
             tryClientForStream(
                 trackId = normalizedId,
-                client = clientForWebFallback(),
+                client = webRemixClient,
                 signatureTimestamp = sigTs,
                 authState = playbackAuth,
                 setLogin = useLoginContext,
                 requireDirectUrl = false,
                 quality = quality,
             )
-        if (webRemixResult.isSuccess) return webRemixResult
+        if (webRemixResult.isSuccess) {
+            lastSuccessfulClient = webRemixClient
+            webRemixResult.getOrNull()?.let { src ->
+                synchronized(streamCacheLock) {
+                    streamSourceCache[cacheKey] = src
+                }
+            }
+            return webRemixResult
+        }
         lastFailureReason = webRemixResult.exceptionOrNull()?.message ?: lastFailureReason
 
         return Result.failure(
