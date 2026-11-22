@@ -153,7 +153,7 @@ object AlunaraDimens {
     val RailExpandedWidth = 216.dp
     val RailItemHeight = 48.dp
     val ControlHeight = 48.dp
-    val QueueActionButtonSize = 34.dp
+    val QueueActionButtonSize = 40.dp
     val SongRowHeight = 60.dp
     val MiniPlayerHeight = 68.dp
     val CardWidth = 152.dp

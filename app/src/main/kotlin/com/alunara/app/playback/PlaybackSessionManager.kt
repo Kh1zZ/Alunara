@@ -1286,9 +1286,10 @@ class PlaybackSessionManager(
                             pos,
                             currentState.lyricsSyncOffsetMs,
                         )
+                    // Only emit UI state snapshots when discrete state changes (active lyric line or duration);
+                    // 1 Hz playback progress flows solely through positionMsFlow so screens never recompose every second.
                     if (
                         newActiveIndex != currentState.activeLyricIndex ||
-                        (pos / 1_000L) != (currentState.positionMs / 1_000L) ||
                         dur != currentState.durationMs
                     ) {
                         mutableUiState.update { state ->

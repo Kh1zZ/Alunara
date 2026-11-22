@@ -6,16 +6,6 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -49,11 +39,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -187,6 +180,9 @@ private fun AlunaraTvApp(
     var railFocused by remember { mutableStateOf(false) }
     val railHomeFocusRequester = remember { FocusRequester() }
     val browsePaneFocusRequester = remember { FocusRequester() }
+    val headerSearchRequester = remember { FocusRequester() }
+    val miniPlayerPlayPauseRequester = remember { FocusRequester() }
+    val saveableStateHolder = rememberSaveableStateHolder()
     var focusRestoreTick by remember { mutableIntStateOf(0) }
     var searchFocusTick by remember { mutableIntStateOf(0) }
 
@@ -414,13 +410,7 @@ private fun AlunaraTvApp(
                     }
                 },
     ) {
-        Crossfade(
-            targetState = currentDestination == TvDestination.NOW_PLAYING,
-            animationSpec = tween(durationMillis = prefs.navAnimMs, easing = FastOutSlowInEasing),
-            modifier = Modifier.fillMaxSize(),
-            label = "root_destination",
-        ) { isNowPlaying ->
-        if (isNowPlaying) {
+        if (currentDestination == TvDestination.NOW_PLAYING) {
             NowPlayingScreen(
                 sessionState = sessionState,
                 positionMsFlow = sessionManager.positionMsFlow,
@@ -443,13 +433,13 @@ private fun AlunaraTvApp(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            val browseDest = if (currentDestination == TvDestination.NOW_PLAYING) lastBrowseDestination else currentDestination
+            val browseDest = lastBrowseDestination
             val activeCatalogTarget = catalogStack.lastOrNull()
             val showHeaderSearchBar =
                 activeCatalogTarget != null ||
                     browseDest == TvDestination.HOME ||
                     browseDest == TvDestination.LIBRARY
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
                 // Content reserves constant collapsed rail margin so expanding the overlay rail never shifts layout
                 Column(
                     modifier =
@@ -464,6 +454,7 @@ private fun AlunaraTvApp(
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
+                                    .focusRequester(headerSearchRequester)
                                     .padding(
                                         start = 28.dp,
                                         end = AlunaraDimens.OverscanHorizontal,
@@ -472,13 +463,19 @@ private fun AlunaraTvApp(
                                     ),
                         )
                     }
-                    Crossfade(
-                        targetState = activeCatalogTarget ?: browseDest,
-                        animationSpec = tween(durationMillis = prefs.focusAnimMs),
+                    val paneTarget: Any = activeCatalogTarget ?: browseDest
+                    val paneStateKey =
+                        when (paneTarget) {
+                            is CatalogTarget -> "catalog:${paneTarget}"
+                            is TvDestination -> "dest:${paneTarget.name}"
+                            else -> "other"
+                        }
+                    Box(
                         modifier =
                             Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
+                                .background(colors.background)
                                 .focusRequester(browsePaneFocusRequester)
                                 .focusGroup()
                                 .padding(
@@ -487,113 +484,114 @@ private fun AlunaraTvApp(
                                     top = if (showHeaderSearchBar) 8.dp else AlunaraDimens.OverscanVertical,
                                     bottom = AlunaraDimens.OverscanVertical,
                                 ),
-                        label = "browse_tab",
-                    ) { paneTarget ->
-                        when (paneTarget) {
-                            is CatalogTarget ->
-                                CatalogDetailScreen(
-                                    target = paneTarget,
-                                    musicEngine = musicEngine,
-                                    activeTrackId = sessionState.currentTrack?.id,
-                                    onBack = { catalogStack = catalogStack.dropLast(1) },
-                                    onPlayTracks = { tracks, idx ->
-                                        sessionManager.playTracks(tracks, idx)
-                                        openNowPlaying()
-                                    },
-                                    onEnqueueTrack = { track -> sessionManager.enqueue(track) },
-                                    onEnqueueAll = { tracks -> sessionManager.enqueueAll(tracks) },
-                                    onStartRadio = { seed ->
-                                        sessionManager.startRadio(seed)
-                                        openNowPlaying()
-                                    },
-                                    onOpenAlbum = { album -> openAlbumTarget(album) },
-                                    onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
-                                )
+                    ) {
+                        saveableStateHolder.SaveableStateProvider(key = paneStateKey) {
+                            when (paneTarget) {
+                                is CatalogTarget ->
+                                    CatalogDetailScreen(
+                                        target = paneTarget,
+                                        musicEngine = musicEngine,
+                                        activeTrackId = sessionState.currentTrack?.id,
+                                        onBack = { catalogStack = catalogStack.dropLast(1) },
+                                        onPlayTracks = { tracks, idx ->
+                                            sessionManager.playTracks(tracks, idx)
+                                            openNowPlaying()
+                                        },
+                                        onEnqueueTrack = { track -> sessionManager.enqueue(track) },
+                                        onEnqueueAll = { tracks -> sessionManager.enqueueAll(tracks) },
+                                        onStartRadio = { seed ->
+                                            sessionManager.startRadio(seed)
+                                            openNowPlaying()
+                                        },
+                                        onOpenAlbum = { album -> openAlbumTarget(album) },
+                                        onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
+                                    )
 
-                            TvDestination.HOME ->
-                                HomeScreen(
-                                    sections = homeSections,
-                                    isLoading = homeLoading,
-                                    errorMessage = homeError,
-                                    resumeTrack = sessionState.currentTrack,
-                                    recentHistory = mergedHistory,
-                                    favorites = mergedFavorites,
-                                    authSession = sessionState.authSession,
-                                    onRetry = { loadHome(force = true) },
-                                    onContinueQueue = { openNowPlaying() },
-                                    onPlaySongFromSection = { songs, idx ->
-                                        sessionManager.playTracks(songs, idx)
-                                        openNowPlaying()
-                                    },
-                                    onOpenAlbum = { album -> openAlbumTarget(album) },
-                                    onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
-                                )
+                                TvDestination.HOME ->
+                                    HomeScreen(
+                                        sections = homeSections,
+                                        isLoading = homeLoading,
+                                        errorMessage = homeError,
+                                        resumeTrack = sessionState.currentTrack,
+                                        recentHistory = mergedHistory,
+                                        favorites = mergedFavorites,
+                                        authSession = sessionState.authSession,
+                                        onRetry = { loadHome(force = true) },
+                                        onContinueQueue = { openNowPlaying() },
+                                        onPlaySongFromSection = { songs, idx ->
+                                            sessionManager.playTracks(songs, idx)
+                                            openNowPlaying()
+                                        },
+                                        onOpenAlbum = { album -> openAlbumTarget(album) },
+                                        onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
+                                    )
 
-                            TvDestination.SEARCH ->
-                                SearchScreen(
-                                    query = searchQuery,
-                                    results = searchResults,
-                                    isLoading = searchLoading,
-                                    errorMessage = searchError,
-                                    activeTrackId = sessionState.currentTrack?.id,
-                                    onQueryChange = { searchQuery = it },
-                                    onSubmitSearch = { executeSearch() },
-                                    onPlaySong = { songs, idx ->
-                                        sessionManager.playTracks(songs, idx)
-                                        openNowPlaying()
-                                    },
-                                    onEnqueueSong = { track -> sessionManager.enqueue(track) },
-                                    onOpenAlbum = { album -> openAlbumTarget(album) },
-                                    onOpenArtist = { artist -> openArtistTarget(artist) },
-                                    onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
-                                    requestInputFocusTick = searchFocusTick,
-                                )
+                                TvDestination.SEARCH ->
+                                    SearchScreen(
+                                        query = searchQuery,
+                                        results = searchResults,
+                                        isLoading = searchLoading,
+                                        errorMessage = searchError,
+                                        activeTrackId = sessionState.currentTrack?.id,
+                                        onQueryChange = { searchQuery = it },
+                                        onSubmitSearch = { executeSearch() },
+                                        onPlaySong = { songs, idx ->
+                                            sessionManager.playTracks(songs, idx)
+                                            openNowPlaying()
+                                        },
+                                        onEnqueueSong = { track -> sessionManager.enqueue(track) },
+                                        onOpenAlbum = { album -> openAlbumTarget(album) },
+                                        onOpenArtist = { artist -> openArtistTarget(artist) },
+                                        onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
+                                        requestInputFocusTick = searchFocusTick,
+                                    )
 
-                            TvDestination.LIBRARY ->
-                                LibraryScreen(
-                                    favorites = mergedFavorites,
-                                    recentHistory = mergedHistory,
-                                    localHistoryCount = sessionState.recentHistory.size,
-                                    accountPlaylists = sessionState.accountPlaylists,
-                                    authSession = sessionState.authSession,
-                                    librarySyncing = sessionState.librarySyncing,
-                                    activeTrackId = sessionState.currentTrack?.id,
-                                    onPlayTracks = { tracks, idx ->
-                                        sessionManager.playTracks(tracks, idx)
-                                        openNowPlaying()
-                                    },
-                                    onEnqueueTrack = { track -> sessionManager.enqueue(track) },
-                                    onToggleFavorite = { track -> sessionManager.toggleFavorite(track) },
-                                    onClearHistory = { sessionManager.clearHistory() },
-                                    onRefreshLibrary = { sessionManager.refreshAccountLibrary() },
-                                    onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
-                                    onOpenWebViewLogin = { showWebViewLogin = true },
-                                    onNavigateToSearch = { openHeaderSearch(TvDestination.LIBRARY) },
-                                    onNavigateToSettings = {
-                                        catalogStack = emptyList()
-                                        lastBrowseDestination = TvDestination.SETTINGS
-                                        currentDestination = TvDestination.SETTINGS
-                                    },
-                                )
+                                TvDestination.LIBRARY ->
+                                    LibraryScreen(
+                                        favorites = mergedFavorites,
+                                        recentHistory = mergedHistory,
+                                        localHistoryCount = sessionState.recentHistory.size,
+                                        accountPlaylists = sessionState.accountPlaylists,
+                                        authSession = sessionState.authSession,
+                                        librarySyncing = sessionState.librarySyncing,
+                                        activeTrackId = sessionState.currentTrack?.id,
+                                        onPlayTracks = { tracks, idx ->
+                                            sessionManager.playTracks(tracks, idx)
+                                            openNowPlaying()
+                                        },
+                                        onEnqueueTrack = { track -> sessionManager.enqueue(track) },
+                                        onToggleFavorite = { track -> sessionManager.toggleFavorite(track) },
+                                        onClearHistory = { sessionManager.clearHistory() },
+                                        onRefreshLibrary = { sessionManager.refreshAccountLibrary() },
+                                        onOpenPlaylist = { playlist -> openPlaylistTarget(playlist) },
+                                        onOpenWebViewLogin = { showWebViewLogin = true },
+                                        onNavigateToSearch = { openHeaderSearch(TvDestination.LIBRARY) },
+                                        onNavigateToSettings = {
+                                            catalogStack = emptyList()
+                                            lastBrowseDestination = TvDestination.SETTINGS
+                                            currentDestination = TvDestination.SETTINGS
+                                        },
+                                    )
 
-                            TvDestination.SETTINGS ->
-                                SettingsScreen(
-                                    autoplayEnabled = sessionState.queueState.autoplayEnabled,
-                                    authSession = sessionState.authSession,
-                                    authLoading = sessionState.authLoading,
-                                    authErrorMessage = sessionState.authErrorMessage,
-                                    onToggleAutoplay = {
-                                        sessionManager.setAutoplay(!sessionState.queueState.autoplayEnabled)
-                                    },
-                                    onOpenWebViewLogin = { showWebViewLogin = true },
-                                    onLogout = { sessionManager.logoutAccount() },
-                                    audioQuality = sessionState.audioQuality,
-                                    onSelectAudioQuality = { preset -> sessionManager.setAudioQuality(preset) },
-                                    displayPrefs = displayPrefs,
-                                    onUpdateDisplayPrefs = onUpdateDisplayPrefs,
-                                )
+                                TvDestination.SETTINGS ->
+                                    SettingsScreen(
+                                        autoplayEnabled = sessionState.queueState.autoplayEnabled,
+                                        authSession = sessionState.authSession,
+                                        authLoading = sessionState.authLoading,
+                                        authErrorMessage = sessionState.authErrorMessage,
+                                        onToggleAutoplay = {
+                                            sessionManager.setAutoplay(!sessionState.queueState.autoplayEnabled)
+                                        },
+                                        onOpenWebViewLogin = { showWebViewLogin = true },
+                                        onLogout = { sessionManager.logoutAccount() },
+                                        audioQuality = sessionState.audioQuality,
+                                        onSelectAudioQuality = { preset -> sessionManager.setAudioQuality(preset) },
+                                        displayPrefs = displayPrefs,
+                                        onUpdateDisplayPrefs = onUpdateDisplayPrefs,
+                                    )
 
-                            TvDestination.NOW_PLAYING -> Unit
+                                TvDestination.NOW_PLAYING -> Unit
+                            }
                         }
                     }
 
@@ -601,6 +599,7 @@ private fun AlunaraTvApp(
                         DockedMiniPlayer(
                             sessionState = sessionState,
                             positionMsFlow = sessionManager.positionMsFlow,
+                            playPauseFocusRequester = miniPlayerPlayPauseRequester,
                             onTogglePlayPause = { sessionManager.togglePlayPause() },
                             onOpenNowPlaying = { openNowPlaying() },
                         )
@@ -611,6 +610,7 @@ private fun AlunaraTvApp(
                     selected = browseDest,
                     expanded = railFocused,
                     firstItemRequester = railHomeFocusRequester,
+                    contentFocusRequester = browsePaneFocusRequester,
                     onRailFocusChanged = { railFocused = it },
                     onSelect = { dest ->
                         catalogStack = emptyList()
@@ -620,7 +620,6 @@ private fun AlunaraTvApp(
                 )
             }
         }
-    }
 
         if (showWebViewLogin) {
             YouTubeWebViewLoginScreen(
@@ -640,16 +639,13 @@ private fun CollapsibleNavigationRail(
     selected: TvDestination,
     expanded: Boolean,
     firstItemRequester: FocusRequester,
+    contentFocusRequester: FocusRequester,
     onRailFocusChanged: (Boolean) -> Unit,
     onSelect: (TvDestination) -> Unit,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
-    val railWidth by animateDpAsState(
-        targetValue = if (expanded) AlunaraDimens.RailExpandedWidth else AlunaraDimens.RailCollapsedWidth,
-        animationSpec = tween(durationMillis = prefs.navAnimMs, easing = FastOutSlowInEasing),
-        label = "rail_width",
-    )
+    val railWidth = if (expanded) AlunaraDimens.RailExpandedWidth else AlunaraDimens.RailCollapsedWidth
 
     Row(modifier = Modifier.fillMaxHeight()) {
         Column(
@@ -657,6 +653,7 @@ private fun CollapsibleNavigationRail(
                 Modifier
                     .width(railWidth)
                     .fillMaxHeight()
+                    .clipToBounds()
                     .background(colors.surface)
                     .padding(horizontal = 12.dp, vertical = 18.dp)
                     .onFocusChanged { onRailFocusChanged(it.hasFocus) },
@@ -677,21 +674,15 @@ private fun CollapsibleNavigationRail(
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.size(26.dp),
                 )
-                AnimatedVisibility(
-                    visible = expanded,
-                    enter = fadeIn(tween(prefs.focusAnimMs)) + expandHorizontally(tween(prefs.navAnimMs)),
-                    exit = fadeOut(tween(prefs.focusAnimMs)) + shrinkHorizontally(tween(prefs.navAnimMs)),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = stringResource(R.string.app_name),
-                            color = colors.primaryText,
-                            fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                        )
-                    }
+                if (expanded) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = stringResource(R.string.app_name),
+                        color = colors.primaryText,
+                        fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
                 }
             }
 
@@ -719,6 +710,8 @@ private fun CollapsibleNavigationRail(
                         ),
                     selected = selected == dest,
                     expanded = expanded,
+                    railAlreadyFocused = expanded,
+                    rightFocusRequester = contentFocusRequester,
                     modifier = if (index == 0) Modifier.focusRequester(firstItemRequester) else Modifier,
                     onClick = { onSelect(dest) },
                 )
@@ -740,6 +733,8 @@ private fun RailItem(
     label: String,
     selected: Boolean,
     expanded: Boolean,
+    railAlreadyFocused: Boolean,
+    rightFocusRequester: FocusRequester,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -747,49 +742,49 @@ private fun RailItem(
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
-    val bgColor by animateColorAsState(
-        targetValue =
-            when {
-                focused -> colors.focusedButtonBg
-                selected -> colors.secondarySurface
-                else -> Color.Transparent
-            },
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "rail_item_bg",
-    )
-    val borderColor by animateColorAsState(
-        targetValue =
-            when {
-                focused -> colors.focusRingStrong
-                selected -> colors.primaryAccent.copy(alpha = 0.55f)
-                else -> Color.Transparent
-            },
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "rail_item_border",
-    )
-    val tintColor by animateColorAsState(
-        targetValue =
-            when {
-                focused -> colors.focusedButtonContent
-                selected -> colors.primaryAccent
-                else -> colors.mutedText
-            },
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "rail_item_tint",
-    )
+    val bgColor =
+        when {
+            focused -> colors.focusedButtonBg
+            selected -> colors.secondarySurface
+            else -> Color.Transparent
+        }
+    val borderColor =
+        when {
+            focused -> colors.focusRingStrong
+            selected -> colors.primaryAccent.copy(alpha = 0.55f)
+            else -> Color.Transparent
+        }
+    val tintColor =
+        when {
+            focused -> colors.focusedButtonContent
+            selected -> colors.primaryAccent
+            else -> colors.mutedText
+        }
 
     Row(
         modifier =
             modifier
                 .fillMaxWidth()
                 .height(AlunaraDimens.RailItemHeight)
+                .focusProperties { right = rightFocusRequester }
                 .background(bgColor, shape)
-                .border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                .then(
+                    if (borderColor != Color.Transparent) {
+                        Modifier.border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                    } else {
+                        Modifier
+                    },
+                )
                 .semantics {
                     role = Role.Tab
                     this.selected = selected
                 }
-                .onFocusChanged { focused = it.isFocused }
+                .onFocusChanged { focusState ->
+                    focused = focusState.isFocused
+                    if (focusState.isFocused && railAlreadyFocused && !selected) {
+                        onClick()
+                    }
+                }
                 .clickable(onClick = onClick)
                 .padding(horizontal = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -800,22 +795,16 @@ private fun RailItem(
             tint = tintColor,
             modifier = Modifier.size(22.dp),
         )
-        AnimatedVisibility(
-            visible = expanded,
-            enter = fadeIn(tween(prefs.focusAnimMs)) + expandHorizontally(tween(prefs.navAnimMs)),
-            exit = fadeOut(tween(prefs.focusAnimMs)) + shrinkHorizontally(tween(prefs.navAnimMs)),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Spacer(modifier = Modifier.width(14.dp))
-                Text(
-                    text = label,
-                    color = if (focused) colors.focusedButtonContent else colors.primaryText,
-                    fontSize = AlunaraTypography.rowTitle(prefs.textScale),
-                    fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+        if (expanded) {
+            Spacer(modifier = Modifier.width(14.dp))
+            Text(
+                text = label,
+                color = if (focused) colors.focusedButtonContent else colors.primaryText,
+                fontSize = AlunaraTypography.rowTitle(prefs.textScale),
+                fontWeight = if (selected || focused) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -830,16 +819,8 @@ private fun TvHeaderSearchBar(
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
-    val bgColor by animateColorAsState(
-        targetValue = if (focused) colors.focusedButtonBg else colors.surface,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "header_search_bg",
-    )
-    val borderColor by animateColorAsState(
-        targetValue = if (focused) colors.focusRingStrong else colors.secondarySurface,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "header_search_border",
-    )
+    val bgColor = if (focused) colors.focusedButtonBg else colors.surface
+    val borderColor = if (focused) colors.focusRingStrong else colors.secondarySurface
     val iconTint = if (focused) colors.focusedButtonContent else colors.primaryAccent
     val textColor =
         when {

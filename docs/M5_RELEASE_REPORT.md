@@ -57,3 +57,31 @@ Installed `app-release.apk` (`21,837,216` bytes / `20.83 MiB`, `versionCode=2`, 
   - Dual-line Japanese Romaji rendered naturally (`Romaji: AKTIF`, e.g., `hitahita koboreru akai akai sabiiro` / `ひたひた零れる 赤い赤い錆色`, `watashi wa susuketa buriki no hito` / `わたしは煤けたブリキのひと`, `karappo no shintai ni` / `空っぽの身体に`), confirming R8 preserved all `@Serializable` models and Kuromoji `.bin` dictionaries.
   - Active Playback PSS: **`92,605 KB` (`~90.43 MiB`)** (`Dalvik Heap: 8,814 KB`, `Native Heap: 16,579 KB`, `.apk mmap: 6,123 KB`, `Code: 12,396 KB`, `Graphics: 24,084 KB`) — down from `130,406 KB` (`~127.35 MiB`) in M4.2 Debug.
   - Graphics (`dumpsys gfxinfo com.alunara.app` over 10s idle listening): `23` total frames rendered, `50th gpu percentile: 19ms`, `99th gpu percentile: 21ms`, `50th UI/total percentile: 109ms` (`0` errors in `logcat -d -s AndroidRuntime:E AlunaraPlayback:E`).
+
+---
+
+## 5. Milestone M5.1 — Sidebar Black-Blink Fix, D-Pad Right Focus Bridges, 60 FPS Optimization & Smart QR Login Wizard (`0.1.0-beta.2`)
+
+1. **Instant Sidebar Tab Switching & Auto-Switch (`MainActivity.kt`):**
+   - Removed root `Crossfade` (`root_destination`) and per-tab `Crossfade` (`browse_tab`) so switching between `Beranda`, `Koleksi`, and `Pengaturan` transitions immediately on solid background (`#101813`) without black blinking.
+   - Wrapped tab panes with `rememberSaveableStateHolder()` to preserve scroll state across tabs, replaced 4× `AnimatedVisibility(expandHorizontally)` in `CollapsibleNavigationRail` with clipped width layout + conditional expanded labels, and enabled auto-switching when navigating Up/Down inside the focused rail (`railAlreadyFocused`).
+
+2. **D-Pad Right-Side Focus Bridges (`MainActivity.kt`, `NowPlayingScreen.kt`, `LibraryScreen.kt`, `TvComponents.kt`):**
+   - **Now Playing:** Linked `SeekableProgressBar` (`up = lyricsTabRequester`), transport `Radio` button (`right = lyricsTabRequester`), top right tabs (`Lirik`, `Antrean`, `Romaji`), lyric sync controls (`-`, `+`, `Reset`, `Ganti sumber`), and `NowPlayingQueuePanel` refresh control so pressing D-pad Right/Up reaches right-side buttons directly and D-pad Left returns to transport controls.
+   - **Library / Lists / Mini Player:** Added `topRightActionRequester` in `LibraryScreen`, explicit `right`/`left` focus bridges between track rows and secondary right-side buttons (`+ Antrean` / `Hapus`) in `TvSongRow`, and between `Play/Pause` ↔ `Sedang Diputar` in `DockedMiniPlayer`. Raised `AlunaraDimens.QueueActionButtonSize` from `34.dp` to `40.dp`.
+
+3. **Compose 60 FPS Optimization for 1 GB RAM TV (`PlaybackSessionManager.kt`, `compose-stability.conf`, `TvArtwork`, `AlunaraApplication.kt`):**
+   - Eliminated 1 Hz `mutableUiState` emissions in `PlaybackSessionManager.startTickerIfNeeded()` (progress updates flow exclusively via `positionMsFlow`, collected locally by `SeekableProgressBar` and `MiniPlayerProgressStrip`).
+   - Added `app/compose-stability.conf` (`com.alunara.core.domain.model.**`, `policy.**`, `media.**`, `PlaybackSessionUiState`, collections) to make Compose screens and rows skippable.
+   - Fixed `TvArtwork` decode sizing bug (`coerceAtLeast(tier.maxPx)` -> `coerceIn(64, tier.maxPx)`), disabled per-item list crossfade, enabled `allowRgb565(true)` in `AlunaraApplication`, and removed per-card `animateColorAsState` + translucent `alpha = 0.72f` backgrounds across cards, rows, buttons, `HomeScreen`, `LibraryScreen`, `SettingsScreen`, and `CatalogDetailScreen` (using theme tokens via `LocalAlunaraColors.current`).
+
+4. **Smart QR Login Companion Wizard & InnerTube Clarification (`YouTubeWebViewLoginScreen.kt`, `LocalLoginCompanionServer.kt`, `strings.xml`):**
+   - Audited `third_party/core/InnerTube.kt`: SmartTube's OAuth TV code flow (`TVHTML5`) cannot authenticate `https://music.youtube.com/youtubei/v1/` (`WEB_REMIX`), which strictly requires Google Web session cookies (`SAPISID` / `__Secure-3PAPISID`) + `SAPISIDHASH`.
+   - Upgraded `LocalLoginCompanionServer` with `GET /status?t=<token>`, live 4-step phone progress wizard (`1. Email` -> `2. Sandi` -> `3. 2FA` -> `4. Masuk`), clear SmartTube distinction explanation, AJAX remote TV D-pad controls (`▲`, `▼`, `⏎`, `↻`), and an optional **Paste Cookie** accordion, paired with JS step detection and focusable D-pad helper controls (`Fokus Kolom`, `Klik Lanjut`, `Muat Ulang`) on the TV right pane.
+
+5. **M5.1 Automated Build & Test Gate (`versionCode = 3`, `versionName = "0.1.0-beta.2"`):**
+   - **Unit Tests:** **`82 / 82` passed across `19` suites** (`0` failed, `0` skipped), including 3 new JVM tests in `LocalLoginCompanionServerTest`.
+   - **Android Lint:** Passed (`:app:lintDebug` `exit 0`; `0` lint issues on modified Kotlin/Gradle sources, `8` pre-existing `UnusedResources` and `4` `PrivateResource` warnings on `strings.xml` baseline).
+   - **APKs & Signing (`apksigner verify` `exit 0`, Scheme v3 `CN=Alunara Android TV`, RSA 4096-bit):**
+     - `app-debug.apk`: `93,469,004` bytes (`89.14 MiB`)
+     - `app-release.apk` (R8 + Resource Shrunk + Production Signed): **`21,867,926` bytes (`20.85 MiB`)**

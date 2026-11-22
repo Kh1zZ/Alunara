@@ -4,8 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -231,13 +230,12 @@ fun TvArtwork(
     circular: Boolean = false,
 ) {
     val colors = LocalAlunaraColors.current
-    val prefs = LocalAlunaraDisplayPrefs.current
     val context = LocalContext.current
     val tier = if (size >= 110.dp) ArtworkTier.CARD else ArtworkTier.THUMBNAIL
     val resolvedUrl = remember(url, tier) { ArtworkUrlResolver.resolve(url, tier) }
     var useFallbackOriginal by remember(url, tier) { mutableStateOf(false) }
     val activeUrl = if (useFallbackOriginal && !url.isNullOrBlank()) url else resolvedUrl
-    val pxSize = with(LocalDensity.current) { size.toPx().roundToInt().coerceAtLeast(tier.maxPx) }
+    val pxSize = with(LocalDensity.current) { size.toPx().roundToInt().coerceIn(64, tier.maxPx) }
     val shape: Shape = if (circular) CircleShape else RoundedCornerShape(10.dp)
 
     Box(
@@ -250,12 +248,12 @@ fun TvArtwork(
     ) {
         if (!activeUrl.isNullOrBlank()) {
             val request =
-                remember(activeUrl, pxSize, prefs.reduceMotion) {
+                remember(activeUrl, pxSize) {
                     ImageRequest
                         .Builder(context)
                         .data(activeUrl)
                         .size(pxSize)
-                        .crossfade(!prefs.reduceMotion)
+                        .crossfade(false)
                         .build()
                 }
             AsyncImage(
@@ -293,38 +291,26 @@ fun TvFocusableButton(
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
-    val bgColor by animateColorAsState(
-        targetValue =
-            when {
-                !enabled -> colors.surface.copy(alpha = 0.45f)
-                focused -> colors.focusedButtonBg
-                highlighted -> colors.secondarySurface
-                else -> colors.surface
-            },
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "btn_bg",
-    )
-    val contentColor by animateColorAsState(
-        targetValue =
-            when {
-                !enabled -> colors.dimmedLyrics
-                focused -> colors.focusedButtonContent
-                highlighted -> colors.primaryAccent
-                else -> colors.primaryText
-            },
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "btn_fg",
-    )
-    val borderColor by animateColorAsState(
-        targetValue =
-            when {
-                focused -> colors.focusRingStrong
-                highlighted -> colors.primaryAccent.copy(alpha = 0.65f)
-                else -> colors.secondarySurface
-            },
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "btn_border",
-    )
+    val bgColor =
+        when {
+            !enabled -> colors.surface.copy(alpha = 0.45f)
+            focused -> colors.focusedButtonBg
+            highlighted -> colors.secondarySurface
+            else -> colors.surface
+        }
+    val contentColor =
+        when {
+            !enabled -> colors.dimmedLyrics
+            focused -> colors.focusedButtonContent
+            highlighted -> colors.primaryAccent
+            else -> colors.primaryText
+        }
+    val borderColor =
+        when {
+            focused -> colors.focusRingStrong
+            highlighted -> colors.primaryAccent.copy(alpha = 0.65f)
+            else -> colors.secondarySurface
+        }
 
     Row(
         modifier =
@@ -373,40 +359,27 @@ fun TvIconButton(
     enabled: Boolean = true,
 ) {
     val colors = LocalAlunaraColors.current
-    val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
-    val bgColor by animateColorAsState(
-        targetValue =
-            when {
-                !enabled -> colors.surface.copy(alpha = 0.45f)
-                focused -> colors.focusedButtonBg
-                highlighted -> colors.secondarySurface
-                else -> colors.surface
-            },
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "icon_btn_bg",
-    )
-    val tintColor by animateColorAsState(
-        targetValue =
-            when {
-                !enabled -> colors.dimmedLyrics
-                focused -> colors.focusedButtonContent
-                highlighted -> colors.primaryAccent
-                else -> colors.primaryText
-            },
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "icon_btn_tint",
-    )
-    val borderColor by animateColorAsState(
-        targetValue =
-            when {
-                focused -> colors.focusRingStrong
-                highlighted -> colors.primaryAccent.copy(alpha = 0.65f)
-                else -> colors.secondarySurface
-            },
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "icon_btn_border",
-    )
+    val bgColor =
+        when {
+            !enabled -> colors.surface.copy(alpha = 0.45f)
+            focused -> colors.focusedButtonBg
+            highlighted -> colors.secondarySurface
+            else -> colors.surface
+        }
+    val tintColor =
+        when {
+            !enabled -> colors.dimmedLyrics
+            focused -> colors.focusedButtonContent
+            highlighted -> colors.primaryAccent
+            else -> colors.primaryText
+        }
+    val borderColor =
+        when {
+            focused -> colors.focusRingStrong
+            highlighted -> colors.primaryAccent.copy(alpha = 0.65f)
+            else -> colors.secondarySurface
+        }
 
     Box(
         modifier =
@@ -445,27 +418,22 @@ fun TvSongRow(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var rowFocused by remember { mutableStateOf(false) }
+    val hasSecondary = secondaryActionLabel != null && onSecondaryClick != null
+    val mainRowRequester = remember { FocusRequester() }
+    val secondaryActionRequester = remember { FocusRequester() }
     val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
-    val bgColor by animateColorAsState(
-        targetValue =
-            when {
-                rowFocused -> colors.focusedCardSurface
-                isActive -> colors.secondarySurface
-                else -> colors.surface.copy(alpha = 0.72f)
-            },
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "row_bg",
-    )
-    val borderColor by animateColorAsState(
-        targetValue =
-            when {
-                rowFocused -> colors.focusRingStrong
-                isActive -> colors.primaryAccent.copy(alpha = 0.55f)
-                else -> Color.Transparent
-            },
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "row_border",
-    )
+    val bgColor =
+        when {
+            rowFocused -> colors.focusedCardSurface
+            isActive -> colors.secondarySurface
+            else -> colors.surface
+        }
+    val borderColor =
+        when {
+            rowFocused -> colors.focusRingStrong
+            isActive -> colors.primaryAccent.copy(alpha = 0.55f)
+            else -> Color.Transparent
+        }
 
     Row(
         modifier = modifier.fillMaxWidth().heightIn(min = AlunaraDimens.SongRowHeight),
@@ -477,8 +445,22 @@ fun TvSongRow(
                 Modifier
                     .weight(1f)
                     .heightIn(min = AlunaraDimens.SongRowHeight)
+                    .focusRequester(mainRowRequester)
+                    .then(
+                        if (hasSecondary) {
+                            Modifier.focusProperties { right = secondaryActionRequester }
+                        } else {
+                            Modifier
+                        },
+                    )
                     .background(bgColor, shape)
-                    .border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                    .then(
+                        if (borderColor != Color.Transparent) {
+                            Modifier.border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                        } else {
+                            Modifier
+                        },
+                    )
                     .semantics {
                         role = Role.Button
                         selected = isActive
@@ -524,11 +506,15 @@ fun TvSongRow(
             }
         }
 
-        if (secondaryActionLabel != null && onSecondaryClick != null) {
+        if (hasSecondary) {
             TvFocusableButton(
-                text = secondaryActionLabel,
+                text = secondaryActionLabel!!,
                 icon = secondaryActionIcon,
-                onClick = onSecondaryClick,
+                onClick = onSecondaryClick!!,
+                modifier =
+                    Modifier
+                        .focusRequester(secondaryActionRequester)
+                        .focusProperties { left = mainRowRequester },
             )
         }
     }
@@ -547,16 +533,8 @@ fun TvMediaCard(
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(AlunaraDimens.RadiusCard)
-    val bgColor by animateColorAsState(
-        targetValue = if (focused) colors.focusedCardSurface else colors.surface.copy(alpha = 0.72f),
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "card_bg",
-    )
-    val borderColor by animateColorAsState(
-        targetValue = if (focused) colors.focusRingStrong else Color.Transparent,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "card_border",
-    )
+    val bgColor = if (focused) colors.focusedCardSurface else colors.surface
+    val borderColor = if (focused) colors.focusRingStrong else Color.Transparent
 
     Column(
         modifier =
@@ -564,7 +542,13 @@ fun TvMediaCard(
                 .width(AlunaraDimens.CardWidth)
                 .heightIn(min = AlunaraDimens.CardHeight)
                 .background(bgColor, shape)
-                .border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                .then(
+                    if (borderColor != Color.Transparent) {
+                        Modifier.border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
+                    } else {
+                        Modifier
+                    },
+                )
                 .semantics { role = Role.Button }
                 .onFocusChanged { focused = it.isFocused }
                 .clickable(onClick = onClick)
@@ -710,6 +694,7 @@ fun DockedMiniPlayer(
     onOpenNowPlaying: () -> Unit,
     modifier: Modifier = Modifier,
     positionMsFlow: StateFlow<Long>? = null,
+    playPauseFocusRequester: FocusRequester? = null,
 ) {
     val track = sessionState.currentTrack ?: return
     DockedMiniPlayerContent(
@@ -721,6 +706,7 @@ fun DockedMiniPlayer(
         positionMsFlow = positionMsFlow,
         onTogglePlayPause = onTogglePlayPause,
         onOpenNowPlaying = onOpenNowPlaying,
+        playPauseFocusRequester = playPauseFocusRequester,
         modifier = modifier,
     )
 }
@@ -735,10 +721,13 @@ private fun DockedMiniPlayerContent(
     positionMsFlow: StateFlow<Long>?,
     onTogglePlayPause: () -> Unit,
     onOpenNowPlaying: () -> Unit,
+    playPauseFocusRequester: FocusRequester?,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
+    val playPauseRequester = playPauseFocusRequester ?: remember { FocusRequester() }
+    val openNowPlayingRequester = remember { FocusRequester() }
     val statusText =
         when (status) {
             PlaybackStatus.RESOLVING -> stringResource(R.string.status_resolving)
@@ -802,11 +791,19 @@ private fun DockedMiniPlayerContent(
                     },
                 highlighted = true,
                 onClick = onTogglePlayPause,
+                modifier =
+                    Modifier
+                        .focusRequester(playPauseRequester)
+                        .focusProperties { right = openNowPlayingRequester },
             )
             TvFocusableButton(
                 text = stringResource(R.string.open_now_playing),
                 icon = Icons.Rounded.OpenInFull,
                 onClick = onOpenNowPlaying,
+                modifier =
+                    Modifier
+                        .focusRequester(openNowPlayingRequester)
+                        .focusProperties { left = playPauseRequester },
             )
         }
     }

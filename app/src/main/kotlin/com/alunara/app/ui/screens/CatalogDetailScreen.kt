@@ -46,7 +46,7 @@ import com.alunara.app.ui.components.TvSongListSkeleton
 import com.alunara.app.ui.components.TvSongRow
 import com.alunara.app.ui.components.safeRequestFocus
 import com.alunara.app.ui.theme.AlunaraDimens
-import com.alunara.app.ui.theme.AlunaraPalette
+import com.alunara.app.ui.theme.LocalAlunaraColors
 import com.alunara.core.domain.contract.MusicEngine
 import com.alunara.core.domain.model.AlbumDetail
 import com.alunara.core.domain.model.AlbumRef
@@ -236,17 +236,18 @@ fun CatalogDetailScreen(
             }
 
             is CatalogDetailUiState.Error -> {
+                val colors = LocalAlunaraColors.current
                 Column(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .background(AlunaraPalette.ErrorSurface, RoundedCornerShape(AlunaraDimens.RadiusControl))
+                            .background(colors.errorSurface, RoundedCornerShape(AlunaraDimens.RadiusControl))
                             .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text(
                         text = "${stringResource(R.string.catalog_error)} (${state.message})",
-                        color = AlunaraPalette.ErrorText,
+                        color = colors.errorText,
                         fontSize = 14.sp,
                     )
                     TvFocusableButton(
@@ -311,11 +312,12 @@ private fun CatalogActionHeader(
     onStartRadio: () -> Unit,
     onEnqueueAll: () -> Unit,
 ) {
+    val colors = LocalAlunaraColors.current
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(AlunaraPalette.Surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusCard))
+                .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusCard))
                 .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(18.dp),
@@ -332,13 +334,13 @@ private fun CatalogActionHeader(
         ) {
             Text(
                 text = badgeLabel,
-                color = AlunaraPalette.PrimaryAccent,
+                color = colors.primaryAccent,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
                 text = title,
-                color = AlunaraPalette.PrimaryText,
+                color = colors.primaryText,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
@@ -347,7 +349,7 @@ private fun CatalogActionHeader(
             if (subtitle.isNotBlank()) {
                 Text(
                     text = subtitle,
-                    color = AlunaraPalette.MutedText,
+                    color = colors.mutedText,
                     fontSize = 13.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -395,13 +397,14 @@ private fun CatalogTrackList(
     onEnqueueTrack: (Track) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = LocalAlunaraColors.current
     if (tracks.isEmpty()) {
         Box(
             modifier = modifier.fillMaxWidth().padding(vertical = 12.dp),
         ) {
             Text(
                 text = stringResource(R.string.catalog_empty),
-                color = AlunaraPalette.MutedText,
+                color = colors.mutedText,
                 fontSize = 15.sp,
             )
         }
@@ -436,11 +439,12 @@ private fun ArtistDetailContent(
     onOpenPlaylist: (PlaylistSummary) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val colors = LocalAlunaraColors.current
     if (detail.topSongs.isEmpty() && detail.albums.isEmpty() && detail.playlists.isEmpty()) {
         Box(modifier = modifier.fillMaxWidth().padding(vertical = 12.dp)) {
             Text(
                 text = stringResource(R.string.catalog_empty),
-                color = AlunaraPalette.MutedText,
+                color = colors.mutedText,
                 fontSize = 15.sp,
             )
         }
@@ -456,7 +460,7 @@ private fun ArtistDetailContent(
             item {
                 Text(
                     text = stringResource(R.string.catalog_top_songs),
-                    color = AlunaraPalette.PrimaryAccent,
+                    color = colors.primaryAccent,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -478,7 +482,7 @@ private fun ArtistDetailContent(
             item {
                 Text(
                     text = stringResource(R.string.section_albums),
-                    color = AlunaraPalette.PrimaryAccent,
+                    color = colors.primaryAccent,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 6.dp),
@@ -502,7 +506,7 @@ private fun ArtistDetailContent(
             item {
                 Text(
                     text = stringResource(R.string.section_playlists),
-                    color = AlunaraPalette.PrimaryAccent,
+                    color = colors.primaryAccent,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 6.dp),

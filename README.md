@@ -2,8 +2,8 @@
 
 **Alunara** (`com.alunara.app`) is an independent, audio-only YouTube Music client built specifically for entry-level **Android TV** devices running **Android 9 (API 28)+** with **1 GB RAM** (reference hardware: **Changhong L32G7N**).
 
-> **Current Status:** `Milestone M5 — App Signing, R8 Release Optimization & Beta CI/CD (0.1.0-beta.1)`  
-> M5 introduces externalized Android release signing (`keystore.properties` / `ALUNARA_KEYSTORE_*` + `scripts/generate-keystore.ps1`), R8 bytecode minification + resource shrinking + ARM ABI filtering (`armeabi-v7a`, `arm64-v8a`), shrinking the APK from **`89.07 MiB` (Debug)** to **`20.83 MiB` (Release)**, alongside automated GitHub Actions CI & Beta Pre-Release workflows (`.github/workflows/ci.yml`, `.github/workflows/release-beta.yml`). Verified with `79 / 79` unit tests across `18` suites, `0` touched lint issues, and live on physical Changhong `AI PONT` Android 11 TV (`192.168.100.124:5555`: R8 release cold start `1,784 ms`, idle PSS `64.15 MiB`, active dual-line JP Kuromoji + 20% blur PSS `90.43 MiB`, `0` logcat errors); see [docs/M5_RELEASE_REPORT.md](docs/M5_RELEASE_REPORT.md).
+> **Current Status:** `Milestone M5.1 — Instant Tab Switch, D-Pad Right Bridges, 60 FPS Optimization & Smart QR Login Wizard (0.1.0-beta.2)`  
+> M5.1 removes sidebar `Crossfade` black blinking via `SaveableStateHolder` + auto-switching rail focus, adds explicit D-pad right-side focus bridges across Now Playing / Library / song rows / mini player, eliminates 1 Hz full-app recomposition (`compose-stability.conf`, isolated `SeekableProgressBar` `positionMsFlow`, `TvArtwork` `coerceIn`, `RGB_565` Coil decoding, solid cards), and upgrades the LAN QR companion into a real-time 1-2-3 login wizard with remote controls and direct cookie mode alongside externalized RSA 4096-bit release signing and GitHub Actions Beta CI/CD. Verified with `82 / 82` unit tests across `19` suites, `:app:lintDebug`, and Production-Signed R8 APK **`20.85 MiB`** (`21,867,926` bytes); see [docs/M5_RELEASE_REPORT.md](docs/M5_RELEASE_REPORT.md).
 
 ---
 

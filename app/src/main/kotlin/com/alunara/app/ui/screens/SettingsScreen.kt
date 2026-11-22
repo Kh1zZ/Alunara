@@ -108,7 +108,7 @@ fun SettingsScreen(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusControl))
                         .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -172,7 +172,7 @@ fun SettingsScreen(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusControl))
                         .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -217,7 +217,7 @@ fun SettingsScreen(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusControl))
                         .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -337,7 +337,7 @@ fun SettingsScreen(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusControl))
                         .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -382,7 +382,7 @@ private fun SettingsToggleRow(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusControl))
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,

@@ -1,7 +1,5 @@
 package com.alunara.app.ui.screens
 
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -187,7 +185,20 @@ fun NowPlayingScreen(
         return
     }
 
+    val seekBarRequester = remember { FocusRequester() }
+    val prevButtonRequester = remember { FocusRequester() }
     val playButtonRequester = remember { FocusRequester() }
+    val nextButtonRequester = remember { FocusRequester() }
+    val favButtonRequester = remember { FocusRequester() }
+    val radioButtonRequester = remember { FocusRequester() }
+    val lyricsTabRequester = remember { FocusRequester() }
+    val queueTabRequester = remember { FocusRequester() }
+    val romajiTabRequester = remember { FocusRequester() }
+    val syncMinusRequester = remember { FocusRequester() }
+    val syncPlusRequester = remember { FocusRequester() }
+    val syncResetRequester = remember { FocusRequester() }
+    val switchProviderRequester = remember { FocusRequester() }
+    val queueRefreshRequester = remember { FocusRequester() }
     var rightPanelMode by remember { mutableStateOf(NowPlayingRightPanelMode.LYRICS) }
     var lastInteractionMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var isIdleDimmed by remember { mutableStateOf(false) }
@@ -415,12 +426,23 @@ fun NowPlayingScreen(
                 }
 
                 SeekableProgressBar(
-                    positionMs = sessionState.positionMs,
+                    positionMsFlow = positionMsFlow,
+                    fallbackPositionMs = if (positionMsFlow != null) 0L else sessionState.positionMs,
                     durationMs = sessionState.durationMs,
                     onSeekBy = onSeekBy,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .focusRequester(seekBarRequester)
+                            .focusProperties {
+                                up = lyricsTabRequester
+                                down = playButtonRequester
+                                right = lyricsTabRequester
+                            },
                 )
 
+                val prevEnabled = sessionState.queueState.items.isNotEmpty()
+                val nextEnabled = sessionState.queueState.currentIndex < sessionState.queueState.items.lastIndex
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
@@ -432,8 +454,15 @@ fun NowPlayingScreen(
                             contentDescription = stringResource(R.string.action_prev),
                             size = AlunaraDimens.ControlHeight,
                             iconSize = 24.dp,
-                            enabled = sessionState.queueState.items.isNotEmpty(),
+                            enabled = prevEnabled,
                             onClick = onSkipPrevious,
+                            modifier =
+                                Modifier
+                                    .focusRequester(prevButtonRequester)
+                                    .focusProperties {
+                                        up = seekBarRequester
+                                        right = playButtonRequester
+                                    },
                         )
                     }
                     TvIconButton(
@@ -448,7 +477,14 @@ fun NowPlayingScreen(
                         iconSize = 30.dp,
                         highlighted = true,
                         onClick = onTogglePlayPause,
-                        modifier = Modifier.focusRequester(playButtonRequester),
+                        modifier =
+                            Modifier
+                                .focusRequester(playButtonRequester)
+                                .focusProperties {
+                                    up = seekBarRequester
+                                    left = if (prevEnabled) prevButtonRequester else FocusRequester.Default
+                                    right = if (nextEnabled) nextButtonRequester else favButtonRequester
+                                },
                     )
                     IdleDimmableControl(isIdleDimmed = isIdleDimmed) {
                         TvIconButton(
@@ -456,8 +492,16 @@ fun NowPlayingScreen(
                             contentDescription = stringResource(R.string.action_next),
                             size = AlunaraDimens.ControlHeight,
                             iconSize = 24.dp,
-                            enabled = sessionState.queueState.currentIndex < sessionState.queueState.items.lastIndex,
+                            enabled = nextEnabled,
                             onClick = onSkipNext,
+                            modifier =
+                                Modifier
+                                    .focusRequester(nextButtonRequester)
+                                    .focusProperties {
+                                        up = seekBarRequester
+                                        left = playButtonRequester
+                                        right = favButtonRequester
+                                    },
                         )
                     }
                     IdleDimmableControl(isIdleDimmed = isIdleDimmed) {
@@ -473,6 +517,14 @@ fun NowPlayingScreen(
                             iconSize = 22.dp,
                             highlighted = sessionState.isCurrentTrackFavorite,
                             onClick = onToggleFavorite,
+                            modifier =
+                                Modifier
+                                    .focusRequester(favButtonRequester)
+                                    .focusProperties {
+                                        up = seekBarRequester
+                                        left = if (nextEnabled) nextButtonRequester else playButtonRequester
+                                        right = radioButtonRequester
+                                    },
                         )
                     }
                     IdleDimmableControl(isIdleDimmed = isIdleDimmed) {
@@ -483,100 +535,152 @@ fun NowPlayingScreen(
                             iconSize = 22.dp,
                             highlighted = sessionState.radioLoading,
                             onClick = onStartRadio,
+                            modifier =
+                                Modifier
+                                    .focusRequester(radioButtonRequester)
+                                    .focusProperties {
+                                        up = seekBarRequester
+                                        left = favButtonRequester
+                                        right = lyricsTabRequester
+                                    },
                         )
                     }
                 }
             }
 
             // Right pane: toggleable between read-only Lyrics viewport and YouTube Algorithm Queue + chips over blurred artwork
+            val isLyricsSynced = sessionState.lyrics is LyricsDocument.Synced
+            val romajiVisible = sessionState.hasRomanizedLyrics && rightPanelMode == NowPlayingRightPanelMode.LYRICS
+            val rightTabDownTarget =
+                when {
+                    rightPanelMode == NowPlayingRightPanelMode.LYRICS && isLyricsSynced -> syncMinusRequester
+                    rightPanelMode == NowPlayingRightPanelMode.LYRICS -> switchProviderRequester
+                    else -> queueRefreshRequester
+                }
             Column(
                 modifier =
                     Modifier
                         .weight(1.08f)
-                    .fillMaxHeight()
-                    .padding(
-                        start = 20.dp,
-                        end = AlunaraDimens.OverscanHorizontal,
-                        top = AlunaraDimens.OverscanVertical,
-                        bottom = AlunaraDimens.OverscanVertical,
-                    ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                        .fillMaxHeight()
+                        .padding(
+                            start = 20.dp,
+                            end = AlunaraDimens.OverscanHorizontal,
+                            top = AlunaraDimens.OverscanVertical,
+                            bottom = AlunaraDimens.OverscanVertical,
+                        ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                TvFocusableButton(
-                    text = stringResource(R.string.now_playing_tab_lyrics),
-                    icon = Icons.Rounded.Lyrics,
-                    highlighted = rightPanelMode == NowPlayingRightPanelMode.LYRICS,
-                    onClick = { rightPanelMode = NowPlayingRightPanelMode.LYRICS },
-                )
-                TvFocusableButton(
-                    text = stringResource(R.string.now_playing_tab_queue, sessionState.queueState.items.size),
-                    icon = Icons.AutoMirrored.Rounded.QueueMusic,
-                    highlighted = rightPanelMode == NowPlayingRightPanelMode.QUEUE,
-                    onClick = { rightPanelMode = NowPlayingRightPanelMode.QUEUE },
-                )
-                if (sessionState.hasRomanizedLyrics && rightPanelMode == NowPlayingRightPanelMode.LYRICS) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     TvFocusableButton(
-                        text =
-                            if (sessionState.showRomanizedLyrics) {
-                                stringResource(R.string.lyrics_toggle_romaji_active)
-                            } else {
-                                stringResource(R.string.lyrics_toggle_romaji)
-                            },
-                        icon = Icons.Rounded.Translate,
-                        highlighted = sessionState.showRomanizedLyrics,
-                        onClick = onToggleRomanizedLyrics,
+                        text = stringResource(R.string.now_playing_tab_lyrics),
+                        icon = Icons.Rounded.Lyrics,
+                        highlighted = rightPanelMode == NowPlayingRightPanelMode.LYRICS,
+                        onClick = { rightPanelMode = NowPlayingRightPanelMode.LYRICS },
+                        modifier =
+                            Modifier
+                                .focusRequester(lyricsTabRequester)
+                                .focusProperties {
+                                    left = radioButtonRequester
+                                    right = queueTabRequester
+                                    down = rightTabDownTarget
+                                },
                     )
+                    TvFocusableButton(
+                        text = stringResource(R.string.now_playing_tab_queue, sessionState.queueState.items.size),
+                        icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                        highlighted = rightPanelMode == NowPlayingRightPanelMode.QUEUE,
+                        onClick = { rightPanelMode = NowPlayingRightPanelMode.QUEUE },
+                        modifier =
+                            Modifier
+                                .focusRequester(queueTabRequester)
+                                .focusProperties {
+                                    left = lyricsTabRequester
+                                    right =
+                                        if (romajiVisible) {
+                                            romajiTabRequester
+                                        } else if (rightPanelMode == NowPlayingRightPanelMode.LYRICS) {
+                                            switchProviderRequester
+                                        } else {
+                                            queueRefreshRequester
+                                        }
+                                    down = rightTabDownTarget
+                                },
+                    )
+                    if (romajiVisible) {
+                        TvFocusableButton(
+                            text =
+                                if (sessionState.showRomanizedLyrics) {
+                                    stringResource(R.string.lyrics_toggle_romaji_active)
+                                } else {
+                                    stringResource(R.string.lyrics_toggle_romaji)
+                                },
+                            icon = Icons.Rounded.Translate,
+                            highlighted = sessionState.showRomanizedLyrics,
+                            onClick = onToggleRomanizedLyrics,
+                            modifier =
+                                Modifier
+                                    .focusRequester(romajiTabRequester)
+                                    .focusProperties {
+                                        left = queueTabRequester
+                                        down = if (isLyricsSynced) syncResetRequester else switchProviderRequester
+                                    },
+                        )
+                    }
+                }
+
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    when (rightPanelMode) {
+                        NowPlayingRightPanelMode.LYRICS ->
+                            PersistentReadOnlyLyricsPanel(
+                                lyrics = sessionState.lyrics,
+                                isLoading = sessionState.lyricsLoading,
+                                selectedProvider = sessionState.selectedLyricsProvider,
+                                activeLineIndex = sessionState.activeLyricIndex,
+                                positionMsFlow = positionMsFlow,
+                                fallbackPositionMs = if (positionMsFlow != null) 0L else sessionState.positionMs,
+                                lyricsSyncOffsetMs = sessionState.lyricsSyncOffsetMs,
+                                showRomanizedLyrics = sessionState.showRomanizedLyrics,
+                                hasPartialKanjiNotice = sessionState.hasPartialKanjiNotice,
+                                queueCount = sessionState.queueState.items.size,
+                                lyricsTabRequester = lyricsTabRequester,
+                                queueTabRequester = queueTabRequester,
+                                romajiTabRequester = if (romajiVisible) romajiTabRequester else queueTabRequester,
+                                leftPaneReturnRequester = playButtonRequester,
+                                syncMinusRequester = syncMinusRequester,
+                                syncPlusRequester = syncPlusRequester,
+                                syncResetRequester = syncResetRequester,
+                                switchProviderRequester = switchProviderRequester,
+                                onSwitchLyricsProvider = onSwitchLyricsProvider,
+                                onAdjustLyricsSync = onAdjustLyricsSync,
+                                onResetLyricsSync = onResetLyricsSync,
+                                onOpenQueue = { rightPanelMode = NowPlayingRightPanelMode.QUEUE },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+
+                        NowPlayingRightPanelMode.QUEUE ->
+                            NowPlayingQueuePanel(
+                                queueState = sessionState.queueState,
+                                queueChips = sessionState.queueChips,
+                                activeChipLabel = sessionState.activeQueueChipLabel,
+                                radioLoading = sessionState.radioLoading,
+                                refreshFocusRequester = queueRefreshRequester,
+                                queueTabRequester = queueTabRequester,
+                                leftPaneReturnRequester = radioButtonRequester,
+                                onPlayQueueAt = onPlayQueueAt,
+                                onMoveQueueItem = onMoveQueueItem,
+                                onRemoveQueueItem = onRemoveQueueItem,
+                                onClearQueue = onClearQueue,
+                                onRefreshRadio = onRefreshRadio,
+                                onSelectQueueChip = onSelectQueueChip,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                    }
                 }
             }
-
-            Crossfade(
-                targetState = rightPanelMode,
-                animationSpec = tween(durationMillis = prefs.navAnimMs),
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                label = "now_playing_right_panel",
-            ) { mode ->
-                when (mode) {
-                    NowPlayingRightPanelMode.LYRICS ->
-                        PersistentReadOnlyLyricsPanel(
-                            lyrics = sessionState.lyrics,
-                            isLoading = sessionState.lyricsLoading,
-                            selectedProvider = sessionState.selectedLyricsProvider,
-                            activeLineIndex = sessionState.activeLyricIndex,
-                            positionMsFlow = positionMsFlow,
-                            fallbackPositionMs = if (positionMsFlow != null) 0L else sessionState.positionMs,
-                            lyricsSyncOffsetMs = sessionState.lyricsSyncOffsetMs,
-                            showRomanizedLyrics = sessionState.showRomanizedLyrics,
-                            hasPartialKanjiNotice = sessionState.hasPartialKanjiNotice,
-                            queueCount = sessionState.queueState.items.size,
-                            onSwitchLyricsProvider = onSwitchLyricsProvider,
-                            onAdjustLyricsSync = onAdjustLyricsSync,
-                            onResetLyricsSync = onResetLyricsSync,
-                            onOpenQueue = { rightPanelMode = NowPlayingRightPanelMode.QUEUE },
-                            modifier = Modifier.fillMaxSize(),
-                        )
-
-                    NowPlayingRightPanelMode.QUEUE ->
-                        NowPlayingQueuePanel(
-                            queueState = sessionState.queueState,
-                            queueChips = sessionState.queueChips,
-                            activeChipLabel = sessionState.activeQueueChipLabel,
-                            radioLoading = sessionState.radioLoading,
-                            onPlayQueueAt = onPlayQueueAt,
-                            onMoveQueueItem = onMoveQueueItem,
-                            onRemoveQueueItem = onRemoveQueueItem,
-                            onClearQueue = onClearQueue,
-                            onRefreshRadio = onRefreshRadio,
-                            onSelectQueueChip = onSelectQueueChip,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                }
-            }
-        }
         }
     }
 }
@@ -610,6 +714,9 @@ private fun NowPlayingQueuePanel(
     queueChips: List<QueueFilterChip>,
     activeChipLabel: String?,
     radioLoading: Boolean,
+    refreshFocusRequester: FocusRequester,
+    queueTabRequester: FocusRequester,
+    leftPaneReturnRequester: FocusRequester,
     onPlayQueueAt: (Int) -> Unit,
     onMoveQueueItem: (Int, Int) -> Unit,
     onRemoveQueueItem: (Int) -> Unit,
@@ -664,6 +771,13 @@ private fun NowPlayingQueuePanel(
                     iconSize = 18.dp,
                     highlighted = radioLoading,
                     onClick = onRefreshRadio,
+                    modifier =
+                        Modifier
+                            .focusRequester(refreshFocusRequester)
+                            .focusProperties {
+                                up = queueTabRequester
+                                left = leftPaneReturnRequester
+                            },
                 )
                 if (queueState.items.isNotEmpty() && !confirmingClear) {
                     TvIconButton(
@@ -672,6 +786,7 @@ private fun NowPlayingQueuePanel(
                         size = AlunaraDimens.QueueActionButtonSize,
                         iconSize = 18.dp,
                         onClick = { confirmingClear = true },
+                        modifier = Modifier.focusProperties { up = queueTabRequester },
                     )
                 }
             }
@@ -796,13 +911,20 @@ private fun NowPlayingQueuePanel(
 
 @Composable
 private fun SeekableProgressBar(
-    positionMs: Long,
+    positionMsFlow: StateFlow<Long>?,
+    fallbackPositionMs: Long,
     durationMs: Long,
     onSeekBy: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
+    val positionMs =
+        if (positionMsFlow != null) {
+            positionMsFlow.collectAsStateWithLifecycle().value
+        } else {
+            fallbackPositionMs
+        }
     var focused by remember { mutableStateOf(false) }
     val fraction =
         if (durationMs > 0L) {
@@ -811,38 +933,13 @@ private fun SeekableProgressBar(
             0f
         }
     val shape = RoundedCornerShape(10.dp)
-    val bgColor by animateColorAsState(
-        targetValue = if (focused) colors.background.copy(alpha = 0.78f) else Color.Transparent,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "seek_bg",
-    )
-    val borderColor by animateColorAsState(
-        targetValue = if (focused) colors.focusRingStrong else Color.Transparent,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "seek_border",
-    )
-    val barThicknessFactor by animateFloatAsState(
-        targetValue = if (focused) 6f else 4f,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "seek_bar_h",
-    )
-    val thumbRadiusDp by animateFloatAsState(
-        targetValue = if (focused) 6.5f else 5f,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "seek_thumb",
-    )
-    val hintAlpha by animateFloatAsState(
-        targetValue = if (focused) 1f else 0f,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "seek_hint_alpha",
-    )
+    val bgColor = if (focused) colors.background.copy(alpha = 0.78f) else Color.Transparent
+    val borderColor = if (focused) colors.focusRingStrong else Color.Transparent
+    val barThicknessFactor = if (focused) 6f else 4f
+    val thumbRadiusDp = if (focused) 6.5f else 5f
     val trackBg = colors.secondarySurface
     val trackFill = colors.primaryAccent
-    val thumbColor by animateColorAsState(
-        targetValue = if (focused) colors.focusOutline else colors.primaryAccent,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "seek_thumb_color",
-    )
+    val thumbColor = if (focused) colors.focusOutline else colors.primaryAccent
     val progressDesc = "${formatDurationMs(positionMs)} / ${formatDurationMs(durationMs)}"
 
     Column(
@@ -920,14 +1017,15 @@ private fun SeekableProgressBar(
                 fontSize = AlunaraTypography.caption(prefs.textScale),
                 fontWeight = FontWeight.Medium,
             )
-            Text(
-                text = stringResource(R.string.seek_bar_label),
-                color = colors.focusOutline,
-                fontSize = AlunaraTypography.caption(prefs.textScale),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.alpha(hintAlpha),
-            )
+            if (focused) {
+                Text(
+                    text = stringResource(R.string.seek_bar_label),
+                    color = colors.focusOutline,
+                    fontSize = AlunaraTypography.caption(prefs.textScale),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Text(
                 text = formatDurationMs(durationMs),
                 color = colors.mutedText,
@@ -949,6 +1047,14 @@ private fun PersistentReadOnlyLyricsPanel(
     showRomanizedLyrics: Boolean,
     hasPartialKanjiNotice: Boolean,
     queueCount: Int,
+    lyricsTabRequester: FocusRequester,
+    queueTabRequester: FocusRequester,
+    romajiTabRequester: FocusRequester,
+    leftPaneReturnRequester: FocusRequester,
+    syncMinusRequester: FocusRequester,
+    syncPlusRequester: FocusRequester,
+    syncResetRequester: FocusRequester,
+    switchProviderRequester: FocusRequester,
     onSwitchLyricsProvider: () -> Unit,
     onAdjustLyricsSync: (Long) -> Unit,
     onResetLyricsSync: () -> Unit,
@@ -1010,6 +1116,14 @@ private fun PersistentReadOnlyLyricsPanel(
             if (lyrics is LyricsDocument.Synced) {
                 CompactLyricSyncControls(
                     offsetMs = lyricsSyncOffsetMs,
+                    minusRequester = syncMinusRequester,
+                    plusRequester = syncPlusRequester,
+                    resetRequester = syncResetRequester,
+                    switchProviderRequester = switchProviderRequester,
+                    leftPaneReturnRequester = leftPaneReturnRequester,
+                    lyricsTabRequester = lyricsTabRequester,
+                    queueTabRequester = queueTabRequester,
+                    romajiTabRequester = romajiTabRequester,
                     onStep = onAdjustLyricsSync,
                     onReset = onResetLyricsSync,
                 )
@@ -1021,6 +1135,14 @@ private fun PersistentReadOnlyLyricsPanel(
                 size = AlunaraDimens.QueueActionButtonSize,
                 iconSize = 18.dp,
                 onClick = onSwitchLyricsProvider,
+                modifier =
+                    Modifier
+                        .focusRequester(switchProviderRequester)
+                        .focusProperties {
+                            left = if (lyrics is LyricsDocument.Synced) syncResetRequester else leftPaneReturnRequester
+                            up = romajiTabRequester
+                            down = leftPaneReturnRequester
+                        },
             )
         }
 
@@ -1402,6 +1524,14 @@ private fun ActiveWordSyncedLyricText(
 @Composable
 private fun CompactLyricSyncControls(
     offsetMs: Long,
+    minusRequester: FocusRequester,
+    plusRequester: FocusRequester,
+    resetRequester: FocusRequester,
+    switchProviderRequester: FocusRequester,
+    leftPaneReturnRequester: FocusRequester,
+    lyricsTabRequester: FocusRequester,
+    queueTabRequester: FocusRequester,
+    romajiTabRequester: FocusRequester,
     onStep: (Long) -> Unit,
     onReset: () -> Unit,
 ) {
@@ -1424,6 +1554,15 @@ private fun CompactLyricSyncControls(
             accessibilityLabel = stringResource(R.string.lyrics_sync_minus_cd),
             deltaMs = -10L,
             onStep = onStep,
+            modifier =
+                Modifier
+                    .focusRequester(minusRequester)
+                    .focusProperties {
+                        left = leftPaneReturnRequester
+                        up = lyricsTabRequester
+                        right = plusRequester
+                        down = leftPaneReturnRequester
+                    },
         )
         Text(
             text = offsetLabel,
@@ -1438,33 +1577,41 @@ private fun CompactLyricSyncControls(
             accessibilityLabel = stringResource(R.string.lyrics_sync_plus_cd),
             deltaMs = 10L,
             onStep = onStep,
+            modifier =
+                Modifier
+                    .focusRequester(plusRequester)
+                    .focusProperties {
+                        left = minusRequester
+                        up = queueTabRequester
+                        right = resetRequester
+                        down = leftPaneReturnRequester
+                    },
         )
         val resetShape = RoundedCornerShape(8.dp)
-        val resetBg by animateColorAsState(
-            targetValue =
-                when {
-                    resetFocused -> colors.focusedButtonBg
-                    offsetMs != 0L -> colors.secondarySurface
-                    else -> colors.surface
-                },
-            animationSpec = tween(prefs.focusAnimMs),
-            label = "lyric_sync_reset_bg",
-        )
-        val resetBorder by animateColorAsState(
-            targetValue =
-                when {
-                    resetFocused -> colors.focusRingStrong
-                    offsetMs != 0L -> colors.primaryAccent.copy(alpha = 0.65f)
-                    else -> colors.secondarySurface
-                },
-            animationSpec = tween(prefs.focusAnimMs),
-            label = "lyric_sync_reset_border",
-        )
+        val resetBg =
+            when {
+                resetFocused -> colors.focusedButtonBg
+                offsetMs != 0L -> colors.secondarySurface
+                else -> colors.surface
+            }
+        val resetBorder =
+            when {
+                resetFocused -> colors.focusRingStrong
+                offsetMs != 0L -> colors.primaryAccent.copy(alpha = 0.65f)
+                else -> colors.secondarySurface
+            }
         val resetCd = stringResource(R.string.lyrics_sync_reset_cd)
         Box(
             modifier =
                 Modifier
                     .height(AlunaraDimens.QueueActionButtonSize)
+                    .focusRequester(resetRequester)
+                    .focusProperties {
+                        left = plusRequester
+                        up = romajiTabRequester
+                        right = switchProviderRequester
+                        down = leftPaneReturnRequester
+                    }
                     .clip(resetShape)
                     .background(resetBg, resetShape)
                     .border(BorderStroke(colors.focusBorderWidth, resetBorder), resetShape)
@@ -1474,7 +1621,7 @@ private fun CompactLyricSyncControls(
                     }
                     .onFocusChanged { resetFocused = it.isFocused }
                     .clickable(onClick = onReset)
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -1499,6 +1646,7 @@ private fun LyricSyncStepButton(
     accessibilityLabel: String,
     deltaMs: Long,
     onStep: (Long) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
@@ -1506,20 +1654,12 @@ private fun LyricSyncStepButton(
     var didLongRepeat by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(8.dp)
 
-    val bg by animateColorAsState(
-        targetValue = if (focused) colors.focusedButtonBg else colors.secondarySurface,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "lyric_step_bg",
-    )
-    val border by animateColorAsState(
-        targetValue = if (focused) colors.focusRingStrong else colors.surface,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "lyric_step_border",
-    )
+    val bg = if (focused) colors.focusedButtonBg else colors.secondarySurface
+    val border = if (focused) colors.focusRingStrong else colors.surface
 
     Box(
         modifier =
-            Modifier
+            modifier
                 .size(AlunaraDimens.QueueActionButtonSize)
                 .clip(shape)
                 .background(bg, shape)

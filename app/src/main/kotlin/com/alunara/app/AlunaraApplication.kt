@@ -11,6 +11,8 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.allowRgb565
+import coil3.request.crossfade
 import com.alunara.core.data.cache.CacheBudgetDecision
 import com.alunara.core.data.cache.CacheBudgetManager
 import okio.Path.Companion.toOkioPath
@@ -59,6 +61,8 @@ class AlunaraApplication :
         val diskCapBytes = min(IMAGE_DISK_CACHE_BYTES, cacheBudgetDecision.dynamicCacheLimitBytes / 2L).coerceAtLeast(MIN_IMAGE_DISK_CACHE_BYTES)
         return ImageLoader
             .Builder(context)
+            .allowRgb565(true)
+            .crossfade(false)
             .components {
                 add(OkHttpNetworkFetcherFactory(callFactory = { container.okHttpClient }))
             }.memoryCache {

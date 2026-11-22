@@ -86,6 +86,14 @@ fun LibraryScreen(
     var selectedTab by rememberSaveable { mutableStateOf(LibraryTab.PLAYLISTS) }
     var confirmingClearHistory by remember { mutableStateOf(false) }
     val cancelClearHistoryRequester = remember { FocusRequester() }
+    val topRightActionRequester = remember { FocusRequester() }
+    val tabPlaylistsRequester = remember { FocusRequester() }
+    val tabFavoritesRequester = remember { FocusRequester() }
+    val tabHistoryRequester = remember { FocusRequester() }
+
+    val hasTopRightAction =
+        (authSession is AuthSessionState.Authenticated && selectedTab != LibraryTab.HISTORY) ||
+            (selectedTab == LibraryTab.HISTORY && localHistoryCount > 0 && !confirmingClearHistory)
 
     LaunchedEffect(confirmingClearHistory) {
         if (confirmingClearHistory) {
@@ -121,6 +129,13 @@ fun LibraryScreen(
                         text = stringResource(R.string.action_sync_library),
                         icon = Icons.Rounded.Refresh,
                         onClick = onRefreshLibrary,
+                        modifier =
+                            Modifier
+                                .focusRequester(topRightActionRequester)
+                                .focusProperties {
+                                    left = tabHistoryRequester
+                                    down = tabPlaylistsRequester
+                                },
                     )
                 }
 
@@ -129,6 +144,13 @@ fun LibraryScreen(
                         text = stringResource(R.string.clear_history),
                         icon = Icons.Rounded.DeleteSweep,
                         onClick = { confirmingClearHistory = true },
+                        modifier =
+                            Modifier
+                                .focusRequester(topRightActionRequester)
+                                .focusProperties {
+                                    left = tabHistoryRequester
+                                    down = tabHistoryRequester
+                                },
                     )
                 }
             }
@@ -148,6 +170,13 @@ fun LibraryScreen(
                     confirmingClearHistory = false
                     selectedTab = LibraryTab.PLAYLISTS
                 },
+                modifier =
+                    Modifier
+                        .focusRequester(tabPlaylistsRequester)
+                        .focusProperties {
+                            right = tabFavoritesRequester
+                            if (hasTopRightAction) up = topRightActionRequester
+                        },
             )
             TvFocusableButton(
                 text = stringResource(R.string.library_tab_favorites, favorites.size),
@@ -157,12 +186,30 @@ fun LibraryScreen(
                     confirmingClearHistory = false
                     selectedTab = LibraryTab.FAVORITES
                 },
+                modifier =
+                    Modifier
+                        .focusRequester(tabFavoritesRequester)
+                        .focusProperties {
+                            left = tabPlaylistsRequester
+                            right = tabHistoryRequester
+                            if (hasTopRightAction) up = topRightActionRequester
+                        },
             )
             TvFocusableButton(
                 text = stringResource(R.string.library_tab_history, recentHistory.size),
                 icon = Icons.Rounded.History,
                 highlighted = selectedTab == LibraryTab.HISTORY,
                 onClick = { selectedTab = LibraryTab.HISTORY },
+                modifier =
+                    Modifier
+                        .focusRequester(tabHistoryRequester)
+                        .focusProperties {
+                            left = tabFavoritesRequester
+                            if (hasTopRightAction) {
+                                right = topRightActionRequester
+                                up = topRightActionRequester
+                            }
+                        },
             )
         }
 
@@ -206,7 +253,7 @@ fun LibraryScreen(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusControl))
                         .padding(12.dp)
                         .focusProperties { canFocus = false },
             )
@@ -219,7 +266,7 @@ fun LibraryScreen(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .background(colors.surface.copy(alpha = 0.72f), RoundedCornerShape(AlunaraDimens.RadiusCard))
+                                .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusCard))
                                 .padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {

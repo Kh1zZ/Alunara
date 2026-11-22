@@ -1,7 +1,5 @@
 package com.alunara.app.ui.screens
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -274,16 +272,8 @@ private fun ContinueQueueCard(
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(AlunaraDimens.RadiusControl)
-    val bgColor by animateColorAsState(
-        targetValue = if (focused) colors.focusedCardSurface else colors.secondarySurface,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "continue_bg",
-    )
-    val borderColor by animateColorAsState(
-        targetValue = if (focused) colors.focusRingStrong else Color.Transparent,
-        animationSpec = tween(prefs.focusAnimMs),
-        label = "continue_border",
-    )
+    val bgColor = if (focused) colors.focusedCardSurface else colors.secondarySurface
+    val borderColor = if (focused) colors.focusRingStrong else Color.Transparent
 
     Row(
         modifier =

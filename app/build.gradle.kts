@@ -30,9 +30,9 @@ val hasReleaseKeystore =
         !releaseKeyPassword.isNullOrBlank()
 
 val resolvedVersionCode =
-    providers.gradleProperty("versionCode").orNull?.toIntOrNull()?.coerceAtLeast(1) ?: 2
+    providers.gradleProperty("versionCode").orNull?.toIntOrNull()?.coerceAtLeast(1) ?: 3
 val resolvedVersionName =
-    providers.gradleProperty("versionName").orNull?.takeIf { it.isNotBlank() } ?: "0.1.0-beta.1"
+    providers.gradleProperty("versionName").orNull?.takeIf { it.isNotBlank() } ?: "0.1.0-beta.2"
 
 android {
     namespace = "com.alunara.app"
@@ -118,6 +118,10 @@ android {
         // Alunara targets Leanback ARM Android TV hardware; release excludes x86/x86_64 binaries intentionally.
         disable += "ChromeOsAbiSupport"
     }
+}
+
+composeCompiler {
+    stabilityConfigurationFiles.add(layout.projectDirectory.file("compose-stability.conf"))
 }
 
 dependencies {
