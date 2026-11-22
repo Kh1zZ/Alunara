@@ -1,4 +1,4 @@
-name: Android TV CI
+name: Alunara CI
 
 on:
   push:
@@ -6,43 +6,81 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-and-test:
+  verify-and-build:
+    name: Test, Lint & Build (Debug + R8 Release)
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      - name: Security & vendored base engine integrity check
+        run: |
+          if git ls-files | grep -E '\.(jks|keystore)$|^keystore\.properties$|^secrets\.properties$'; then
+            echo "ERROR: Signing keystore or secret properties file must not be tracked in Git!"
+            exit 1
+          fi
+          test -d third_party/core
+          test -d third_party/lyrics/lrclib
+          test -d third_party/lyrics/simpmusic
+          test -d third_party/lyrics/kugou
+
+      - name: Set up JDK 21 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: 21
+
+      - name: Accept Android SDK licenses
+        run: |
+          if [ -n "${ANDROID_HOME:-}" ] && [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          fi
 
       - name: Validate Gradle Wrapper
         uses: gradle/actions/wrapper-validation@v4
 
-      - name: Setup Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Run Unit Tests
-        run: ./gradlew :core:domain:test :core:music:test :core:lyrics:test :core:data:testDebugUnitTest :app:testDebugUnitTest
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
 
-      - name: Run Lint & Build Debug APK
-        run: ./gradlew :app:lintDebug :app:assembleDebug
+      - name: Run all module unit tests
+        run: ./gradlew :core:domain:test :core:music:test :core:lyrics:test :core:data:testDebugUnitTest :app:testDebugUnitTest --no-daemon
 
-      - name: Upload Test Reports
+      - name: Run Android Lint
+        run: ./gradlew :app:lintDebug --no-daemon
+
+      - name: Build Debug & R8-Minified Release APKs
+        run: ./gradlew :app:assembleDebug :app:assembleRelease --no-daemon
+
+      - name: Summarize APK sizes
+        run: |
+          DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
+          RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
+          ls -lh "$DEBUG_APK" "$RELEASE_APK"
+          {
+            echo "### Alunara Build Summary"
+            echo "- Debug APK: \`$(stat -c%s "$DEBUG_APK")\` bytes"
+            echo "- Release APK (R8): \`$(stat -c%s "$RELEASE_APK")\` bytes"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload test reports & build APKs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: unit-test-reports
+          name: alunara-ci-artifacts-${{ github.run_number }}
+          if-no-files-found: warn
+          retention-days: 14
           path: |
-            **/build/reports/tests/
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/mapping/release/mapping.txt
             app/build/reports/lint-results-debug.html
-
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: alunara-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+            **/build/reports/tests/

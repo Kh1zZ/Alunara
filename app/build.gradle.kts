@@ -1,8 +1,38 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
 }
+
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps =
+    Properties().apply {
+        if (keystorePropsFile.isFile) {
+            keystorePropsFile.inputStream().use(::load)
+        }
+    }
+
+fun resolveSigningValue(propKey: String, envKey: String): String? =
+    keystoreProps.getProperty(propKey)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(envKey)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile =
+    resolveSigningValue("storeFile", "ALUNARA_KEYSTORE_FILE")?.let(rootProject::file)
+val releaseStorePassword = resolveSigningValue("storePassword", "ALUNARA_KEYSTORE_PASSWORD")
+val releaseKeyAlias = resolveSigningValue("keyAlias", "ALUNARA_KEY_ALIAS")
+val releaseKeyPassword = resolveSigningValue("keyPassword", "ALUNARA_KEY_PASSWORD")
+val hasReleaseKeystore =
+    releaseStoreFile?.isFile == true &&
+        !releaseStorePassword.isNullOrBlank() &&
+        !releaseKeyAlias.isNullOrBlank() &&
+        !releaseKeyPassword.isNullOrBlank()
+
+val resolvedVersionCode =
+    providers.gradleProperty("versionCode").orNull?.toIntOrNull()?.coerceAtLeast(1) ?: 2
+val resolvedVersionName =
+    providers.gradleProperty("versionName").orNull?.takeIf { it.isNotBlank() } ?: "0.1.0-beta.1"
 
 android {
     namespace = "com.alunara.app"
@@ -12,13 +42,42 @@ android {
         applicationId = "com.alunara.app"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-alpha"
+        versionCode = resolvedVersionCode
+        versionName = resolvedVersionName
+    }
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            isCrunchPngs = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            signingConfig =
+                if (hasReleaseKeystore) {
+                    signingConfigs.getByName("release")
+                } else {
+                    signingConfigs.getByName("debug")
+                }
+            ndk {
+                abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+            }
         }
     }
 
@@ -48,6 +107,7 @@ android {
                     "META-INF/NOTICE.md",
                     "META-INF/CONTRIBUTORS.md",
                     "META-INF/LICENSE.md",
+                    "META-INF/services/javax.script.ScriptEngineFactory",
                 )
         }
     }
@@ -55,6 +115,8 @@ android {
     lint {
         abortOnError = true
         warningsAsErrors = false
+        // Alunara targets Leanback ARM Android TV hardware; release excludes x86/x86_64 binaries intentionally.
+        disable += "ChromeOsAbiSupport"
     }
 }
 

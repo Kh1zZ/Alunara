@@ -2,8 +2,8 @@
 
 **Alunara** (`com.alunara.app`) is an independent, audio-only YouTube Music client built specifically for entry-level **Android TV** devices running **Android 9 (API 28)+** with **1 GB RAM** (reference hardware: **Changhong L32G7N**).
 
-> **Current Status:** `Milestone M4 / M4.2 — ArchiveTune Multi-Script Romaji, 20% Backdrop Blur, Centered Layout & Optimization (0.1.0-alpha)`  
-> M4/M4.2 delivers hedged ArchiveTune-style lyrics ranking, TV-optimized word/line animation (`positionMsFlow` isolation, zero per-frame `Modifier.blur()`), inline compact lyric sync controls (`-`, `0 ms`, `+`, `Reset`), ArchiveTune-aligned multi-script romanization (Kuromoji IPADIC with natural Japanese suffix joining + `WeakReference` memory reclaim, 95-rule Hangul assimilation, Cyrillic & ICU fallback) shown in an auto-enabled dual-line layout, a subtle ~20% full-screen pre-blurred artwork backdrop (`TvBackdropBlurTransformation`) with vertically centered `220.dp` cover & controls (`TvArtworkContentScale`), concurrent home+charts loading, bounded 4-entry stream TTL cache + next-track stream pre-warm, isolated mini-player strip recomposition, and hardened `AlunaraPlaybackService` foreground startup. Verified with `79 / 79` unit tests across `18` suites, `0` touched lint issues, and live on physical Changhong `AI PONT` Android 11 TV (`192.168.100.124:5555`: active dual-line JP+blur `TOTAL PSS: 127.35 MiB`, background PSS `112.9 MiB`, `0` logcat errors); see [docs/M4_VERIFICATION_REPORT.md](docs/M4_VERIFICATION_REPORT.md).
+> **Current Status:** `Milestone M5 — App Signing, R8 Release Optimization & Beta CI/CD (0.1.0-beta.1)`  
+> M5 introduces externalized Android release signing (`keystore.properties` / `ALUNARA_KEYSTORE_*` + `scripts/generate-keystore.ps1`), R8 bytecode minification + resource shrinking + ARM ABI filtering (`armeabi-v7a`, `arm64-v8a`), shrinking the APK from **`89.07 MiB` (Debug)** to **`20.83 MiB` (Release)**, alongside automated GitHub Actions CI & Beta Pre-Release workflows (`.github/workflows/ci.yml`, `.github/workflows/release-beta.yml`). Verified with `79 / 79` unit tests across `18` suites, `0` touched lint issues, and live on physical Changhong `AI PONT` Android 11 TV (`192.168.100.124:5555`: R8 release cold start `1,784 ms`, idle PSS `64.15 MiB`, active dual-line JP Kuromoji + 20% blur PSS `90.43 MiB`, `0` logcat errors); see [docs/M5_RELEASE_REPORT.md](docs/M5_RELEASE_REPORT.md).
 
 ---
 
@@ -29,9 +29,19 @@ $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 # Run all unit tests
 .\gradlew.bat :core:domain:test :core:music:test :core:lyrics:test :core:data:testDebugUnitTest :app:testDebugUnitTest
 
-# Run Android lint & build Debug APK
-.\gradlew.bat :app:lintDebug :app:assembleDebug
+# Run Android lint & build Debug / R8 Release APK
+.\gradlew.bat :app:lintDebug :app:assembleDebug :app:assembleRelease
 ```
+
+### Release Signing & Beta CI/CD (M5)
+1. **Generate a local release keystore (optional for local release testing; git-ignored):**
+   ```powershell
+   .\scripts\generate-keystore.ps1 -WriteProperties
+   ```
+   Or copy [keystore.properties.example](keystore.properties.example) to `keystore.properties` (never commit `.jks` or `keystore.properties`). Without a keystore configured, `:app:assembleRelease` falls back to the debug certificate for local ADB sideload testing while keeping full R8 + Resource Shrinking active.
+2. **GitHub Actions CI/CD:**
+   - [.github/workflows/ci.yml](.github/workflows/ci.yml) runs secret/integrity checks, all 18 unit test suites, `:app:lintDebug`, and `:app:assembleDebug :app:assembleRelease` on every push/PR to `main`.
+   - [.github/workflows/release-beta.yml](.github/workflows/release-beta.yml) runs on tags `v*` or manual dispatch, signing the R8 APK using repository secrets (`ALUNARA_KEYSTORE_BASE64`, `ALUNARA_KEYSTORE_PASSWORD`, `ALUNARA_KEY_ALIAS`, `ALUNARA_KEY_PASSWORD`) — or an ephemeral CI keystore if secrets are not set — and publishing a GitHub Pre-Release with `SHA256SUMS.txt`.
 
 ---
 
@@ -69,6 +79,8 @@ Alunara is licensed under the **GNU General Public License v3.0 (GPL-3.0)** in a
 - [M0 Preflight & Feasibility Audit](docs/M0_PREFLIGHT_AUDIT.md)
 - [M2 Hardware Smoke Report](docs/M2_HARDWARE_SMOKE.md)
 - [M3 Account & Catalog Verification Report](docs/M3_VERIFICATION_REPORT.md)
+- [M4 Lyrics, Romaji & TV Optimization Report](docs/M4_VERIFICATION_REPORT.md)
+- [M5 Signing, R8 Release & CI/CD Report](docs/M5_RELEASE_REPORT.md)
 - [Credits & License Notices](CREDITS.md)
 - [Known Issues & Release Blockers](KNOWN_ISSUES.md)
 - [GNU GPL v3.0 License](LICENSE)
