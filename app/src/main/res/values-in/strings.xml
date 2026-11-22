@@ -96,7 +96,7 @@
     <string name="lyrics_sync_reset_cd">Reset sinkron lirik ke 0 ms</string>
     <string name="lyrics_sync_zero">0 ms</string>
     <string name="lyrics_toggle_romaji">Romaji</string>
-    <string name="lyrics_toggle_original">Asli</string>
+    <string name="lyrics_toggle_romaji_active">Romaji: AKTIF</string>
     <string name="lyrics_partial_kanji_note">Kanji dipertahankan asli</string>
     <string name="header_search_hint">Cari lagu, album, atau artis di YouTube Music…</string>
     <string name="audio_quality_section_title">Kualitas Suara</string>

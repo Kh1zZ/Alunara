@@ -96,7 +96,7 @@
     <string name="lyrics_sync_reset_cd">Reset lyric sync offset to 0 ms</string>
     <string name="lyrics_sync_zero">0 ms</string>
     <string name="lyrics_toggle_romaji">Romaji</string>
-    <string name="lyrics_toggle_original">Original</string>
+    <string name="lyrics_toggle_romaji_active">Romaji: ON</string>
     <string name="lyrics_partial_kanji_note">Kanji kept in original script</string>
     <string name="header_search_hint">Search songs, albums, or artists on YouTube Music…</string>
     <string name="audio_quality_section_title">Audio Quality</string>

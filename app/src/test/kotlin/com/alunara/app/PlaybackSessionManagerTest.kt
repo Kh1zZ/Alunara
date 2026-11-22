@@ -653,9 +653,11 @@ class PlaybackSessionManagerTest {
             advanceTimeBy(150L)
             runCurrent()
 
-            // First p1 lyrics, then bounded prefetch of 1 next track (p2), plus romanization toggle
+            // First p1 lyrics, then bounded prefetch of 1 next track (p2), plus auto-enabled romanization toggle
             assertEquals(listOf("p1", "p2"), fetchedIds)
             assertTrue(manager.uiState.value.hasRomanizedLyrics)
+            assertTrue(manager.uiState.value.showRomanizedLyrics)
+            manager.toggleRomanizedLyrics()
             assertFalse(manager.uiState.value.showRomanizedLyrics)
             manager.toggleRomanizedLyrics()
             assertTrue(manager.uiState.value.showRomanizedLyrics)

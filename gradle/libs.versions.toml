@@ -20,6 +20,7 @@ datastore = "1.1.4"
 desugaring = "2.1.5"
 coil = "3.1.0"
 junit = "4.13.2"
+kuromojiIpadic = "0.9.0"
 
 [libraries]
 # Vendored base engine aliases (exact names required by third_party/core & third_party/lyrics)
@@ -65,6 +66,7 @@ androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugaring" }
+kuromoji-ipadic = { module = "com.atilika.kuromoji:kuromoji-ipadic", version.ref = "kuromojiIpadic" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

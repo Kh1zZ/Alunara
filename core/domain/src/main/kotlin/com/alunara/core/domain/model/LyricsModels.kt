@@ -9,6 +9,7 @@ enum class LyricsProviderId {
 data class SyncedLyricWord(
     val startTimeMs: Long,
     val text: String,
+    val romanizedText: String? = null,
 )
 
 data class SyncedLyricLine(
@@ -33,6 +34,7 @@ sealed interface LyricsDocument {
     data class Plain(
         val provider: LyricsProviderId,
         val text: String,
+        val romanizedText: String? = null,
     ) : LyricsDocument
 
     data class Unavailable(

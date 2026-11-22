@@ -2,6 +2,8 @@ package com.alunara.core.domain.lyrics
 
 import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.SyncedLyricLine
+import com.atilika.kuromoji.ipadic.Tokenizer
+import java.lang.ref.WeakReference
 
 enum class LyricScript {
     NONE,
@@ -139,50 +141,108 @@ object LyricsRomanizer {
             'ヴ' to "vu",
         )
 
-    fun attachRomanization(doc: LyricsDocument): DocumentRomanizationSummary =
-        when (doc) {
-            is LyricsDocument.Synced -> {
-                var totalConverted = 0
-                var totalKanji = 0
-                var totalCjk = 0
-                val updatedLines =
-                    doc.lines.map { line ->
-                        val res = romanize(line.text)
-                        totalConverted += res.convertedChars
-                        totalKanji += res.unsupportedKanjiChars
-                        totalCjk += res.totalCjkChars
-                        val effectiveRoman = line.romanizedText ?: res.text.takeIf { res.hasRomanization }
-                        line.copy(romanizedText = effectiveRoman)
-                    }
-                val updatedDoc = doc.copy(lines = updatedLines)
-                DocumentRomanizationSummary(
-                    document = updatedDoc,
-                    hasRomanizableLines = updatedLines.any { !it.romanizedText.isNullOrBlank() },
-                    hasUnsupportedKanji = totalKanji > 0,
-                    coverageRatio = if (totalCjk == 0) 0f else totalConverted.toFloat() / totalCjk.toFloat(),
-                )
-            }
+    @Volatile
+    private var kuromojiWeakRef: WeakReference<Tokenizer>? = null
 
-            is LyricsDocument.Plain -> {
-                val res = romanize(doc.text)
-                DocumentRomanizationSummary(
-                    document = doc,
-                    hasRomanizableLines = false,
-                    hasUnsupportedKanji = res.unsupportedKanjiChars > 0,
-                    coverageRatio = res.coverageRatio,
-                )
-            }
-
-            is LyricsDocument.Unavailable ->
-                DocumentRomanizationSummary(
-                    document = doc,
-                    hasRomanizableLines = false,
-                    hasUnsupportedKanji = false,
-                    coverageRatio = 0f,
-                )
+    @Synchronized
+    private fun obtainKuromojiTokenizer(): Tokenizer {
+        kuromojiWeakRef?.get()?.let { return it }
+        return Tokenizer().also {
+            kuromojiWeakRef = WeakReference(it)
         }
+    }
 
-    fun romanize(input: String): RomanizationResult {
+    fun attachRomanization(doc: LyricsDocument): DocumentRomanizationSummary {
+        var batchTokenizer: Tokenizer? = null
+        val batchProvider: () -> Tokenizer = {
+            batchTokenizer ?: obtainKuromojiTokenizer().also { batchTokenizer = it }
+        }
+        try {
+            return when (doc) {
+                is LyricsDocument.Synced -> {
+                    var totalConverted = 0
+                    var totalKanji = 0
+                    var totalCjk = 0
+                    val updatedLines =
+                        doc.lines.map { line ->
+                            val res = romanize(line.text, batchProvider)
+                            totalConverted += res.convertedChars
+                            totalKanji += res.unsupportedKanjiChars
+                            totalCjk += res.totalCjkChars
+                            val effectiveRoman = line.romanizedText ?: res.text.takeIf { res.hasRomanization }
+                            val updatedWords =
+                                if (effectiveRoman != null && line.words.isNotEmpty()) {
+                                    line.words.mapIndexed { idx, w ->
+                                        val wRes = romanize(w.text, batchProvider)
+                                        val wRoman =
+                                            if (wRes.hasRomanization) {
+                                                val suffix = if (idx < line.words.lastIndex && !wRes.text.endsWith(" ")) " " else ""
+                                                wRes.text.trim() + suffix
+                                            } else {
+                                                w.text
+                                            }
+                                        w.copy(romanizedText = wRoman)
+                                    }
+                                } else {
+                                    line.words
+                                }
+                            line.copy(romanizedText = effectiveRoman, words = updatedWords)
+                        }
+                    val updatedDoc = doc.copy(lines = updatedLines)
+                    DocumentRomanizationSummary(
+                        document = updatedDoc,
+                        hasRomanizableLines = updatedLines.any { !it.romanizedText.isNullOrBlank() },
+                        hasUnsupportedKanji = totalKanji > 0,
+                        coverageRatio = if (totalCjk == 0) 0f else totalConverted.toFloat() / totalCjk.toFloat(),
+                    )
+                }
+
+                is LyricsDocument.Plain -> {
+                    val romanizedLines =
+                        doc.text.lines().map { line ->
+                            val res = romanize(line, batchProvider)
+                            res to res.text
+                        }
+                    val totalConverted = romanizedLines.sumOf { it.first.convertedChars }
+                    val totalKanji = romanizedLines.sumOf { it.first.unsupportedKanjiChars }
+                    val totalCjk = romanizedLines.sumOf { it.first.totalCjkChars }
+                    val hasRoman = romanizedLines.any { it.first.hasRomanization }
+                    val updatedDoc =
+                        if (hasRoman) {
+                            doc.copy(romanizedText = romanizedLines.joinToString("\n") { it.second })
+                        } else {
+                            doc
+                        }
+                    DocumentRomanizationSummary(
+                        document = updatedDoc,
+                        hasRomanizableLines = hasRoman,
+                        hasUnsupportedKanji = totalKanji > 0,
+                        coverageRatio = if (totalCjk == 0) 0f else totalConverted.toFloat() / totalCjk.toFloat(),
+                    )
+                }
+
+                is LyricsDocument.Unavailable ->
+                    DocumentRomanizationSummary(
+                        document = doc,
+                        hasRomanizableLines = false,
+                        hasUnsupportedKanji = false,
+                        coverageRatio = 0f,
+                    )
+            }
+        } finally {
+            if (batchTokenizer != null) {
+                batchTokenizer = null
+                System.gc()
+            }
+        }
+    }
+
+    fun romanize(input: String): RomanizationResult = romanize(input, ::obtainKuromojiTokenizer)
+
+    private fun romanize(
+        input: String,
+        tokenizerProvider: () -> Tokenizer,
+    ): RomanizationResult {
         if (input.isEmpty()) {
             return RomanizationResult(
                 text = input,
@@ -192,6 +252,149 @@ object LyricsRomanizer {
                 totalCjkChars = 0,
             )
         }
+
+        if (input.any(::isHanIdeograph)) {
+            return romanizeJapaneseWithKuromoji(input, tokenizerProvider)
+        }
+
+        return romanizeKanaAndHangul(input)
+    }
+
+    private fun romanizeJapaneseWithKuromoji(
+        input: String,
+        tokenizerProvider: () -> Tokenizer,
+    ): RomanizationResult {
+        val tokens = tokenizerProvider().tokenize(input)
+        val sb = StringBuilder(input.length * 2)
+        var converted = 0
+        var unsupportedKanji = 0
+        var sawKorean = false
+
+        tokens.forEachIndexed { index, token ->
+            val surface = token.surface
+            if (surface.isBlank()) {
+                if (sb.isNotEmpty() && sb.last() != ' ') {
+                    sb.append(' ')
+                }
+                return@forEachIndexed
+            }
+
+            val reading = token.reading?.takeIf { it.isNotEmpty() && it != "*" }
+            val nextToken = tokens.getOrNull(index + 1)
+            val nextReading =
+                nextToken?.reading?.takeIf { it.isNotEmpty() && it != "*" }
+                    ?: nextToken?.surface
+
+            val segmentText: String
+            if (reading != null) {
+                val effectiveKana =
+                    when {
+                        token.partOfSpeechLevel1 == "助詞" && !token.pronunciation.isNullOrEmpty() && token.pronunciation != "*" -> {
+                            if (token.pronunciation == "ヲ") "オ" else token.pronunciation
+                        }
+                        else -> reading
+                    }
+                segmentText = romanizeKanaSegment(effectiveKana, nextReading)
+                converted += surface.count { !it.isWhitespace() }
+            } else {
+                val fallback = romanizeKanaAndHangul(surface)
+                if (fallback.script == LyricScript.KOREAN || fallback.script == LyricScript.MIXED_CJK) {
+                    sawKorean = true
+                }
+                converted += fallback.convertedChars
+                unsupportedKanji += surface.count(::isHanIdeograph)
+                segmentText = fallback.text
+            }
+
+            val trimmed = segmentText.trim()
+            if (trimmed.isEmpty()) return@forEachIndexed
+
+            val needsLeadingSpace =
+                sb.isNotEmpty() &&
+                    sb.last() != ' ' &&
+                    !isOpeningBracketOrQuote(sb.last()) &&
+                    !isClosingPunctuation(trimmed.first())
+            if (needsLeadingSpace) {
+                sb.append(' ')
+            }
+            sb.append(trimmed)
+        }
+
+        return RomanizationResult(
+            text = sb.toString().trim(),
+            script = if (sawKorean) LyricScript.MIXED_CJK else LyricScript.JAPANESE,
+            convertedChars = converted,
+            unsupportedKanjiChars = unsupportedKanji,
+            totalCjkChars = converted + unsupportedKanji,
+        )
+    }
+
+    private fun romanizeKanaSegment(
+        kana: String,
+        nextKana: String?,
+    ): String {
+        val sb = StringBuilder(kana.length * 2)
+        var i = 0
+        while (i < kana.length) {
+            val ch = kana[i]
+            when {
+                ch == 'っ' || ch == 'ッ' -> {
+                    val nextRomaji = peekKanaRomaji(kana, i + 1) ?: nextKana?.let { peekKanaRomaji(it, 0) }
+                    if (!nextRomaji.isNullOrEmpty()) {
+                        val doubler = if (nextRomaji.startsWith("ch")) 't' else nextRomaji[0]
+                        if (doubler in 'a'..'z' && doubler !in setOf('a', 'e', 'i', 'o', 'u')) {
+                            sb.append(doubler)
+                        }
+                    }
+                    i++
+                }
+
+                ch == 'ー' -> {
+                    val prev = sb.lastOrNull()
+                    if (prev != null && prev in setOf('a', 'e', 'i', 'o', 'u')) {
+                        sb.append(prev)
+                    }
+                    i++
+                }
+
+                ch == 'ん' || ch == 'ン' -> {
+                    val nextRomaji = peekKanaRomaji(kana, i + 1)
+                    if (!nextRomaji.isNullOrEmpty() && nextRomaji[0] in setOf('a', 'e', 'i', 'o', 'u', 'y')) {
+                        sb.append("n'")
+                    } else {
+                        sb.append('n')
+                    }
+                    i++
+                }
+
+                isKana(ch) -> {
+                    val digraph = if (i + 1 < kana.length) kana.substring(i, i + 2) else null
+                    val diRomaji = if (digraph != null) kanaDigraphs[digraph] else null
+                    if (diRomaji != null) {
+                        sb.append(diRomaji)
+                        i += 2
+                    } else {
+                        sb.append(kanaSingle[ch] ?: ch.toString())
+                        i++
+                    }
+                }
+
+                else -> {
+                    sb.append(ch)
+                    i++
+                }
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun isClosingPunctuation(ch: Char): Boolean =
+        ch in setOf('.', ',', '!', '?', ':', ';', ')', ']', '}', '」', '』', '、', '。', '！', '？', '’', '"', '\'')
+
+    private fun isOpeningBracketOrQuote(ch: Char): Boolean =
+        ch in setOf('(', '[', '{', '「', '『', '‘', '"')
+
+    private fun romanizeKanaAndHangul(input: String): RomanizationResult {
 
         val sb = StringBuilder(input.length * 2)
         var converted = 0

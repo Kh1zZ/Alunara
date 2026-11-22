@@ -1,8 +1,11 @@
 package com.alunara.app.playback
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import androidx.annotation.OptIn
+import androidx.core.app.NotificationCompat
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -10,6 +13,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.alunara.app.AlunaraApplication
 import com.alunara.app.MainActivity
+import com.alunara.app.R
 import com.alunara.core.domain.model.PlaybackStatus
 
 /**
@@ -113,6 +117,7 @@ class AlunaraPlaybackService : MediaSessionService() {
                 .build()
         mediaSession = session
         addSession(session)
+        ensureForegroundStarted()
     }
 
     override fun onStartCommand(
@@ -120,6 +125,7 @@ class AlunaraPlaybackService : MediaSessionService() {
         flags: Int,
         startId: Int,
     ): Int {
+        ensureForegroundStarted()
         val result = super.onStartCommand(intent, flags, startId)
         val session = mediaSession
         val container = (application as AlunaraApplication).container
@@ -128,6 +134,8 @@ class AlunaraPlaybackService : MediaSessionService() {
             container.playbackLifecycleController.hasActivePlayer
         ) {
             onUpdateNotification(session, true)
+        } else {
+            ensureForegroundStarted()
         }
         return result
     }
@@ -161,6 +169,39 @@ class AlunaraPlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
+    private fun ensureForegroundStarted() {
+        runCatching {
+            val nm = getSystemService(NotificationManager::class.java)
+            if (nm != null && nm.getNotificationChannel(CHANNEL_ID) == null) {
+                nm.createNotificationChannel(
+                    NotificationChannel(
+                        CHANNEL_ID,
+                        getString(R.string.app_name),
+                        NotificationManager.IMPORTANCE_LOW,
+                    ),
+                )
+            }
+            val track =
+                (application as? AlunaraApplication)
+                    ?.container
+                    ?.playbackSessionManager
+                    ?.uiState
+                    ?.value
+                    ?.currentTrack
+            val notification =
+                NotificationCompat
+                    .Builder(this, CHANNEL_ID)
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentTitle(track?.title ?: getString(R.string.app_name))
+                    .setContentText(track?.primaryArtistName.orEmpty())
+                    .setContentIntent(openNowPlayingPendingIntent())
+                    .setOngoing(true)
+                    .setSilent(true)
+                    .build()
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+        }
+    }
+
     private fun openNowPlayingPendingIntent(): PendingIntent {
         val intent =
             Intent(this, MainActivity::class.java).apply {
@@ -176,6 +217,8 @@ class AlunaraPlaybackService : MediaSessionService() {
     }
 
     companion object {
+        private const val CHANNEL_ID = "default_channel_id"
+        private const val FOREGROUND_NOTIFICATION_ID = 1001
         private const val SESSION_ACTIVITY_REQUEST_CODE = 1001
     }
 }

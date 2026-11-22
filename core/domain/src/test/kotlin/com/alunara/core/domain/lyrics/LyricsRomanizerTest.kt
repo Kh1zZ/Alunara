@@ -3,6 +3,7 @@ package com.alunara.core.domain.lyrics
 import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.LyricsProviderId
 import com.alunara.core.domain.model.SyncedLyricLine
+import com.alunara.core.domain.model.SyncedLyricWord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -36,14 +37,17 @@ class LyricsRomanizerTest {
     }
 
     @Test
-    fun romanize_mixedKanjiAndKana_convertsKanaWithoutFabricatingKanjiReadings() {
-        val mixed = LyricsRomanizer.romanize("僕のそばで鳴るよ")
+    fun romanize_mixedKanjiAndKana_convertsFullLineViaKuromojiWithoutKanjiLeftovers() {
+        val mixed = LyricsRomanizer.romanize("散々な思い出は悲しみを穿つほど")
         assertTrue(mixed.hasRomanization)
         assertEquals(LyricScript.JAPANESE, mixed.script)
-        // Kanji characters 僕 and 鳴 remain untouched instead of inventing ambiguous readings
-        assertEquals("僕nosobade鳴ruyo", mixed.text)
-        assertEquals(2, mixed.unsupportedKanjiChars)
-        assertTrue(mixed.coverageRatio < 1.0f)
+        assertEquals("sanzan na omoide wa kanashimi o ugatsu hodo", mixed.text)
+        assertEquals(0, mixed.unsupportedKanjiChars)
+        assertEquals(1.0f, mixed.coverageRatio, 0.001f)
+
+        val night = LyricsRomanizer.romanize("夜に駆ける")
+        assertEquals("yoru ni kakeru", night.text)
+        assertEquals(0, night.unsupportedKanjiChars)
     }
 
     @Test
@@ -55,7 +59,7 @@ class LyricsRomanizerTest {
     }
 
     @Test
-    fun attachRomanization_populatesSyncedDocumentAndDetectsKanjiNotice() {
+    fun attachRomanization_populatesSyncedDocumentAndWordRomanizationWithKuromoji() {
         val doc =
             LyricsDocument.Synced(
                 provider = LyricsProviderId.SIMPMUSIC,
@@ -63,17 +67,29 @@ class LyricsRomanizerTest {
                     listOf(
                         SyncedLyricLine(startTimeMs = 1_000L, text = "I'll be by your side"),
                         SyncedLyricLine(startTimeMs = 4_000L, text = "きみの そばで"),
-                        SyncedLyricLine(startTimeMs = 8_000L, text = "僕の名前はありふれた"),
+                        SyncedLyricLine(
+                            startTimeMs = 8_000L,
+                            text = "僕の名前はありふれた",
+                            words =
+                                listOf(
+                                    SyncedLyricWord(8_000L, "僕の"),
+                                    SyncedLyricWord(8_500L, "名前は"),
+                                    SyncedLyricWord(9_000L, "ありふれた"),
+                                ),
+                        ),
                     ),
             )
 
         val summary = LyricsRomanizer.attachRomanization(doc)
         assertTrue(summary.hasRomanizableLines)
-        assertTrue(summary.hasUnsupportedKanji)
+        assertFalse(summary.hasUnsupportedKanji)
 
         val synced = summary.document as LyricsDocument.Synced
         assertNull(synced.lines[0].romanizedText)
         assertEquals("kimino sobade", synced.lines[1].romanizedText)
-        assertEquals("僕no名前haarifureta", synced.lines[2].romanizedText)
+        assertEquals("boku no namae wa arifure ta", synced.lines[2].romanizedText)
+        assertEquals("boku no ", synced.lines[2].words[0].romanizedText)
+        assertEquals("namae wa ", synced.lines[2].words[1].romanizedText)
+        assertEquals("arifureta", synced.lines[2].words[2].romanizedText)
     }
 }

@@ -1227,6 +1227,7 @@ class PlaybackSessionManager(
                         lyrics = summary.document,
                         lyricsLoading = false,
                         activeLyricIndex = computeActiveLyricIndex(summary.document, state.positionMs, state.lyricsSyncOffsetMs),
+                        showRomanizedLyrics = summary.hasRomanizableLines,
                         hasRomanizedLyrics = summary.hasRomanizableLines,
                         hasPartialKanjiNotice = summary.hasUnsupportedKanji,
                     )

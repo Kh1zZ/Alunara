@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -103,10 +104,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import coil3.request.allowHardware
 import coil3.request.crossfade
+import coil3.request.transformations
 import com.alunara.app.R
 import com.alunara.app.playback.PlaybackSessionUiState
 import com.alunara.app.ui.components.TvArtworkContentScale
+import com.alunara.app.ui.components.TvBackdropBlurTransformation
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvIconButton
 import com.alunara.app.ui.components.TvSongRow
@@ -200,7 +204,12 @@ fun NowPlayingScreen(
         }
     }
 
-    Row(
+    val rawThumb = track.thumbnailUrl
+    val heroUrl = remember(rawThumb) { ArtworkUrlResolver.resolve(rawThumb, ArtworkTier.HERO) }
+    var useFallbackArt by remember(rawThumb) { mutableStateOf(false) }
+    val activeArtUrl = if (useFallbackArt && !rawThumb.isNullOrBlank()) rawThumb else heroUrl
+
+    Box(
         modifier =
             modifier
                 .fillMaxSize()
@@ -211,91 +220,109 @@ fun NowPlayingScreen(
                     false
                 },
     ) {
-        // Full-bleed left pane: crisp 720px artwork + Forest Green scrim fade
-        Box(
-            modifier =
-                Modifier
-                    .weight(1.0f)
-                    .fillMaxHeight(),
-        ) {
-            val rawThumb = track.thumbnailUrl
-            val heroUrl = remember(rawThumb) { ArtworkUrlResolver.resolve(rawThumb, ArtworkTier.HERO) }
-            var useFallbackArt by remember(rawThumb) { mutableStateOf(false) }
-            val activeArtUrl = if (useFallbackArt && !rawThumb.isNullOrBlank()) rawThumb else heroUrl
-            if (!activeArtUrl.isNullOrBlank()) {
-                val heroRequest =
-                    remember(activeArtUrl, prefs.reduceMotion) {
-                        ImageRequest
-                            .Builder(context)
-                            .data(activeArtUrl)
-                            .size(ArtworkTier.HERO.maxPx)
-                            .crossfade(!prefs.reduceMotion)
-                            .build()
-                    }
-                AsyncImage(
-                    model = heroRequest,
-                    contentDescription = track.title,
-                    contentScale = TvArtworkContentScale,
-                    onError = {
-                        if (!useFallbackArt && activeArtUrl != rawThumb && !rawThumb.isNullOrBlank()) {
-                            useFallbackArt = true
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .background(colors.secondarySurface),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.MusicNote,
-                        contentDescription = track.title,
-                        tint = colors.primaryAccent.copy(alpha = 0.45f),
-                        modifier = Modifier.size(120.dp),
-                    )
+        // Layer 1: Full-screen softened & darkened cover artwork spanning behind both left panel and lyrics
+        if (!activeArtUrl.isNullOrBlank() && !prefs.highContrast) {
+            val backdropRequest =
+                remember(activeArtUrl, prefs.reduceMotion) {
+                    ImageRequest
+                        .Builder(context)
+                        .data(activeArtUrl)
+                        .size(256)
+                        .allowHardware(false)
+                        .transformations(TvBackdropBlurTransformation)
+                        .crossfade(!prefs.reduceMotion)
+                        .build()
                 }
-            }
-
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                0.0f to colors.background.copy(alpha = 0.08f),
-                                0.36f to colors.background.copy(alpha = 0.32f),
-                                0.62f to colors.background.copy(alpha = 0.80f),
-                                0.85f to colors.background.copy(alpha = 0.96f),
-                                1.0f to colors.background,
-                            ),
-                        ),
+            AsyncImage(
+                model = backdropRequest,
+                contentDescription = null,
+                contentScale = TvArtworkContentScale,
+                modifier = Modifier.fillMaxSize(),
             )
-
             Box(
                 modifier =
                     Modifier
                         .fillMaxSize()
                         .background(
                             Brush.horizontalGradient(
-                                0.56f to Color.Transparent,
-                                0.85f to colors.background.copy(alpha = 0.75f),
-                                1.0f to colors.background,
+                                0.0f to colors.background.copy(alpha = 0.60f),
+                                0.45f to colors.background.copy(alpha = 0.68f),
+                                1.0f to colors.background.copy(alpha = 0.78f),
                             ),
                         ),
             )
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0.0f to colors.background.copy(alpha = 0.16f),
+                                0.65f to colors.background.copy(alpha = 0.36f),
+                                1.0f to colors.background.copy(alpha = 0.76f),
+                            ),
+                        ),
+            )
+        }
 
+        // Layer 2: Two-column TV foreground over the blurred full-screen artwork backdrop
+        Row(modifier = Modifier.fillMaxSize()) {
+            // Left pane: crisp unblurred album card + track metadata + progress + transport controls
             Column(
                 modifier =
                     Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .padding(start = AlunaraDimens.OverscanHorizontal, end = 32.dp, bottom = 30.dp),
+                        .weight(0.92f)
+                        .fillMaxHeight()
+                        .padding(
+                            start = AlunaraDimens.OverscanHorizontal,
+                            end = 28.dp,
+                            top = AlunaraDimens.OverscanVertical,
+                            bottom = 30.dp,
+                        ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                val cardShape = RoundedCornerShape(18.dp)
+                Box(
+                    modifier =
+                        Modifier
+                            .size(212.dp)
+                            .clip(cardShape)
+                            .background(colors.secondarySurface, cardShape)
+                            .border(1.dp, colors.primaryAccent.copy(alpha = 0.25f), cardShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (!activeArtUrl.isNullOrBlank()) {
+                        val heroRequest =
+                            remember(activeArtUrl, prefs.reduceMotion) {
+                                ImageRequest
+                                    .Builder(context)
+                                    .data(activeArtUrl)
+                                    .size(ArtworkTier.HERO.maxPx)
+                                    .crossfade(!prefs.reduceMotion)
+                                    .build()
+                            }
+                        AsyncImage(
+                            model = heroRequest,
+                            contentDescription = track.title,
+                            contentScale = TvArtworkContentScale,
+                            onError = {
+                                if (!useFallbackArt && activeArtUrl != rawThumb && !rawThumb.isNullOrBlank()) {
+                                    useFallbackArt = true
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.MusicNote,
+                            contentDescription = track.title,
+                            tint = colors.primaryAccent.copy(alpha = 0.55f),
+                            modifier = Modifier.size(72.dp),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
                 // Non-focusable, non-clickable metadata (UI/UX Spec §5.1 / UX-12)
                 Column(
                     modifier =
@@ -456,15 +483,13 @@ fun NowPlayingScreen(
                     }
                 }
             }
-        }
 
-        // Right pane: toggleable between read-only Lyrics viewport and YouTube Algorithm Queue + chips
-        Column(
-            modifier =
-                Modifier
-                    .weight(1.0f)
+            // Right pane: toggleable between read-only Lyrics viewport and YouTube Algorithm Queue + chips over blurred artwork
+            Column(
+                modifier =
+                    Modifier
+                        .weight(1.08f)
                     .fillMaxHeight()
-                    .background(colors.background)
                     .padding(
                         start = 20.dp,
                         end = AlunaraDimens.OverscanHorizontal,
@@ -494,7 +519,7 @@ fun NowPlayingScreen(
                     TvFocusableButton(
                         text =
                             if (sessionState.showRomanizedLyrics) {
-                                stringResource(R.string.lyrics_toggle_original)
+                                stringResource(R.string.lyrics_toggle_romaji_active)
                             } else {
                                 stringResource(R.string.lyrics_toggle_romaji)
                             },
@@ -547,6 +572,7 @@ fun NowPlayingScreen(
                         )
                 }
             }
+        }
         }
     }
 }
@@ -1064,6 +1090,11 @@ private fun PersistentReadOnlyLyricsPanel(
 
                 lyrics is LyricsDocument.Plain -> {
                     val plainLines = remember(lyrics.text) { lyrics.text.lines() }
+                    val romanLines =
+                        remember(lyrics.romanizedText) {
+                            lyrics.romanizedText?.lines()
+                        }
+                    val plainFontSize = AlunaraTypography.lyricPlain(prefs.textScale)
                     LazyColumn(
                         userScrollEnabled = false,
                         modifier =
@@ -1072,14 +1103,34 @@ private fun PersistentReadOnlyLyricsPanel(
                                 .focusProperties { canFocus = false },
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        itemsIndexed(plainLines) { _, line ->
-                            Text(
-                                text = line,
-                                color = colors.primaryText.copy(alpha = 0.90f),
-                                fontSize = AlunaraTypography.lyricPlain(prefs.textScale),
-                                fontWeight = FontWeight.Medium,
-                                lineHeight = AlunaraTypography.lyricPlain(prefs.textScale) * 1.48f,
-                            )
+                        itemsIndexed(plainLines) { idx, line ->
+                            val roman = romanLines?.getOrNull(idx)
+                            if (showRomanizedLyrics && !roman.isNullOrBlank() && roman != line) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = roman,
+                                        color = colors.primaryText.copy(alpha = 0.94f),
+                                        fontSize = plainFontSize,
+                                        fontWeight = FontWeight.SemiBold,
+                                        lineHeight = plainFontSize * 1.38f,
+                                    )
+                                    Text(
+                                        text = line,
+                                        color = colors.mutedText.copy(alpha = 0.68f),
+                                        fontSize = plainFontSize * 0.74f,
+                                        fontWeight = FontWeight.Normal,
+                                        lineHeight = plainFontSize * 1.05f,
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = line,
+                                    color = colors.primaryText.copy(alpha = 0.90f),
+                                    fontSize = plainFontSize,
+                                    fontWeight = FontWeight.Medium,
+                                    lineHeight = plainFontSize * 1.48f,
+                                )
+                            }
                         }
                     }
                 }
@@ -1184,7 +1235,50 @@ private fun SyncedLyricRowItem(
                 transformOrigin = TransformOrigin(0f, 0.5f)
             }
 
-    if (isActive && line.value.hasWordSync && !showRomanized) {
+    val romanized = line.value.romanizedText
+    val hasDualLine = showRomanized && !romanized.isNullOrBlank()
+    val hasRomanWords = hasDualLine && line.value.words.any { !it.romanizedText.isNullOrBlank() }
+
+    if (hasDualLine) {
+        val primaryLineHeight = baseFontSize * 1.32f
+        val subFontSize = baseFontSize * 0.72f
+        val subLineHeight = subFontSize * 1.30f
+        Column(
+            modifier = rowModifier,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            if (isActive && line.value.hasWordSync && hasRomanWords) {
+                ActiveWordSyncedLyricText(
+                    line = line,
+                    nextLineStartMs = nextLineStartMs,
+                    positionMsFlow = positionMsFlow,
+                    fallbackPositionMs = fallbackPositionMs,
+                    lyricsSyncOffsetMs = lyricsSyncOffsetMs,
+                    reduceMotion = reduceMotion,
+                    useRomanizedWords = true,
+                    baseFontSize = baseFontSize,
+                    lineHeight = primaryLineHeight,
+                    colors = colors,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                Text(
+                    text = romanized ?: line.value.text,
+                    color = colors.primaryText,
+                    fontSize = baseFontSize,
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
+                    lineHeight = primaryLineHeight,
+                )
+            }
+            Text(
+                text = line.value.text,
+                color = if (isActive) colors.primaryText.copy(alpha = 0.62f) else colors.mutedText.copy(alpha = 0.68f),
+                fontSize = subFontSize,
+                fontWeight = FontWeight.Normal,
+                lineHeight = subLineHeight,
+            )
+        }
+    } else if (isActive && line.value.hasWordSync) {
         ActiveWordSyncedLyricText(
             line = line,
             nextLineStartMs = nextLineStartMs,
@@ -1192,16 +1286,15 @@ private fun SyncedLyricRowItem(
             fallbackPositionMs = fallbackPositionMs,
             lyricsSyncOffsetMs = lyricsSyncOffsetMs,
             reduceMotion = reduceMotion,
+            useRomanizedWords = false,
             baseFontSize = baseFontSize,
             lineHeight = lineHeight,
             colors = colors,
             modifier = rowModifier,
         )
     } else {
-        val romanized = line.value.romanizedText
-        val displayText = if (showRomanized && !romanized.isNullOrBlank()) romanized else line.value.text
         Text(
-            text = displayText,
+            text = line.value.text,
             color = colors.primaryText,
             fontSize = baseFontSize,
             fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
@@ -1219,6 +1312,7 @@ private fun ActiveWordSyncedLyricText(
     fallbackPositionMs: Long,
     lyricsSyncOffsetMs: Long,
     reduceMotion: Boolean,
+    useRomanizedWords: Boolean,
     baseFontSize: TextUnit,
     lineHeight: TextUnit,
     colors: AlunaraColorTokens,
@@ -1264,7 +1358,7 @@ private fun ActiveWordSyncedLyricText(
     }
 
     val annotated =
-        remember(line, activeWordIndex, passedWordCount, quantizedSmoothStep, reduceMotion, colors) {
+        remember(line, activeWordIndex, passedWordCount, quantizedSmoothStep, reduceMotion, useRomanizedWords, colors) {
             val smoothProgress = quantizedSmoothStep / 4f
             buildAnnotatedString {
                 words.forEachIndexed { wIdx, word ->
@@ -1281,7 +1375,13 @@ private fun ActiveWordSyncedLyricText(
                             fontWeight = FontWeight.Bold,
                         ),
                     ) {
-                        append(word.text)
+                        val wordText =
+                            if (useRomanizedWords && !word.romanizedText.isNullOrBlank()) {
+                                word.romanizedText
+                            } else {
+                                word.text
+                            }
+                        append(wordText)
                     }
                 }
             }

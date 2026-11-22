@@ -1,5 +1,9 @@
 package com.alunara.app.ui.components
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -58,6 +62,8 @@ import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.size.Size as CoilSize
+import coil3.transform.Transformation
 import com.alunara.app.R
 import com.alunara.app.playback.PlaybackSessionUiState
 import com.alunara.app.ui.theme.AlunaraDimens
@@ -93,6 +99,124 @@ object TvArtworkContentScale : ContentScale {
         val heightScale = dstSize.height / effectiveSrcHeight
         val maxScale = maxOf(widthScale, heightScale)
         return ScaleFactor(maxScale, maxScale)
+    }
+}
+
+/**
+ * Downsamples artwork to a small 144px canvas, crops out any 4:3 YouTube black letterbox bars,
+ * and applies a fast 3-pass separable box blur once per track so Now Playing backdrops work
+ * smoothly on Android 9–11 TV (API 28+) with zero per-frame GPU blur cost.
+ */
+object TvBackdropBlurTransformation : Transformation() {
+    private const val TARGET_MAX_PX = 144
+    private const val BLUR_RADIUS = 10
+    private const val PASSES = 3
+
+    override val cacheKey: String = "alunara_tv_backdrop_blur_r10_v1"
+
+    override suspend fun transform(
+        input: Bitmap,
+        size: CoilSize,
+    ): Bitmap {
+        val safeSrc =
+            if (input.config == Bitmap.Config.HARDWARE) {
+                input.copy(Bitmap.Config.ARGB_8888, false) ?: input
+            } else {
+                input
+            }
+        val srcW = safeSrc.width.coerceAtLeast(1)
+        val srcH = safeSrc.height.coerceAtLeast(1)
+        val srcAspect = srcW.toFloat() / srcH.toFloat()
+        val cropTop = if (srcAspect in 1.28f..1.39f) (srcH * 0.13f).toInt() else 0
+        val cropH = (srcH - cropTop * 2).coerceAtLeast(1)
+
+        val scale = TARGET_MAX_PX.toFloat() / maxOf(srcW, cropH).toFloat()
+        val dstW = (srcW * scale).roundToInt().coerceIn(24, TARGET_MAX_PX)
+        val dstH = (cropH * scale).roundToInt().coerceIn(24, TARGET_MAX_PX)
+
+        val out = Bitmap.createBitmap(dstW, dstH, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+        canvas.drawBitmap(
+            safeSrc,
+            Rect(0, cropTop, srcW, cropTop + cropH),
+            Rect(0, 0, dstW, dstH),
+            paint,
+        )
+        if (safeSrc !== input && !safeSrc.isRecycled) {
+            safeSrc.recycle()
+        }
+
+        val pixels = IntArray(dstW * dstH)
+        val scratch = IntArray(dstW * dstH)
+        out.getPixels(pixels, 0, dstW, 0, 0, dstW, dstH)
+        repeat(PASSES) {
+            boxBlurHorizontal(pixels, scratch, dstW, dstH, BLUR_RADIUS)
+            boxBlurVertical(scratch, pixels, dstW, dstH, BLUR_RADIUS)
+        }
+        out.setPixels(pixels, 0, dstW, 0, 0, dstW, dstH)
+        return out
+    }
+
+    private fun boxBlurHorizontal(
+        src: IntArray,
+        dst: IntArray,
+        w: Int,
+        h: Int,
+        radius: Int,
+    ) {
+        val div = radius * 2 + 1
+        for (y in 0 until h) {
+            val rowOffset = y * w
+            var rSum = 0
+            var gSum = 0
+            var bSum = 0
+            for (k in -radius..radius) {
+                val px = src[rowOffset + k.coerceIn(0, w - 1)]
+                rSum += (px shr 16) and 0xFF
+                gSum += (px shr 8) and 0xFF
+                bSum += px and 0xFF
+            }
+            for (x in 0 until w) {
+                dst[rowOffset + x] =
+                    (0xFF shl 24) or ((rSum / div) shl 16) or ((gSum / div) shl 8) or (bSum / div)
+                val removePx = src[rowOffset + (x - radius).coerceIn(0, w - 1)]
+                val addPx = src[rowOffset + (x + radius + 1).coerceIn(0, w - 1)]
+                rSum += ((addPx shr 16) and 0xFF) - ((removePx shr 16) and 0xFF)
+                gSum += ((addPx shr 8) and 0xFF) - ((removePx shr 8) and 0xFF)
+                bSum += (addPx and 0xFF) - (removePx and 0xFF)
+            }
+        }
+    }
+
+    private fun boxBlurVertical(
+        src: IntArray,
+        dst: IntArray,
+        w: Int,
+        h: Int,
+        radius: Int,
+    ) {
+        val div = radius * 2 + 1
+        for (x in 0 until w) {
+            var rSum = 0
+            var gSum = 0
+            var bSum = 0
+            for (k in -radius..radius) {
+                val px = src[k.coerceIn(0, h - 1) * w + x]
+                rSum += (px shr 16) and 0xFF
+                gSum += (px shr 8) and 0xFF
+                bSum += px and 0xFF
+            }
+            for (y in 0 until h) {
+                dst[y * w + x] =
+                    (0xFF shl 24) or ((rSum / div) shl 16) or ((gSum / div) shl 8) or (bSum / div)
+                val removePx = src[(y - radius).coerceIn(0, h - 1) * w + x]
+                val addPx = src[(y + radius + 1).coerceIn(0, h - 1) * w + x]
+                rSum += ((addPx shr 16) and 0xFF) - ((removePx shr 16) and 0xFF)
+                gSum += ((addPx shr 8) and 0xFF) - ((removePx shr 8) and 0xFF)
+                bSum += (addPx and 0xFF) - (removePx and 0xFF)
+            }
+        }
     }
 }
 
