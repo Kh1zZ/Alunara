@@ -5,12 +5,13 @@
   <h1>Alunara</h1>
 
   <p align="center">
-    <strong>Lightweight, 60 FPS YouTube Music Experience Built Natively for Android TV.</strong>
+    <strong>Let the Music Flow.</strong> Lightweight, 60 FPS YouTube Music Built Natively for Android TV.
     <br />
     <em>Audio-only, privacy-first, D-pad native, and engineered to stay silky smooth even on 1 GB RAM smart TVs.</em>
   </p>
 
   <p align="center">
+    <a href="#philosophy"><b>Philosophy</b></a> •
     <a href="#features"><b>Features</b></a> •
     <a href="#screenshots"><b>Showcase</b></a> •
     <a href="#download-now"><b>Download</b></a> •
@@ -63,6 +64,21 @@
 
 > [!IMPORTANT]
 > **Geographic Availability:** If YouTube Music is not supported in your region, a VPN or proxy set to a supported region may be required for initial catalog fetching.
+
+---
+
+<a id="philosophy"></a>
+
+## 🌿 Philosophy & Logo Identity
+
+**Alunara** combines the Indonesian words ***"Alunan Suara"*** (*a gentle, continuous flow of sound*), embodying three core values — **Flow**, **Harmony**, and **Tranquility** — under the tagline ***"Let the Music Flow."***
+
+> *"Alunara is not simply about playing music — it is about allowing every melody to find its own space."*
+
+- **Letter "A"** — Rounded geometric construction representing identity, stability, and modern simplicity.
+- **Flowing Wave** — Smooth organic sound wave crossing the "A", symbolizing rhythm and continuous melody.
+- **Musical Note** — Minimal note woven seamlessly into the wave to express Alunara's musical identity without clutter.
+- **Fixed Forest Green Palette** — Calm flat-vector **Dark Forest Green** (tranquility & living-room eye comfort), **Soft Mint Green** (harmony & clarity), and **Fresh Green** (musical energy & creativity), kept consistent across the 1:1 app icon and 16:9 Android TV banner.
 
 ---
 
@@ -258,6 +274,12 @@ Translations and localization improvements are always welcome via Pull Requests!
 <a href="https://github.com/Kh1zZ/Alunara/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=Kh1zZ/Alunara&columns=6" alt="Project Contributors" />
 </a>
+
+<br /><br />
+
+<img src="https://img.shields.io/badge/AI%20Contributor-Gemini%204-6366f1?style=for-the-badge&logo=googlegemini&logoColor=white&labelColor=1e1e2e" alt="AI Contributor: Gemini 4" />
+
+- **Gemini 4** — AI Engineering Contributor (architecture, performance optimization, lyric sync, and documentation).
 
 ### 🛠️ Development & Engineering
 
