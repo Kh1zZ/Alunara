@@ -1,337 +1,250 @@
 <div align="center">
 
-  <img src="app/src/main/res/drawable-nodpi/ic_alunara_mark.png" width="144" height="144" alt="Alunara Logo" style="border-radius: 22%" />
+  <a href="https://github.com/Kh1zZ/Alunara/releases/latest">
+    <img src="app/src/main/res/drawable-xxhdpi/tv_banner.png" width="540" alt="Alunara — Android TV Music Client" />
+  </a>
 
-  <h1>Alunara</h1>
-
-  <p align="center">
-    <strong>Let the Music Flow.</strong> Lightweight, 60 FPS YouTube Music Built Natively for Android TV.
+  <p>
+    <strong>Alunan Suara — Let the Music Flow.</strong>
     <br />
-    <em>Audio-only, privacy-first, D-pad native, and engineered to stay silky smooth even on 1 GB RAM smart TVs.</em>
+    A serene, audio-only YouTube Music player engineered from scratch for Android TV remotes and 1 GB RAM smart TVs.
   </p>
 
-  <p align="center">
-    <a href="#philosophy"><b>Philosophy</b></a> •
-    <a href="#features"><b>Features</b></a> •
-    <a href="#screenshots"><b>Showcase</b></a> •
-    <a href="#download-now"><b>Download</b></a> •
-    <a href="#development"><b>Development</b></a> •
-    <a href="CHANGELOG.md"><b>Changelog</b></a> •
-    <a href="https://github.com/Kh1zZ/Alunara/issues"><b>Issues</b></a>
+  <p>
+    <a href="https://github.com/Kh1zZ/Alunara/releases/latest"><img src="https://img.shields.io/github/v/release/Kh1zZ/Alunara?style=flat-square&logo=github&logoColor=B5E6CC&label=release&labelColor=101813&color=2E6F4E" alt="Latest Release" /></a>
+    <a href="https://github.com/Kh1zZ/Alunara/releases"><img src="https://img.shields.io/github/downloads/Kh1zZ/Alunara/total?style=flat-square&label=downloads&labelColor=101813&color=26382D" alt="Total Downloads" /></a>
+    <a href="https://github.com/Kh1zZ/Alunara/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Kh1zZ/Alunara/ci.yml?style=flat-square&logo=githubactions&logoColor=B5E6CC&label=ci&labelColor=101813&color=2E6F4E" alt="CI Status" /></a>
+    <img src="https://img.shields.io/badge/Android%20TV-9.0%2B%20(API%2028%2B)-26382D?style=flat-square&logo=android&logoColor=85BDA0&labelColor=101813" alt="Android TV 9.0+" />
+    <img src="https://img.shields.io/badge/Kotlin-Compose%20for%20TV-26382D?style=flat-square&logo=kotlin&logoColor=85BDA0&labelColor=101813" alt="Kotlin and Compose for TV" />
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/Kh1zZ/Alunara?style=flat-square&label=license&labelColor=101813&color=1D2B22" alt="GPL-3.0 License" /></a>
   </p>
 
-  <div align="center">
-    <a href="https://github.com/Kh1zZ/Alunara/releases/latest">
-      <img src="https://img.shields.io/github/v/release/Kh1zZ/Alunara?style=for-the-badge&color=6366f1&labelColor=1e1e2e&logo=github" alt="Latest Release" />
-    </a>
-    <a href="https://github.com/Kh1zZ/Alunara/releases">
-      <img src="https://img.shields.io/github/downloads/Kh1zZ/Alunara/total?style=for-the-badge&color=6366f1&labelColor=1e1e2e&logo=github" alt="Total Downloads" />
-    </a>
-    <a href="https://github.com/Kh1zZ/Alunara/stargazers">
-      <img src="https://img.shields.io/github/stars/Kh1zZ/Alunara?style=for-the-badge&color=6366f1&labelColor=1e1e2e&logo=github" alt="GitHub Stars" />
-    </a>
-    <a href="LICENSE">
-      <img src="https://img.shields.io/github/license/Kh1zZ/Alunara?style=for-the-badge&color=6366f1&labelColor=1e1e2e" alt="GPL-3.0 License" />
-    </a>
-    <a href="https://github.com/Kh1zZ/Alunara/actions/workflows/ci.yml">
-      <img src="https://img.shields.io/github/actions/workflow/status/Kh1zZ/Alunara/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI&color=22c55e&labelColor=1e1e2e" alt="CI Status" />
-    </a>
-    <img src="https://img.shields.io/badge/Android%20TV-9.0%2B%20(API%2028%2B)-3DDC84?style=for-the-badge&logo=android&logoColor=white&labelColor=1e1e2e" alt="Android TV 9.0+ (API 28+)" />
-  </div>
-
-  <br />
-
-  <div align="center">
-    <a href="https://kotlinlang.org" target="_blank">
-      <img src="https://cdn.jsdelivr.net/gh/JMcrafter26/badges@main/src/assets/built-with/kotlin/cozy.svg" alt="Built with Kotlin" />
-    </a>
-  </div>
+  <p>
+    <a href="#philosophy--visual-language">Philosophy</a> &nbsp;·&nbsp;
+    <a href="#crafted-for-the-10-foot-living-room">Highlights</a> &nbsp;·&nbsp;
+    <a href="#tv-screen-previews">Previews</a> &nbsp;·&nbsp;
+    <a href="#architecture">Architecture</a> &nbsp;·&nbsp;
+    <a href="#getting-started-on-android-tv">Install</a> &nbsp;·&nbsp;
+    <a href="#building--verification">Build</a> &nbsp;·&nbsp;
+    <a href="CHANGELOG.md">Changelog</a>
+  </p>
 
 </div>
 
-<hr />
+---
 
-> [!CAUTION]
-> **OFFICIAL RELEASES ONLY — ALUNARA IS NOT ON GOOGLE PLAY**
->
-> **Alunara has no official Google Play Store listing.** Official builds are distributed **exclusively** through [GitHub Releases](https://github.com/Kh1zZ/Alunara/releases/latest).
->
-> Any third-party websites or Play Store uploads reusing the **Alunara** name or icon are **unofficial, unverified, and unsupported**. Always download signed APKs directly from this repository.
+## At a Glance
 
-**Alunara** (`com.alunara.app`) isn’t a generic mobile wrapper stretched onto a television screen. It is an independent, audio-only YouTube Music client built from the ground up with **Kotlin** and **Jetpack Compose for TV**, combining **ArchiveTune Core** and **ArchiveTune Lyrics** with a strict low-memory architecture designed specifically for 10-foot D-pad living room control on Android TV 9+ devices — including entry-level **1 GB RAM** smart TVs.
+Television living rooms deserve a calmer music experience than a stretched phone UI or a heavy video player. **Alunara** (`com.alunara.app`) strips away video decoding, ad clutter, and visual glare to deliver a responsive, D-pad-first listening space built natively with **Kotlin**, **Jetpack Compose for TV**, and **AndroidX Media3**.
+
+| Dimension | Alunara Engineering Target |
+| :--- | :--- |
+| **Memory Footprint** | **~72 MB PSS** on entry-level **1 GB RAM** Android TVs (R8 full-mode + `RGB_565` artwork) |
+| **Navigation Smoothness** | **60 FPS** D-pad focus routing with a fixed `72.dp` pure icon rail and zero-relayout GPU progress bar |
+| **Audio Pipeline** | **100% AAC-first** across all quality presets for hardware DSP decode (**Opus strictly fallback-only**) |
+| **Lyrics & Scripts** | `100 ms` decoupled karaoke sync (`[offset:±ms]`, `endTimeMs`) + offline **Romaji / Hangul / Cyrillic** |
+| **Sign-In Experience** | **Smart Phone QR Login Wizard** over local LAN HTTP — zero on-screen remote typing |
+| **Privacy & Licensing** | **Zero ads, zero telemetry**, guest mode out of the box, 100% open source under **GNU GPL v3.0** |
 
 ---
 
-> [!IMPORTANT]
-> **Geographic Availability:** If YouTube Music is not supported in your region, a VPN or proxy set to a supported region may be required for initial catalog fetching.
+## Philosophy & Visual Language
 
----
-
-<a id="philosophy"></a>
-
-## 🌿 Philosophy & Logo Identity
-
-**Alunara** combines the Indonesian words ***"Alunan Suara"*** (*a gentle, continuous flow of sound*), embodying three core values — **Flow**, **Harmony**, and **Tranquility** — under the tagline ***"Let the Music Flow."***
+**Alunara** is born from the Indonesian phrase ***"Alunan Suara"*** — *a gentle, unhurried flow of sound*. Every architectural and visual choice serves three principles: **Flow**, **Harmony**, and **Tranquility**.
 
 > *"Alunara is not simply about playing music — it is about allowing every melody to find its own space."*
 
-- **Letter "A"** — Rounded geometric construction representing identity, stability, and modern simplicity.
-- **Flowing Wave** — Smooth organic sound wave crossing the "A", symbolizing rhythm and continuous melody.
-- **Musical Note** — Minimal note woven seamlessly into the wave to express Alunara's musical identity without clutter.
-- **Fixed Forest Green Palette** — Calm flat-vector **Dark Forest Green** (tranquility & living-room eye comfort), **Soft Mint Green** (harmony & clarity), and **Fresh Green** (musical energy & creativity), kept consistent across the 1:1 app icon and 16:9 Android TV banner.
+### Identity Marks
+- **Geometric "A"** — Rounded, balanced anchor that stays legible from ten feet away.
+- **Flowing Sound Wave** — An organic ribbon passing through the mark to evoke continuous rhythm.
+- **Integrated Musical Note** — Subtle, clutter-free cue woven directly into the wave's motion.
+
+### Fixed Dark Forest Green Palette
+Rather than shifting colors aggressively with every album cover, Alunara locks its interface to a calibrated **Dark Forest Green** system designed for low-glare evening viewing on large television panels (with an optional High-Contrast mode in Settings):
+
+| Role | Token (`AlunaraPalette`) | Swatch | Living-Room Purpose |
+| :--- | :--- | :---: | :--- |
+| **Canvas** | `Background` | ![#101813](https://img.shields.io/badge/%23101813-101813?style=flat-square) | Deep forest backdrop that minimizes TV backlight glare |
+| **Card / Rail** | `Surface` | ![#1D2B22](https://img.shields.io/badge/%231D2B22-1D2B22?style=flat-square) | Calm elevation layer for rails, cards, and modals |
+| **Elevated Control** | `SecondarySurface` | ![#26382D](https://img.shields.io/badge/%2326382D-26382D?style=flat-square) | Subtle depth for inputs, chips, and queue rows |
+| **Primary Accent** | `PrimaryAccent` | ![#85BDA0](https://img.shields.io/badge/%2385BDA0-85BDA0?style=flat-square) | Soft mint indicator for playback progress and active states |
+| **D-Pad Focus** | `FocusOutline` | ![#B5E6CC](https://img.shields.io/badge/%23B5E6CC-B5E6CC?style=flat-square) | High-visibility `2.5.dp` focus ring readable across the room |
+| **Typography** | `PrimaryText` | ![#E3EEE5](https://img.shields.io/badge/%23E3EEE5-E3EEE5?style=flat-square) | Warm mint-tinted white for fatigue-free reading & lyrics |
 
 ---
 
-## 📸 Showcase
+## Crafted for the 10-Foot Living Room
 
-<div align="center" id="screenshots">
+### 1. D-Pad Native UI & 60 FPS Budget
+- Built exclusively for television geometry (`960×540 dp` logical 720p grid with TV overscan margins).
+- **Pure icon-only left navigation rail (`72.dp`)** maximizes horizontal stage space without width transitions or black-frame flicker.
+- GPU-drawn `drawBehind` mini-player progress strip eliminates layout passes while browsing Home, Search, Library, or Settings.
+- Coil downscaled `RGB_565` artwork caching keeps bitmap allocations tight on low-memory hardware.
 
-<table>
-  <tr>
-    <td width="50%" align="center">
-      <!-- Replace with docs/screenshots/01-home.png -->
-      <img src="https://placehold.co/1280x720/12121A/A5B4FC/png?text=Alunara+TV+Showcase%0A01+%E2%80%A2+Home+%26+Pure+Icon+Rail+(Coming+Soon)" alt="Home & Pure Icon Rail Placeholder" width="100%" />
-      <br />
-      <sub><b>Home &amp; Pure Icon Rail</b> — Coming soon (<code>docs/screenshots/01-home.png</code>)</sub>
-    </td>
-    <td width="50%" align="center">
-      <!-- Replace with docs/screenshots/02-now-playing.png -->
-      <img src="https://placehold.co/1280x720/12121A/A5B4FC/png?text=Alunara+TV+Showcase%0A02+%E2%80%A2+Now+Playing+%26+Karaoke+Lyrics+(Coming+Soon)" alt="Now Playing & Karaoke Lyrics Placeholder" width="100%" />
-      <br />
-      <sub><b>Now Playing &amp; Karaoke Lyrics</b> — Coming soon (<code>docs/screenshots/02-now-playing.png</code>)</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" align="center">
-      <!-- Replace with docs/screenshots/03-library.png -->
-      <img src="https://placehold.co/1280x720/12121A/A5B4FC/png?text=Alunara+TV+Showcase%0A03+%E2%80%A2+Library+%26+Playlists+(Coming+Soon)" alt="Library & Playlists Placeholder" width="100%" />
-      <br />
-      <sub><b>Library &amp; Playlists</b> — Coming soon (<code>docs/screenshots/03-library.png</code>)</sub>
-    </td>
-    <td width="50%" align="center">
-      <!-- Replace with docs/screenshots/04-qr-login.png -->
-      <img src="https://placehold.co/1280x720/12121A/A5B4FC/png?text=Alunara+TV+Showcase%0A04+%E2%80%A2+Smart+Phone+QR+Login+Wizard+(Coming+Soon)" alt="Smart Phone QR Login Wizard Placeholder" width="100%" />
-      <br />
-      <sub><b>Smart Phone QR Login Wizard</b> — Coming soon (<code>docs/screenshots/04-qr-login.png</code>)</sub>
-    </td>
-  </tr>
-</table>
+### 2. AAC-First Hardware DSP Audio Engine
+- Streams **audio-only** YouTube Music tracks with zero video decoder overhead.
+- Prioritizes **AAC (`mp4a`) 100% of the time** across every quality preset (`Low`, `Medium`, `Auto`, `High`) so budget Android TV SoCs can offload decoding to hardware DSPs instead of spiking CPU usage.
+- Falls back to **Opus strictly when no AAC stream exists** for a given track (`High` always picks the highest available bitrate).
+- Powered by a single-instance Media3 `AlunaraPlaybackService` with tuned `DefaultLoadControl` buffering (`15s` min / `30s` max / `2 MB` target), native TV Now Playing session integration, Up Next queue management, Shuffle/Repeat, and persistent session restore.
+
+### 3. Synchronized Karaoke Lyrics & Offline Romanization
+- Decoupled `100 ms` active-line sync via `activeLyricIndexFlow` keeps lyrics fluid without triggering recompositions across browse screens.
+- Full support for global LRC `[offset:±ms]` tags, accurate word-level `endTimeMs` spans for karaoke sweeps, and constant `FontWeight` rendering to avoid `StaticLayout` re-wrap jank.
+- Bounded multi-provider engine (**SimpMusic**, **LRCLIB**, **KuGou**) with adaptive provider reliability scoring.
+- **Built-in offline romanization** for **Japanese (Kuromoji)**, **Korean Hangul**, and **Cyrillic** scripts directly on the TV.
+
+### 4. Zero-Typing Smart Phone QR Login
+- Start sign-in on your TV, scan the on-screen QR code with your phone on the same Wi-Fi network, and follow the live synchronized TV ↔ phone wizard served by Alunara's temporary local LAN HTTP server.
+- Syncs your YouTube Music playlists, liked songs, library, and listening history while keeping signed-in and guest caches strictly separated via `accountScope`.
+- Credentials are sealed at rest using hardware-backed Android Keystore (**AES-256-GCM**).
+
+### 5. Private, Lightweight & Ready Without an Account
+- Launch and stream immediately in **Guest Mode** with zero mandatory login.
+- Local Room database caches Home and Library surfaces for instant cold-start browsing.
+- Completely free of ads, analytics, crash trackers, or third-party telemetry SDKs.
+
+---
+
+## TV Screen Previews
+
+<div align="center">
+
+| Home & Pure Icon Rail | Now Playing & Karaoke Lyrics |
+| :---: | :---: |
+| <img src="https://placehold.co/1280x720/101813/B5E6CC/png?text=Alunara+TV%0A01+%E2%80%A2+Home+%26+Pure+Icon+Rail%0A(docs/screenshots/01-home.png)" alt="Home and Pure Icon Rail Preview" width="100%" /> | <img src="https://placehold.co/1280x720/101813/B5E6CC/png?text=Alunara+TV%0A02+%E2%80%A2+Now+Playing+%26+Karaoke+Lyrics%0A(docs/screenshots/02-now-playing.png)" alt="Now Playing and Karaoke Lyrics Preview" width="100%" /> |
+| **Library & Playlists** | **Smart Phone QR Login Wizard** |
+| <img src="https://placehold.co/1280x720/101813/B5E6CC/png?text=Alunara+TV%0A03+%E2%80%A2+Library+%26+Playlists%0A(docs/screenshots/03-library.png)" alt="Library and Playlists Preview" width="100%" /> | <img src="https://placehold.co/1280x720/101813/B5E6CC/png?text=Alunara+TV%0A04+%E2%80%A2+Smart+Phone+QR+Login+Wizard%0A(docs/screenshots/04-qr-login.png)" alt="Smart Phone QR Login Wizard Preview" width="100%" /> |
 
 </div>
 
 > [!NOTE]
-> The images above are **16:9 showcase placeholders** ready for final Android TV captures under `docs/screenshots/`.
+> These 16:9 frames are Alunara-themed placeholders reserved for final Android TV captures under `docs/screenshots/`.
 
 ---
 
-## ✨ Features
+## Architecture
 
-<div align="center" id="features">
+Alunara follows a clean **modular-lite** Gradle layout that isolates Android TV UI, Media3 playback, domain contracts, local persistence, and vendored upstream engines:
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <div align="left">
-        <h3>Playback &amp; Background Audio</h3>
-        <ul>
-          <li>Audio-only YouTube Music streaming (zero video decode overhead)</li>
-          <li>Background playback via Media3 <code>AlunaraPlaybackService</code> &amp; native Android TV Now Playing integration</li>
-          <li>Up Next queue management, Shuffle, and Repeat controls</li>
-          <li>Persisted queue, track index, and playback position across sessions</li>
-          <li>Instant guest mode playback with zero mandatory login</li>
-        </ul>
-      </div>
-    </td>
-    <td width="50%" valign="top">
-      <div align="left">
-        <h3>Audio Engine (AAC-First)</h3>
-        <ul>
-          <li>Strict <b>100% AAC priority</b> across all quality presets (<code>Low</code>, <code>Medium</code>, <code>Auto</code>, <code>High</code>) for hardware DSP decoding on TV SoCs</li>
-          <li><b>Opus strictly fallback-only</b> when YouTube serves no AAC stream (<code>High</code> selects the highest bitrate available)</li>
-          <li>Memory-tuned Media3 <code>DefaultLoadControl</code> (15s min / 30s max buffer, 2 MB target)</li>
-          <li>Single active ExoPlayer lifecycle controller per process</li>
-        </ul>
-      </div>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <div align="left">
-        <h3>Lyrics &amp; Romanization</h3>
-        <ul>
-          <li>Precision time-synced &amp; word-by-word karaoke lyrics (<code>[offset:±ms]</code> &amp; trailing <code>endTimeMs</code>)</li>
-          <li>Bounded multi-provider lyrics engine (<code>SimpMusic</code>, <code>LRCLIB</code>, <code>KuGou</code>) with adaptive reliability scoring</li>
-          <li>Automatic offline <b>Japanese Romaji (Kuromoji)</b>, Korean Hangul, and Cyrillic romanization</li>
-          <li>Jitter-free <code>100 ms</code> active-line sync decoupled from browse UI recomposition</li>
-        </ul>
-      </div>
-    </td>
-    <td width="50%" valign="top">
-      <div align="left">
-        <h3>Account &amp; Smart QR Login</h3>
-        <ul>
-          <li><b>Smart Phone QR Login Wizard</b>: local LAN HTTP server on TV with real-time TV ↔ phone step synchronization — no typing on a remote</li>
-          <li>Your YouTube Music playlists, liked songs, library, and history synced after sign-in</li>
-          <li>Hardware-backed Android Keystore (<code>AES-256-GCM</code>) encrypted credential storage</li>
-          <li>Strict guest vs. signed-in data isolation (<code>accountScope</code>)</li>
-        </ul>
-      </div>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <div align="left">
-        <h3>Android TV Interface (60 FPS)</h3>
-        <ul>
-          <li>Native Jetpack Compose for TV (10-foot UI) engineered for fast D-pad focus routing</li>
-          <li>Sleek <b>pure icon-only left navigation rail</b> (<code>72.dp</code>) maximizing content viewport</li>
-          <li>Zero-relayout GPU <code>drawBehind</code> mini-player progress bar</li>
-          <li>Coil downscaled <code>RGB_565</code> artwork caching &amp; R8 full-mode optimization (~72 MB PSS on 1 GB RAM TV)</li>
-        </ul>
-      </div>
-    </td>
-    <td width="50%" valign="top">
-      <div align="left">
-        <h3>Privacy &amp; Lightweight</h3>
-        <ul>
-          <li>100% Free and Open Source (<code>GNU GPL v3.0</code>)</li>
-          <li>Completely ad-free with zero telemetry or tracking SDKs</li>
-          <li>Lightweight Room offline cache for instant Home &amp; Library browsing</li>
-          <li>Split ABI release builds (<code>armv7a</code> &amp; <code>armv8a</code>) for compact APK downloads</li>
-        </ul>
-      </div>
-    </td>
-  </tr>
-</table>
+```mermaid
+flowchart TB
+    subgraph TV["Android TV App (:app)"]
+        UI["Compose for TV 10-Foot UI<br/>Icon Rail • Browse • Now Playing • Karaoke"]
+        Media["AlunaraPlaybackService<br/>Media3 ExoPlayer • AAC-First • 15s/30s Buffer"]
+        QR["Smart QR Login Wizard<br/>Local LAN HTTP Server"]
+    end
 
-</div>
+    subgraph Core["Alunara Core Modules"]
+        Domain[":core:domain<br/>Models • Contracts • AccountScope"]
+        Music[":core:music<br/>Stream Resolver • Codec Policy"]
+        Lyrics[":core:lyrics<br/>Multi-Provider Engine • Kuromoji/Hangul/Cyrillic"]
+        Data[":core:data<br/>Room Cache • AES-256-GCM Keystore"]
+    end
+
+    subgraph Engines["Vendored Open-Source Engines (:third_party)"]
+        ATCore[":third_party:core<br/>ArchiveTune Core InnerTube Client"]
+        ATLyrics[":third_party:lyrics<br/>lrclib • simpmusic • kugou"]
+    end
+
+    UI --> Domain
+    UI --> Media
+    UI --> QR
+    Media --> Music
+    UI --> Lyrics
+    UI --> Data
+    QR --> Data
+    Music --> Domain
+    Lyrics --> Domain
+    Data --> Domain
+    Music --> ATCore
+    Lyrics --> ATLyrics
+```
 
 ---
 
-## 📥 Download Now
+## Getting Started on Android TV
 
-<div align="center" id="download-now">
+Official signed builds are published **exclusively on [GitHub Releases](https://github.com/Kh1zZ/Alunara/releases/latest)** as compact per-ABI split APKs.
 
-<h2>Stable Release</h2>
-
-<a href="https://github.com/Kh1zZ/Alunara/releases/latest">
-  <img src="https://img.shields.io/badge/Download%20Latest%20APK-GitHub%20Releases-6366f1?style=for-the-badge&logo=github&logoColor=white&labelColor=1e1e2e" alt="Download Alunara on GitHub Releases" />
-</a>
-
-<br /><br />
-
-<table>
-  <thead>
-    <tr>
-      <th align="center">APK File</th>
-      <th align="center">Architecture</th>
-      <th align="center">Recommended Devices</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td align="center"><code>alunara-&lt;version&gt;.armv7a.apk</code></td>
-      <td align="center">32-bit ARM (<code>armeabi-v7a</code>)</td>
-      <td align="left">Most 1 GB / 2 GB RAM Android TVs, Mi TV Stick, Changhong &amp; entry-level smart TVs</td>
-    </tr>
-    <tr>
-      <td align="center"><code>alunara-&lt;version&gt;.armv8a.apk</code></td>
-      <td align="center">64-bit ARM (<code>arm64-v8a</code>)</td>
-      <td align="left">64-bit Android TVs, NVIDIA Shield TV &amp; modern Google TV boxes</td>
-    </tr>
-  </tbody>
-</table>
-
-</div>
+| Release Artifact | CPU ABI | Target Android TV Hardware |
+| :--- | :---: | :--- |
+| `alunara-<version>.armv7a.apk` | `armeabi-v7a` (32-bit) | Most 1 GB / 2 GB RAM smart TVs, Mi TV Stick, Changhong, and entry-level TV boxes |
+| `alunara-<version>.armv8a.apk` | `arm64-v8a` (64-bit) | 64-bit Android TVs, NVIDIA Shield TV, and modern Google TV streamers |
 
 <details>
-<summary><b>How to Install on Android TV (ADB / USB / Downloader)</b></summary>
+<summary><strong>Installation Steps (ADB, USB Drive, or Downloader)</strong></summary>
 
-1. **Via ADB (Recommended):**
-   ```powershell
+#### Option A — Install over Network via ADB (Fastest)
+1. Enable **Developer Options → Network / USB Debugging** on your Android TV.
+2. Connect from your computer and install the APK matching your TV's ABI:
+   ```bash
    adb connect <YOUR_TV_IP>:5555
    adb install -r alunara-0.1.0.armv7a.apk
    ```
-   *(Use `alunara-0.1.0.armv8a.apk` if your TV runs a 64-bit `arm64-v8a` ABI.)*
-2. **Via USB Drive / Downloader App:**
-   - Download the matching APK from [GitHub Releases](https://github.com/Kh1zZ/Alunara/releases/latest), transfer it via USB or Downloader, and allow **Install unknown apps** when prompted.
+   *(Replace with `alunara-0.1.0.armv8a.apk` for 64-bit `arm64-v8a` devices.)*
+
+#### Option B — USB Flash Drive or TV Downloader App
+1. Download the matching APK directly from [GitHub Releases](https://github.com/Kh1zZ/Alunara/releases/latest).
+2. Transfer it to your TV via USB drive or a TV Downloader utility.
+3. Open the APK using a TV file manager and grant **Install unknown apps** when prompted.
 
 </details>
 
-> [!WARNING]
-> **Official downloads only:** Always verify that your APK comes directly from [Kh1zZ/Alunara Releases](https://github.com/Kh1zZ/Alunara/releases). Third-party mirrors and re-uploads are not maintained or verified by this project.
+> [!IMPORTANT]
+> - **Official Distribution Only:** Alunara is **not** published on Google Play or third-party app stores. Always verify downloads come directly from [Kh1zZ/Alunara Releases](https://github.com/Kh1zZ/Alunara/releases).
+> - **Regional Availability:** In regions where YouTube Music is unavailable, a VPN or proxy routed to a supported region may be needed to fetch catalog data.
 
 ---
 
-## 🌍 Globalization
+## Building & Verification
 
-Alunara currently ships with built-in UI localization for **English** (`values`) and **Bahasa Indonesia** (`values-in`), alongside offline multi-script lyrics romanization (**Japanese**, **Korean Hangul**, and **Cyrillic**).
+### Requirements
+- **JDK 21** and Android SDK (`minSdk 28`, `compileSdk 35`, `targetSdk 35`)
+- Local `local.properties` pointing to your Android SDK (and `keystore.properties` based on [`keystore.properties.example`](keystore.properties.example) for signed release builds)
 
-Translations and localization improvements are always welcome via Pull Requests!
-
-### ✨ Project Contributors
-
-<a href="https://github.com/Kh1zZ/Alunara/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=Kh1zZ/Alunara&columns=6" alt="Project Contributors" />
-</a>
-
-<br /><br />
-
-<img src="https://img.shields.io/badge/AI%20Contributor-Gemini%204-6366f1?style=for-the-badge&logo=googlegemini&logoColor=white&labelColor=1e1e2e" alt="AI Contributor: Gemini 4" />
-
-- **Gemini 4** — AI Engineering Contributor (architecture, performance optimization, lyric sync, and documentation).
-
-### 🛠️ Development & Engineering
-
-<a id="development"></a>
-
-Alunara is structured as a modular-lite Gradle Android TV project targeting **Android 9+ (`minSdk 28`, `compileSdk 35`, `targetSdk 35`)** and **JDK 21**:
-
-- **Modules:** `:app`, `:core:domain`, `:core:music`, `:core:lyrics`, `:core:data`, `:third_party:core`, `:third_party:lyrics:{lrclib,simpmusic,kugou}`
-- **Verification:** Backed by **86 passing JVM unit tests across 19 test suites**, Android Lint checks, and automated R8 signed split APK builds via [`.github/workflows/ci.yml`](.github/workflows/ci.yml) & [`.github/workflows/release.yml`](.github/workflows/release.yml).
-
+### Common Gradle Tasks
 ```bash
-# Run all module unit tests
+# Run all 86 JVM unit tests across 19 test suites
 ./gradlew :core:domain:test :core:music:test :core:lyrics:test :core:data:testDebugUnitTest :app:testDebugUnitTest
 
-# Run Android Lint & assemble release APKs
+# Run Android Lint & build R8 split release APKs
 ./gradlew :app:lintDebug :app:assembleRelease
 ```
+*(On Windows, use `.\gradlew.bat`.)*
 
-*(On Windows, use `.\gradlew.bat` with `JDK 21` and your Android SDK configured in `local.properties`.)*
-
-See [`CHANGELOG.md`](CHANGELOG.md), [`AGENTS.md`](AGENTS.md), [`CREDITS.md`](CREDITS.md), [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md), and [Project Verification Reports](docs/M5_RELEASE_REPORT.md) for engineering details.
+### Localization & Project Documentation
+- **UI Languages:** Built-in **English** (`values`) and **Bahasa Indonesia** (`values-in`), plus offline lyrics romanization for Japanese, Korean, and Cyrillic. Community translations via Pull Requests are warmly welcomed.
+- **Engineering Docs:** [`CHANGELOG.md`](CHANGELOG.md) · [`CREDITS.md`](CREDITS.md) · [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) · [`AGENTS.md`](AGENTS.md) · [`M5 Release Report`](docs/M5_RELEASE_REPORT.md)
 
 ---
 
-### Open-Source Acknowledgments
+## Credits, Contributors & License
 
-Alunara is made possible by the work of remarkable open-source projects and maintainers:
+### Open-Source Foundations
+Alunara's Android TV frontend and application layer are independently authored, standing on the shoulders of great open-source projects (full audit & commit provenance in [`CREDITS.md`](CREDITS.md)):
 
-- **ArchiveTune Core** (`rukamori/core`) & **ArchiveTune Lyrics** (`rukamori/lyrics`) by [rukamori](https://github.com/rukamori) for the InnerTube & lyrics provider engines (see [`CREDITS.md`](CREDITS.md)).
-- **Kuromoji** by [Atilika](https://github.com/atilika/kuromoji) for offline Japanese morphological tokenization and romanization.
+- **[ArchiveTune Core](https://github.com/rukamori/core)** & **[ArchiveTune Lyrics](https://github.com/rukamori/lyrics)** by [rukamori](https://github.com/rukamori) — vendored GPL-3.0 InnerTube and modular lyrics provider engines (`lrclib`, `simpmusic`, `kugou`).
+- **[Kuromoji](https://github.com/atilika/kuromoji)** by Atilika — offline Japanese morphological tokenizer powering Romaji conversion.
 - **NewPipe Extractor**, **AndroidX Media3**, **Jetpack Compose for TV**, **Coil**, **Ktor**, and **Room**.
 
----
+### Contributors
+<a href="https://github.com/Kh1zZ/Alunara/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Kh1zZ/Alunara&columns=6" alt="Alunara Contributors" />
+</a>
 
-## ⚖️ Legal Disclaimer
+<br />
 
-Alunara is an independent third-party client developed for Android TV.
-- Not affiliated with, sponsored by, or endorsed by **Google LLC**, **YouTube**, or **ArchiveTune**.
-- Does not bypass YouTube's technical protections.
-- Users are encouraged to support artists by purchasing music or subscribing via official channels.
+<img src="https://img.shields.io/badge/AI%20Contributor-Gemini%204-2E6F4E?style=flat-square&logo=googlegemini&logoColor=B5E6CC&labelColor=101813" alt="AI Contributor: Gemini 4" /> — Architecture, 60 FPS Android TV optimization, precision lyrics synchronization, and documentation.
 
-## ⚖️ License, Copyright, and Trademark Notice
+### Independence & GPL-3.0 License
+Alunara is an independent open-source project and is **not** affiliated with, endorsed by, or sponsored by Google LLC, YouTube, or ArchiveTune. It does not circumvent YouTube's technical protections — please support artists through official platforms whenever possible.
 
-Alunara is licensed under the **GNU General Public License v3.0 (GPLv3)**.
-
-You may copy, modify, and redistribute the source code, including commercially, provided that you comply with the GPLv3 — preserving copyright and license notices, clearly marking modified versions, and providing corresponding source code when distributing binaries.
-
-See [`LICENSE`](LICENSE) for the full GPLv3 terms and [`CREDITS.md`](CREDITS.md) for vendored dependency attributions.
+Distributed under the **GNU General Public License v3.0 (GPL-3.0)**. See [`LICENSE`](LICENSE) for full terms and [`CREDITS.md`](CREDITS.md) for third-party notices.
 
 ---
 
 <div align="center">
-  <img src="app/src/main/res/drawable-xxhdpi/tv_banner.png" alt="Alunara Android TV Banner" width="440" style="border-radius: 12px" />
-  <p><b>If Alunara elevated your Android TV music experience, please consider giving us a ⭐</b></p>
+  <img src="app/src/main/res/drawable-nodpi/ic_alunara_mark.png" width="44" height="44" alt="Alunara Mark" />
+  <br />
+  <sub><strong>Alunara</strong> · <em>Let the Music Flow.</em></sub>
 </div>
