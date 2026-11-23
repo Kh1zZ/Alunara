@@ -829,4 +829,28 @@ class ArchiveTuneMusicAdapterTest {
             assertEquals(listOf("lm1"), adapter.fetchLikedMusicTracks().getOrThrow().map { it.id })
             assertEquals(listOf("h1"), adapter.fetchAccountHistoryTracks().getOrThrow().map { it.id })
         }
+
+    @Test
+    fun setContentLanguage_updatesHlWhilePreservingRegionGl() {
+        val backend =
+            object : FakeMusicBackendBase() {
+                override var locale: YouTubeLocale = YouTubeLocale(gl = "ID", hl = "en")
+            }
+        val adapter = ArchiveTuneMusicAdapter(backend) {}
+
+        adapter.setContentLanguage("id")
+        assertEquals("ID", backend.locale.gl)
+        assertEquals("id", backend.locale.hl)
+
+        adapter.setContentLanguage("in")
+        assertEquals("ID", backend.locale.gl)
+        assertEquals("id", backend.locale.hl)
+
+        adapter.setContentLanguage("en")
+        assertEquals("ID", backend.locale.gl)
+        assertEquals("en", backend.locale.hl)
+
+        adapter.setContentLanguage("   ")
+        assertEquals("en", backend.locale.hl)
+    }
 }

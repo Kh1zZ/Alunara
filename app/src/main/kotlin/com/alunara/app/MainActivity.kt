@@ -1,5 +1,6 @@
 package com.alunara.app
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -60,6 +62,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -78,6 +82,10 @@ import androidx.tv.material3.Text
 import com.alunara.app.playback.PlaybackSessionManager
 import com.alunara.app.ui.components.DockedMiniPlayer
 import com.alunara.app.ui.components.safeRequestFocus
+import com.alunara.app.ui.i18n.AlunaraLanguageStore
+import com.alunara.app.ui.i18n.AppLanguage
+import com.alunara.app.ui.i18n.AppLocaleHelper
+import com.alunara.app.ui.i18n.LocalAppLanguage
 import com.alunara.app.ui.screens.CatalogDetailScreen
 import com.alunara.app.ui.screens.CatalogTarget
 import com.alunara.app.ui.screens.HomeScreen
@@ -107,6 +115,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 private enum class TvDestination {
     HOME,
@@ -126,6 +135,11 @@ private val RailDestinations =
 class MainActivity : ComponentActivity() {
     private val openNowPlayingSignal = mutableIntStateOf(0)
 
+    override fun attachBaseContext(newBase: Context) {
+        val savedLanguage = AlunaraLanguageStore(newBase).load()
+        super.attachBaseContext(AppLocaleHelper.wrapContext(newBase, savedLanguage))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent?.getBooleanExtra(EXTRA_OPEN_NOW_PLAYING, false) == true) {
@@ -138,19 +152,49 @@ class MainActivity : ComponentActivity() {
         }
         val container = (application as AlunaraApplication).container
         val prefsStore = AlunaraDisplayPrefsStore(applicationContext)
+        val languageStore = AlunaraLanguageStore(applicationContext)
         setContent {
             var displayPrefs by remember { mutableStateOf(prefsStore.load()) }
-            AlunaraTheme(displayPrefs = displayPrefs) {
-                AlunaraTvApp(
-                    musicEngine = container.musicEngine,
-                    sessionManager = container.playbackSessionManager,
-                    displayPrefs = displayPrefs,
-                    openNowPlayingSignal = openNowPlayingSignal.intValue,
-                    onUpdateDisplayPrefs = { updated ->
-                        displayPrefs = updated
-                        prefsStore.save(updated)
-                    },
-                )
+            var appLanguage by remember { mutableStateOf(languageStore.load()) }
+            val baseConfig = LocalConfiguration.current
+            val (localizedConfig, localizedContext) =
+                remember(appLanguage, baseConfig) {
+                    AppLocaleHelper.createLocalizedContext(
+                        activity = this@MainActivity,
+                        baseConfig = baseConfig,
+                        language = appLanguage,
+                    )
+                }
+            CompositionLocalProvider(
+                LocalConfiguration provides localizedConfig,
+                LocalContext provides localizedContext,
+                LocalAppLanguage provides appLanguage,
+            ) {
+                AlunaraTheme(displayPrefs = displayPrefs) {
+                    AlunaraTvApp(
+                        musicEngine = container.musicEngine,
+                        sessionManager = container.playbackSessionManager,
+                        displayPrefs = displayPrefs,
+                        appLanguage = appLanguage,
+                        openNowPlayingSignal = openNowPlayingSignal.intValue,
+                        onUpdateDisplayPrefs = { updated ->
+                            displayPrefs = updated
+                            prefsStore.save(updated)
+                        },
+                        onSelectAppLanguage = { updated ->
+                            if (updated != appLanguage) {
+                                languageStore.save(updated)
+                                Locale.setDefault(
+                                    AppLocaleHelper.toLocale(
+                                        language = updated,
+                                        preserveRegionFrom = Locale.getDefault(),
+                                    ),
+                                )
+                                appLanguage = updated
+                            }
+                        },
+                    )
+                }
             }
         }
     }
@@ -173,8 +217,10 @@ private fun AlunaraTvApp(
     musicEngine: MusicEngine,
     sessionManager: PlaybackSessionManager,
     displayPrefs: AlunaraDisplayPrefs,
+    appLanguage: AppLanguage,
     openNowPlayingSignal: Int,
     onUpdateDisplayPrefs: (AlunaraDisplayPrefs) -> Unit,
+    onSelectAppLanguage: (AppLanguage) -> Unit,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
@@ -201,6 +247,7 @@ private fun AlunaraTvApp(
     var homeLoadedOnce by remember { mutableStateOf(false) }
     var homeLoadJob by remember { mutableStateOf<Job?>(null) }
     var lastLoadedAuthScopeKey by remember { mutableStateOf<String?>(null) }
+    var lastAppliedLanguage by remember { mutableStateOf<AppLanguage?>(null) }
     val authScopeKey = sessionState.authSession.scope.storageKey
 
     val mergedFavorites =
@@ -218,7 +265,10 @@ private fun AlunaraTvApp(
     var searchLoading by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
 
-    fun loadHome(force: Boolean = false) {
+    fun loadHome(
+        force: Boolean = false,
+        languageTag: String = appLanguage.innerTubeHl,
+    ) {
         if (homeLoading && !force) return
         if (force) {
             homeLoadJob?.cancel()
@@ -227,7 +277,11 @@ private fun AlunaraTvApp(
             coroutineScope.launch {
                 homeLoading = true
                 homeError = null
-                val res = withContext(Dispatchers.IO) { musicEngine.fetchGuestHome() }
+                val res =
+                    withContext(Dispatchers.IO) {
+                        musicEngine.setContentLanguage(languageTag)
+                        musicEngine.fetchGuestHome()
+                    }
                 res.fold(
                     onSuccess = { homeSections = it },
                     onFailure = { homeError = it.message ?: "Network error" },
@@ -400,6 +454,17 @@ private fun AlunaraTvApp(
             lastLoadedAuthScopeKey = authScopeKey
             homeLoadedOnce = true
             loadHome(force = true)
+        }
+    }
+
+    LaunchedEffect(appLanguage) {
+        val prevLang = lastAppliedLanguage
+        lastAppliedLanguage = appLanguage
+        withContext(Dispatchers.IO) {
+            musicEngine.setContentLanguage(appLanguage.innerTubeHl)
+        }
+        if (prevLang != null && prevLang != appLanguage && homeLoadedOnce) {
+            loadHome(force = true, languageTag = appLanguage.innerTubeHl)
         }
     }
 
@@ -655,6 +720,8 @@ private fun AlunaraTvApp(
                                         onLogout = onLogoutCb,
                                         audioQuality = sessionState.audioQuality,
                                         onSelectAudioQuality = onSelectAudioQualityCb,
+                                        appLanguage = appLanguage,
+                                        onSelectAppLanguage = onSelectAppLanguage,
                                         displayPrefs = displayPrefs,
                                         onUpdateDisplayPrefs = onUpdateDisplayPrefs,
                                     )

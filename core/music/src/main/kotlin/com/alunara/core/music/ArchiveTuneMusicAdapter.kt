@@ -34,8 +34,10 @@ import moe.rukamori.archivetune.innertube.models.SongItem
 import moe.rukamori.archivetune.innertube.models.WatchEndpoint
 import moe.rukamori.archivetune.innertube.models.YTItem
 import moe.rukamori.archivetune.innertube.models.YouTubeClient
+import moe.rukamori.archivetune.innertube.models.YouTubeLocale
 import moe.rukamori.archivetune.innertube.models.response.PlayerResponse
 import moe.rukamori.archivetune.innertube.pages.NextResult
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -71,6 +73,22 @@ class ArchiveTuneMusicAdapter internal constructor(
     private var lastSuccessfulClient: YouTubeClient? = null
 
     fun isGatekeeperUnlocked(): Boolean = gatekeeperUnlocked.get()
+
+    override fun setContentLanguage(languageTag: String) {
+        val normalizedHl =
+            when (val trimmed = languageTag.trim().lowercase(Locale.ROOT)) {
+                "" -> return
+                "in" -> "id"
+                else -> trimmed
+            }
+        val currentGl =
+            backend.locale.gl.ifBlank {
+                Locale.getDefault().country.ifBlank { "US" }
+            }
+        if (backend.locale.hl != normalizedHl || backend.locale.gl != currentGl) {
+            backend.locale = YouTubeLocale(gl = currentGl, hl = normalizedHl)
+        }
+    }
 
     private fun ensureGatekeeperUnlocked() {
         if (gatekeeperUnlocked.compareAndSet(false, true)) {

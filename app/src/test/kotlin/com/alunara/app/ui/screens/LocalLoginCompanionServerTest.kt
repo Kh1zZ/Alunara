@@ -75,4 +75,38 @@ class LocalLoginCompanionServerTest {
         assertTrue(LocalLoginCompanionServer.hasValidSapisidCookie("__Secure-3PAPISID=tok"))
         assertFalse(LocalLoginCompanionServer.hasValidSapisidCookie("VISITOR_INFO1_LIVE=123"))
     }
+
+    @Test
+    fun buildMobileHtml_supportsEnglishLocalizationAndDefaultHint() {
+        val html =
+            LocalLoginCompanionServer.buildMobileHtml(
+                token = "EN789",
+                statusMessage = "Email sent",
+                isError = false,
+                isIndonesian = false,
+            )
+
+        assertTrue(html.contains("""<html lang="en">"""))
+        assertTrue(html.contains("Alunara TV · Login Wizard"))
+        assertTrue(html.contains("Step 1 · Google Email"))
+        assertTrue(html.contains("Send Email &amp; Continue"))
+        assertTrue(html.contains("Active on TV"))
+        assertTrue(html.contains("Done ✓"))
+        assertFalse(html.contains("Wizard Login"))
+        assertFalse(html.contains("Langkah 1 · Email Google"))
+    }
+
+    @Test
+    fun serverInitialHint_matchesRequestedLanguage() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            val idServer = LocalLoginCompanionServer(scope = scope, isIndonesian = true) {}
+            assertTrue(idServer.lastStatusHint.contains("Langkah 1"))
+
+            val enServer = LocalLoginCompanionServer(scope = scope, isIndonesian = false) {}
+            assertTrue(enServer.lastStatusHint.contains("Step 1"))
+        } finally {
+            scope.cancel()
+        }
+    }
 }

@@ -2,6 +2,18 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.1.1] - 2026-11-23
+
+### Fitur Baru & Peningkatan Lokalisasi
+- **Pengalih Bahasa Langsung di Pengaturan Alunara (Bahasa Indonesia & English):**
+  - Menambahkan kartu pilihan **Bahasa / Language** langsung di layar **Pengaturan** Alunara dengan 2 tombol D-pad instan (**Bahasa Indonesia** dan **English**), sepenuhnya independen dari pengaturan bahasa sistem Android TV dan siap dikembangkan untuk bahasa tambahan di masa mendatang.
+  - Menerapkan pergantian bahasa **tanpa restart Activity (`zero-restart`)** melalui pembaruan reaktif `LocalConfiguration` & `LocalContext` sehingga musik terus diputar mulus tanpa jeda audio, tanpa kedipan hitam, dan fokus D-pad tetap terjaga.
+  - Menyimpan preferensi bahasa di `AlunaraLanguageStore` (`SharedPreferences`) dan menerapkannya sejak *cold start* melalui `MainActivity.attachBaseContext()` sambil tetap mempertahankan kode wilayah (`gl`) perangkat.
+- **Sinkronisasi Bahasa Katalog YouTube Music (`hl`) & QR Login Companion:**
+  - Menyinkronkan parameter bahasa konten InnerTube (`hl` = `id` / `en`) lewat `MusicEngine.setContentLanguage()` pada `Dispatchers.IO` serta menyegarkan judul seksi Beranda otomatis saat bahasa diubah.
+  - Melokalisasi penuh seluruh pesan umpan balik WebView login dan halaman web **Smart Phone QR Login Wizard** (`LocalLoginCompanionServer`) agar mengikuti pilihan bahasa aktif Alunara (Bahasa Indonesia / English), serta menjaga konteks Activity murni untuk konstruksi `WebView`.
+- **Cakupan Pengujian Otomatis Lokalisasi:** Menambahkan suite unit test `AppLanguageTest`, `StringResourcesParityTest` (jaminan paritas 100% key `values` ↔ `values-in`), uji `setContentLanguage` pada `ArchiveTuneMusicAdapterTest`, serta uji lokalisasi English/Indonesian pada `LocalLoginCompanionServerTest`.
+
 ## [0.1.0] - 2026-11-23
 
 ### Fitur Utama & Rilis Resmi Perdana

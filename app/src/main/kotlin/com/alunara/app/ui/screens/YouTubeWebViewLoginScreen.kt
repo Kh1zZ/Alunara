@@ -51,6 +51,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -65,6 +66,7 @@ import androidx.tv.material3.Text
 import com.alunara.app.R
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.safeRequestFocus
+import com.alunara.app.ui.i18n.LocalAppLanguage
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.LocalAlunaraColors
 import com.alunara.core.domain.model.AccountCredentials
@@ -101,11 +103,15 @@ fun YouTubeWebViewLoginScreen(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
+    val isIndonesian = LocalAppLanguage.current.isIndonesian
+    val hostActivityContext = LocalView.current.context
+    val checkStepOnceJs = remember(isIndonesian) { buildCheckStepOnceJs(isIndonesian) }
+    val installStepWatcherJs = remember(isIndonesian) { buildInstallStepWatcherJs(isIndonesian) }
     val companionScope = rememberCoroutineScope()
     var currentHost by remember { mutableStateOf("accounts.google.com") }
     var currentStep by remember { mutableStateOf(LocalLoginCompanionServer.STEP_EMAIL) }
     var companionUrl by remember { mutableStateOf<String?>(null) }
-    var companionFeedback by remember { mutableStateOf<String?>(null) }
+    var companionFeedbackResId by remember { mutableStateOf<Int?>(null) }
     var webViewFocused by remember { mutableStateOf(false) }
     var domFocusIndex by remember { mutableIntStateOf(0) }
     val cancelRequester = remember { FocusRequester() }
@@ -125,15 +131,15 @@ fun YouTubeWebViewLoginScreen(
     }
 
     fun injectDetectLoginStep() {
-        webViewHolder.value?.evaluateJavascript(CHECK_STEP_ONCE_JS, null)
+        webViewHolder.value?.evaluateJavascript(checkStepOnceJs, null)
     }
 
     fun scheduleStepSyncChecks(webView: WebView) {
         webView.postDelayed(
             {
                 if (!captured.get()) {
-                    webView.evaluateJavascript(INSTALL_STEP_WATCHER_JS, null)
-                    webView.evaluateJavascript(CHECK_STEP_ONCE_JS, null)
+                    webView.evaluateJavascript(installStepWatcherJs, null)
+                    webView.evaluateJavascript(checkStepOnceJs, null)
                 }
             },
             500L,
@@ -141,7 +147,7 @@ fun YouTubeWebViewLoginScreen(
         webView.postDelayed(
             {
                 if (!captured.get()) {
-                    webView.evaluateJavascript(CHECK_STEP_ONCE_JS, null)
+                    webView.evaluateJavascript(checkStepOnceJs, null)
                 }
             },
             1150L,
@@ -161,48 +167,49 @@ fun YouTubeWebViewLoginScreen(
             }
         cookieManager.flush()
         currentStep = LocalLoginCompanionServer.STEP_DONE
-        companionFeedback = "Cookie sesi diterapkan — memuat YouTube Music…"
+        companionFeedbackResId = R.string.login_feedback_cookie_applied
         webViewHolder.value?.loadUrl(YOUTUBE_MUSIC_ORIGIN)
     }
 
     val companionServer =
-        remember(companionScope) {
+        remember(companionScope, isIndonesian) {
             LocalLoginCompanionServer(
                 scope = companionScope,
+                isIndonesian = isIndonesian,
                 onInput = { payload ->
                     val webView = webViewHolder.value ?: return@LocalLoginCompanionServer
                     when (payload.action) {
                         CompanionAction.FILL_EMAIL -> {
                             webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "email"), null)
                             scheduleStepSyncChecks(webView)
-                            companionFeedback = "Email dikirim ke TV — menunggu halaman Sandi Google…"
+                            companionFeedbackResId = R.string.login_feedback_email_sent
                         }
                         CompanionAction.FILL_PASSWORD -> {
                             webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "password"), null)
                             scheduleStepSyncChecks(webView)
-                            companionFeedback = "Sandi dikirim ke TV — cek verifikasi jika diminta…"
+                            companionFeedbackResId = R.string.login_feedback_password_sent
                         }
                         CompanionAction.FILL_TEXT -> {
                             webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "text"), null)
                             scheduleStepSyncChecks(webView)
-                            companionFeedback = "Kode/teks dikirim dari HP ke TV"
+                            companionFeedbackResId = R.string.login_feedback_text_sent
                         }
                         CompanionAction.CLICK_NEXT -> {
                             webView.evaluateJavascript(CLICK_NEXT_OR_ACTIVE_JS, null)
                             scheduleStepSyncChecks(webView)
-                            companionFeedback = "Tombol Berikutnya diklik dari HP"
+                            companionFeedbackResId = R.string.login_feedback_next_clicked
                         }
                         CompanionAction.FOCUS_PREV -> {
                             injectHighlightElement(-1)
-                            companionFeedback = "Fokus TV digeser ke atas"
+                            companionFeedbackResId = R.string.login_feedback_focus_up
                         }
                         CompanionAction.FOCUS_NEXT -> {
                             injectHighlightElement(1)
-                            companionFeedback = "Fokus TV digeser ke bawah"
+                            companionFeedbackResId = R.string.login_feedback_focus_down
                         }
                         CompanionAction.RELOAD_PAGE -> {
                             webView.reload()
-                            companionFeedback = "Halaman login TV dimuat ulang"
+                            companionFeedbackResId = R.string.login_feedback_reloaded
                         }
                         CompanionAction.SUBMIT_COOKIE -> {
                             applyManualCookie(payload.value)
@@ -284,9 +291,10 @@ fun YouTubeWebViewLoginScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                val feedbackText = companionFeedbackResId?.let { stringResource(it) }
                 Text(
-                    text = companionFeedback ?: stringResource(R.string.login_webview_hint),
-                    color = if (companionFeedback != null) colors.primaryAccent else colors.mutedText,
+                    text = feedbackText ?: stringResource(R.string.login_webview_hint),
+                    color = if (feedbackText != null) colors.primaryAccent else colors.mutedText,
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -360,8 +368,8 @@ fun YouTubeWebViewLoginScreen(
             ) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
-                    factory = { context ->
-                        WebView(context).apply {
+                    factory = {
+                        WebView(hostActivityContext).apply {
                             layoutParams =
                                 ViewGroup.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -422,7 +430,12 @@ fun YouTubeWebViewLoginScreen(
                                     latestCookie = cookie
                                     currentStep = LocalLoginCompanionServer.STEP_DONE
                                     companionServer.currentStep = LocalLoginCompanionServer.STEP_DONE
-                                    companionServer.lastStatusHint = "Berhasil masuk YouTube Music — memverifikasi akun…"
+                                    companionServer.lastStatusHint =
+                                        if (isIndonesian) {
+                                            "Berhasil masuk YouTube Music — memverifikasi akun…"
+                                        } else {
+                                            "Signed in to YouTube Music — verifying account…"
+                                        }
                                     view.evaluateJavascript(buildExtractYtcfgJs(0), null)
                                 }
                             }
@@ -434,7 +447,7 @@ fun YouTubeWebViewLoginScreen(
                                     companionServer.currentHost = parsedHost
                                 }
                                 if (!captured.get()) {
-                                    inferStepFromUrl(url)?.let { (step, hint) ->
+                                    inferStepFromUrl(url, isIndonesian = isIndonesian)?.let { (step, hint) ->
                                         currentStep = step
                                         companionServer.currentStep = step
                                         companionServer.lastStatusHint = hint
@@ -523,7 +536,7 @@ fun YouTubeWebViewLoginScreen(
                                         if (url != null && url.startsWith(YOUTUBE_MUSIC_ORIGIN)) {
                                             captureMusicCookiesAndYtcfg(view)
                                         } else {
-                                            view.evaluateJavascript(INSTALL_STEP_WATCHER_JS, null)
+                                            view.evaluateJavascript(installStepWatcherJs, null)
                                             scheduleStepSyncChecks(view)
                                         }
                                     }
@@ -539,7 +552,7 @@ fun YouTubeWebViewLoginScreen(
                                             captureMusicCookiesAndYtcfg(view)
                                         } else {
                                             view.evaluateJavascript(buildHighlightDomScript(0), null)
-                                            view.evaluateJavascript(INSTALL_STEP_WATCHER_JS, null)
+                                            view.evaluateJavascript(installStepWatcherJs, null)
                                             scheduleStepSyncChecks(view)
                                         }
                                     }
@@ -734,104 +747,188 @@ private fun LoginHelperChipButton(
     }
 }
 
-private fun inferStepFromUrl(url: String?): Pair<String, String>? {
+private fun inferStepFromUrl(
+    url: String?,
+    isIndonesian: Boolean,
+): Pair<String, String>? {
     if (url.isNullOrBlank()) return null
     val lower = url.lowercase()
     return when {
         lower.startsWith(YOUTUBE_MUSIC_ORIGIN) || lower.contains("://music.youtube.com") ->
-            LocalLoginCompanionServer.STEP_DONE to "Langkah 4 · Berhasil masuk YouTube Music"
+            LocalLoginCompanionServer.STEP_DONE to
+                if (isIndonesian) {
+                    "Langkah 4 · Berhasil masuk YouTube Music"
+                } else {
+                    "Step 4 · Signed in to YouTube Music"
+                }
         lower.contains("/challenge/pwd") || lower.contains("/signin/v2/challenge/pwd") ->
-            LocalLoginCompanionServer.STEP_PASSWORD to "Langkah 2 dari 3 · Masukkan Kata Sandi akun Google"
+            LocalLoginCompanionServer.STEP_PASSWORD to
+                if (isIndonesian) {
+                    "Langkah 2 dari 3 · Masukkan Kata Sandi akun Google"
+                } else {
+                    "Step 2 of 3 · Enter Google account password"
+                }
         lower.contains("/challenge/dp") || lower.contains("/challenge/ootp") ->
-            LocalLoginCompanionServer.STEP_VERIFY to "Langkah 3 dari 3 · Ketuk 'Ya, itu saya' di notifikasi Google Prompt HP"
+            LocalLoginCompanionServer.STEP_VERIFY to
+                if (isIndonesian) {
+                    "Langkah 3 dari 3 · Ketuk 'Ya, itu saya' di notifikasi Google Prompt HP"
+                } else {
+                    "Step 3 of 3 · Tap 'Yes, it's me' on your phone's Google Prompt"
+                }
         lower.contains("/challenge/") ->
-            LocalLoginCompanionServer.STEP_VERIFY to "Langkah 3 dari 3 · Verifikasi 2FA / Kode OTP di HP"
+            LocalLoginCompanionServer.STEP_VERIFY to
+                if (isIndonesian) {
+                    "Langkah 3 dari 3 · Verifikasi 2FA / Kode OTP di HP"
+                } else {
+                    "Step 3 of 3 · Complete 2FA / OTP verification on phone"
+                }
         lower.contains("/identifier") || lower.contains("accounts.google.com/servicelogin") ->
-            LocalLoginCompanionServer.STEP_EMAIL to "Langkah 1 dari 3 · Masukkan Email / No. HP akun Google"
+            LocalLoginCompanionServer.STEP_EMAIL to
+                if (isIndonesian) {
+                    "Langkah 1 dari 3 · Masukkan Email / No. HP akun Google"
+                } else {
+                    "Step 1 of 3 · Enter Google Email / Phone"
+                }
         else -> null
     }
 }
 
-private const val CHECK_STEP_ONCE_JS =
-    """
-    (function() {
-        var isVisible = function(el) {
-            if (!el || el.disabled) return false;
-            var st = window.getComputedStyle(el);
-            if (!st || st.display === 'none' || st.visibility === 'hidden' || st.opacity === '0') return false;
-            if (el.closest('[aria-hidden="true"], [hidden]')) return false;
-            var r = el.getBoundingClientRect();
-            return r.width > 1 && r.height > 1;
-        };
-        var host = window.location.hostname || '';
-        var href = (window.location.href || '').toLowerCase();
-        var headingEl = document.querySelector('#headingText, h1');
-        var heading = headingEl ? (headingEl.innerText || headingEl.textContent || '').trim().replace(/\s+/g, ' ') : '';
-        var hasPassword = Array.from(document.querySelectorAll('input[type="password"], input[name="Passwd"], input[name="password"]')).some(isVisible);
-        var hasEmail = Array.from(document.querySelectorAll('input[type="email"], input[name="identifier"], #identifierId')).some(isVisible);
-        var hasOtp = Array.from(document.querySelectorAll('input[type="tel"], input[name="Pin"], input[id*="totp" i], input[autocomplete="one-time-code"], input[type="number"]')).some(isVisible);
-        var step = 'email';
-        var hint = 'Langkah 1 dari 3 · Masukkan Email / No. HP Google';
-        if (host.indexOf('music.youtube.com') >= 0) {
-            step = 'done';
-            hint = 'Langkah 4 · Berhasil masuk YouTube Music — memverifikasi akun…';
-            if (!window.__alunaraMusicNotified && window.AlunaraAuth && window.AlunaraAuth.onMusicHomeReached) {
-                window.__alunaraMusicNotified = true;
-                window.AlunaraAuth.onMusicHomeReached();
-            }
-        } else if (hasPassword) {
-            step = 'password';
-            hint = heading ? ('Langkah 2 dari 3 · ' + heading) : 'Langkah 2 dari 3 · Masukkan Kata Sandi akun Google';
-        } else if (href.indexOf('/challenge/') >= 0 || hasOtp || document.querySelector('[data-challengetype]')) {
-            step = 'verify';
-            if (hasOtp) {
-                hint = heading ? ('Langkah 3 dari 3 · ' + heading + ' (Isi kode OTP di HP)') : 'Langkah 3 dari 3 · Masukkan Kode Verifikasi OTP';
+private fun buildCheckStepOnceJs(isIndonesian: Boolean): String {
+    val defaultEmail =
+        JSONObject.quote(
+            if (isIndonesian) {
+                "Langkah 1 dari 3 · Masukkan Email / No. HP Google"
             } else {
-                hint = heading ? ('Langkah 3 dari 3 · ' + heading + ' (Konfirmasi di HP)') : 'Langkah 3 dari 3 · Setujui Google Prompt di HP';
+                "Step 1 of 3 · Enter Google Email / Phone"
+            },
+        )
+    val doneHint =
+        JSONObject.quote(
+            if (isIndonesian) {
+                "Langkah 4 · Berhasil masuk YouTube Music — memverifikasi akun…"
+            } else {
+                "Step 4 · Signed in to YouTube Music — verifying account…"
+            },
+        )
+    val step1Prefix = JSONObject.quote(if (isIndonesian) "Langkah 1 dari 3 · " else "Step 1 of 3 · ")
+    val step2Prefix = JSONObject.quote(if (isIndonesian) "Langkah 2 dari 3 · " else "Step 2 of 3 · ")
+    val step2Default =
+        JSONObject.quote(
+            if (isIndonesian) {
+                "Langkah 2 dari 3 · Masukkan Kata Sandi akun Google"
+            } else {
+                "Step 2 of 3 · Enter Google account password"
+            },
+        )
+    val step2Loading =
+        JSONObject.quote(
+            if (isIndonesian) {
+                "Langkah 2 dari 3 · Memuat kolom Kata Sandi…"
+            } else {
+                "Step 2 of 3 · Loading Password field…"
+            },
+        )
+    val step3Prefix = JSONObject.quote(if (isIndonesian) "Langkah 3 dari 3 · " else "Step 3 of 3 · ")
+    val step3OtpSuffix = JSONObject.quote(if (isIndonesian) " (Isi kode OTP di HP)" else " (Enter OTP code on phone)")
+    val step3OtpDefault =
+        JSONObject.quote(
+            if (isIndonesian) {
+                "Langkah 3 dari 3 · Masukkan Kode Verifikasi OTP"
+            } else {
+                "Step 3 of 3 · Enter OTP Verification Code"
+            },
+        )
+    val step3PromptSuffix = JSONObject.quote(if (isIndonesian) " (Konfirmasi di HP)" else " (Approve on phone)")
+    val step3PromptDefault =
+        JSONObject.quote(
+            if (isIndonesian) {
+                "Langkah 3 dari 3 · Setujui Google Prompt di HP"
+            } else {
+                "Step 3 of 3 · Approve Google Prompt on phone"
+            },
+        )
+    return """
+        (function() {
+            var isVisible = function(el) {
+                if (!el || el.disabled) return false;
+                var st = window.getComputedStyle(el);
+                if (!st || st.display === 'none' || st.visibility === 'hidden' || st.opacity === '0') return false;
+                if (el.closest('[aria-hidden="true"], [hidden]')) return false;
+                var r = el.getBoundingClientRect();
+                return r.width > 1 && r.height > 1;
+            };
+            var host = window.location.hostname || '';
+            var href = (window.location.href || '').toLowerCase();
+            var headingEl = document.querySelector('#headingText, h1');
+            var heading = headingEl ? (headingEl.innerText || headingEl.textContent || '').trim().replace(/\s+/g, ' ') : '';
+            var hasPassword = Array.from(document.querySelectorAll('input[type="password"], input[name="Passwd"], input[name="password"]')).some(isVisible);
+            var hasEmail = Array.from(document.querySelectorAll('input[type="email"], input[name="identifier"], #identifierId')).some(isVisible);
+            var hasOtp = Array.from(document.querySelectorAll('input[type="tel"], input[name="Pin"], input[id*="totp" i], input[autocomplete="one-time-code"], input[type="number"]')).some(isVisible);
+            var step = 'email';
+            var hint = $defaultEmail;
+            if (host.indexOf('music.youtube.com') >= 0) {
+                step = 'done';
+                hint = $doneHint;
+                if (!window.__alunaraMusicNotified && window.AlunaraAuth && window.AlunaraAuth.onMusicHomeReached) {
+                    window.__alunaraMusicNotified = true;
+                    window.AlunaraAuth.onMusicHomeReached();
+                }
+            } else if (hasPassword) {
+                step = 'password';
+                hint = heading ? ($step2Prefix + heading) : $step2Default;
+            } else if (href.indexOf('/challenge/') >= 0 || hasOtp || document.querySelector('[data-challengetype]')) {
+                step = 'verify';
+                if (hasOtp) {
+                    hint = heading ? ($step3Prefix + heading + $step3OtpSuffix) : $step3OtpDefault;
+                } else {
+                    hint = heading ? ($step3Prefix + heading + $step3PromptSuffix) : $step3PromptDefault;
+                }
+            } else if (hasEmail) {
+                step = 'email';
+                hint = heading ? ($step1Prefix + heading) : $defaultEmail;
+            } else if (href.indexOf('/challenge/pwd') >= 0) {
+                step = 'password';
+                hint = $step2Loading;
             }
-        } else if (hasEmail) {
-            step = 'email';
-            hint = heading ? ('Langkah 1 dari 3 · ' + heading) : 'Langkah 1 dari 3 · Masukkan Email / No. HP Google';
-        } else if (href.indexOf('/challenge/pwd') >= 0) {
-            step = 'password';
-            hint = 'Langkah 2 dari 3 · Memuat kolom Kata Sandi…';
-        }
-        var sig = step + '|' + hint;
-        if (window.__alunaraLastReportedStep !== sig) {
-            window.__alunaraLastReportedStep = sig;
-            if (window.AlunaraAuth && window.AlunaraAuth.onLoginStep) {
-                window.AlunaraAuth.onLoginStep(step, hint);
+            var sig = step + '|' + hint;
+            if (window.__alunaraLastReportedStep !== sig) {
+                window.__alunaraLastReportedStep = sig;
+                if (window.AlunaraAuth && window.AlunaraAuth.onLoginStep) {
+                    window.AlunaraAuth.onLoginStep(step, hint);
+                }
             }
-        }
-    })();
-    """
+        })();
+        """.trimIndent()
+}
 
-private val INSTALL_STEP_WATCHER_JS =
-    """
-    (function() {
-        window.__alunaraCheckStep = function() {
-            $CHECK_STEP_ONCE_JS
-        };
-        window.__alunaraCheckStep();
-        if (window.__alunaraStepWatcherInstalled) return;
-        window.__alunaraStepWatcherInstalled = true;
-        var debounceTimer = null;
-        var schedule = function() {
-            if (debounceTimer) clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(window.__alunaraCheckStep, 80);
-        };
-        if (window.MutationObserver && document.documentElement) {
-            var obs = new MutationObserver(schedule);
-            obs.observe(document.documentElement, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'disabled']
-            });
-        }
-        setInterval(window.__alunaraCheckStep, 450);
-    })();
-    """.trimIndent()
+private fun buildInstallStepWatcherJs(isIndonesian: Boolean): String {
+    val checkStepJs = buildCheckStepOnceJs(isIndonesian)
+    return """
+        (function() {
+            window.__alunaraCheckStep = function() {
+                $checkStepJs
+            };
+            window.__alunaraCheckStep();
+            if (window.__alunaraStepWatcherInstalled) return;
+            window.__alunaraStepWatcherInstalled = true;
+            var debounceTimer = null;
+            var schedule = function() {
+                if (debounceTimer) clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(window.__alunaraCheckStep, 80);
+            };
+            if (window.MutationObserver && document.documentElement) {
+                var obs = new MutationObserver(schedule);
+                obs.observe(document.documentElement, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'disabled']
+                });
+            }
+            setInterval(window.__alunaraCheckStep, 450);
+        })();
+        """.trimIndent()
+}
 
 private fun buildHighlightDomScript(direction: Int): String =
     """

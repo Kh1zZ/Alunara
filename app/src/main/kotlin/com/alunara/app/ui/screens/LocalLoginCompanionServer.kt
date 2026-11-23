@@ -40,6 +40,7 @@ data class CompanionInputPayload(
  */
 class LocalLoginCompanionServer(
     private val scope: CoroutineScope,
+    private val isIndonesian: Boolean = true,
     private val onInput: suspend (CompanionInputPayload) -> Unit,
 ) {
     val sessionToken: String = generateSessionToken()
@@ -51,7 +52,12 @@ class LocalLoginCompanionServer(
     var currentHost: String = "accounts.google.com"
 
     @Volatile
-    var lastStatusHint: String = "Langkah 1: Masukkan Email Google Anda di kartu pertama."
+    var lastStatusHint: String =
+        if (isIndonesian) {
+            "Langkah 1: Masukkan Email Google Anda di kartu pertama."
+        } else {
+            "Step 1: Enter your Google Email in the first card."
+        }
 
     @Volatile
     private var serverSocket: ServerSocket? = null
@@ -118,19 +124,35 @@ class LocalLoginCompanionServer(
             val output = s.getOutputStream()
 
             val request = readHttpRequest(input) ?: run {
-                writeResponse(output, 400, "text/plain; charset=utf-8", "Permintaan tidak valid")
+                val msg = if (isIndonesian) "Permintaan tidak valid" else "Invalid request"
+                writeResponse(output, 400, "text/plain; charset=utf-8", msg)
                 return
             }
 
             val queryParams = parseQueryParams(request.query)
             if (queryParams["t"] != sessionToken) {
-                writeResponse(output, 403, "text/plain; charset=utf-8", "Sesi QR tidak cocok atau sudah kedaluwarsa")
+                val msg =
+                    if (isIndonesian) {
+                        "Sesi QR tidak cocok atau sudah kedaluwarsa"
+                    } else {
+                        "QR session does not match or has expired"
+                    }
+                writeResponse(output, 403, "text/plain; charset=utf-8", msg)
                 return
             }
 
             when {
                 request.method == "GET" && (request.path == "/l" || request.path == "/login") -> {
-                    writeResponse(output, 200, "text/html; charset=utf-8", buildMobileHtml(sessionToken, statusJson = buildStatusJson()))
+                    writeResponse(
+                        output,
+                        200,
+                        "text/html; charset=utf-8",
+                        buildMobileHtml(
+                            token = sessionToken,
+                            statusJson = buildStatusJson(),
+                            isIndonesian = isIndonesian,
+                        ),
+                    )
                 }
                 request.method == "GET" && request.path == "/status" -> {
                     writeResponse(output, 200, "application/json; charset=utf-8", buildStatusJson())
@@ -152,19 +174,47 @@ class LocalLoginCompanionServer(
                     val value = form["value"].orEmpty()
                     val isAjax = form["ajax"] == "1"
                     if (action == null) {
+                        val unknownMsg = if (isIndonesian) "Aksi tidak dikenali" else "Unknown action"
                         if (isAjax) {
-                            writeResponse(output, 400, "application/json; charset=utf-8", """{"ok":false,"message":"Aksi tidak dikenali"}""")
+                            writeResponse(output, 400, "application/json; charset=utf-8", """{"ok":false,"message":${escapeJsonString(unknownMsg)}}""")
                         } else {
-                            writeResponse(output, 400, "text/html; charset=utf-8", buildMobileHtml(sessionToken, "Aksi tidak dikenali.", isError = true, statusJson = buildStatusJson()))
+                            writeResponse(
+                                output,
+                                400,
+                                "text/html; charset=utf-8",
+                                buildMobileHtml(
+                                    token = sessionToken,
+                                    statusMessage = "$unknownMsg.",
+                                    isError = true,
+                                    statusJson = buildStatusJson(),
+                                    isIndonesian = isIndonesian,
+                                ),
+                            )
                         }
                         return
                     }
                     if (action == CompanionAction.SUBMIT_COOKIE && !hasValidSapisidCookie(value)) {
-                        val err = "Cookie tidak valid: pastikan menyertakan SAPISID atau __Secure-3PAPISID dari music.youtube.com."
+                        val err =
+                            if (isIndonesian) {
+                                "Cookie tidak valid: pastikan menyertakan SAPISID atau __Secure-3PAPISID dari music.youtube.com."
+                            } else {
+                                "Invalid cookie: make sure it includes SAPISID or __Secure-3PAPISID from music.youtube.com."
+                            }
                         if (isAjax) {
                             writeResponse(output, 400, "application/json; charset=utf-8", """{"ok":false,"message":${escapeJsonString(err)}}""")
                         } else {
-                            writeResponse(output, 400, "text/html; charset=utf-8", buildMobileHtml(sessionToken, err, isError = true, statusJson = buildStatusJson()))
+                            writeResponse(
+                                output,
+                                400,
+                                "text/html; charset=utf-8",
+                                buildMobileHtml(
+                                    token = sessionToken,
+                                    statusMessage = err,
+                                    isError = true,
+                                    statusJson = buildStatusJson(),
+                                    isIndonesian = isIndonesian,
+                                ),
+                            )
                         }
                         return
                     }
@@ -172,15 +222,28 @@ class LocalLoginCompanionServer(
                         onInput(CompanionInputPayload(action = action, value = value))
                     }
                     val feedback =
-                        when (action) {
-                            CompanionAction.FILL_EMAIL -> "Email dikirim ke layar TV — menunggu halaman Sandi."
-                            CompanionAction.FILL_PASSWORD -> "Sandi dikirim ke layar TV — cek verifikasi jika diminta Google."
-                            CompanionAction.FILL_TEXT -> "Teks/kode OTP dikirim ke kolom aktif TV."
-                            CompanionAction.CLICK_NEXT -> "Tombol Lanjut/Masuk ditekan di layar TV."
-                            CompanionAction.FOCUS_PREV -> "Fokus digeser ke elemen sebelumnya di TV."
-                            CompanionAction.FOCUS_NEXT -> "Fokus digeser ke elemen berikutnya di TV."
-                            CompanionAction.RELOAD_PAGE -> "Halaman login TV sedang dimuat ulang."
-                            CompanionAction.SUBMIT_COOKIE -> "Cookie sesi dikirim ke TV — memverifikasi akun YouTube Music."
+                        if (isIndonesian) {
+                            when (action) {
+                                CompanionAction.FILL_EMAIL -> "Email dikirim ke layar TV — menunggu halaman Sandi."
+                                CompanionAction.FILL_PASSWORD -> "Sandi dikirim ke layar TV — cek verifikasi jika diminta Google."
+                                CompanionAction.FILL_TEXT -> "Teks/kode OTP dikirim ke kolom aktif TV."
+                                CompanionAction.CLICK_NEXT -> "Tombol Lanjut/Masuk ditekan di layar TV."
+                                CompanionAction.FOCUS_PREV -> "Fokus digeser ke elemen sebelumnya di TV."
+                                CompanionAction.FOCUS_NEXT -> "Fokus digeser ke elemen berikutnya di TV."
+                                CompanionAction.RELOAD_PAGE -> "Halaman login TV sedang dimuat ulang."
+                                CompanionAction.SUBMIT_COOKIE -> "Cookie sesi dikirim ke TV — memverifikasi akun YouTube Music."
+                            }
+                        } else {
+                            when (action) {
+                                CompanionAction.FILL_EMAIL -> "Email sent to TV — waiting for Password page."
+                                CompanionAction.FILL_PASSWORD -> "Password sent to TV — check 2FA verification if prompted."
+                                CompanionAction.FILL_TEXT -> "Text/OTP code sent to active TV input."
+                                CompanionAction.CLICK_NEXT -> "Next/Sign-in button clicked on TV."
+                                CompanionAction.FOCUS_PREV -> "Focus moved to previous element on TV."
+                                CompanionAction.FOCUS_NEXT -> "Focus moved to next element on TV."
+                                CompanionAction.RELOAD_PAGE -> "Reloading TV sign-in page."
+                                CompanionAction.SUBMIT_COOKIE -> "Session cookie sent to TV — verifying YouTube Music account."
+                            }
                         }
                     if (isAjax) {
                         writeResponse(
@@ -190,11 +253,22 @@ class LocalLoginCompanionServer(
                             """{"ok":true,"step":${escapeJsonString(currentStep)},"hint":${escapeJsonString(lastStatusHint)},"message":${escapeJsonString(feedback)}}""",
                         )
                     } else {
-                        writeResponse(output, 200, "text/html; charset=utf-8", buildMobileHtml(sessionToken, feedback, statusJson = buildStatusJson()))
+                        writeResponse(
+                            output,
+                            200,
+                            "text/html; charset=utf-8",
+                            buildMobileHtml(
+                                token = sessionToken,
+                                statusMessage = feedback,
+                                statusJson = buildStatusJson(),
+                                isIndonesian = isIndonesian,
+                            ),
+                        )
                     }
                 }
                 else -> {
-                    writeResponse(output, 404, "text/plain; charset=utf-8", "Tidak ditemukan")
+                    val notFound = if (isIndonesian) "Tidak ditemukan" else "Not found"
+                    writeResponse(output, 404, "text/plain; charset=utf-8", notFound)
                 }
             }
         }
@@ -367,8 +441,16 @@ class LocalLoginCompanionServer(
             token: String,
             statusMessage: String? = null,
             isError: Boolean = false,
-            statusJson: String = """{"step":"email","host":"accounts.google.com","hint":"Langkah 1: Masukkan Email Google Anda"}""",
+            statusJson: String? = null,
+            isIndonesian: Boolean = true,
         ): String {
+            val resolvedStatusJson =
+                statusJson
+                    ?: if (isIndonesian) {
+                        """{"step":"email","host":"accounts.google.com","hint":"Langkah 1: Masukkan Email Google Anda"}"""
+                    } else {
+                        """{"step":"email","host":"accounts.google.com","hint":"Step 1: Enter your Google Email"}"""
+                    }
             val bannerHtml =
                 if (!statusMessage.isNullOrBlank()) {
                     val cls = if (isError) "banner err" else "banner ok"
@@ -376,13 +458,123 @@ class LocalLoginCompanionServer(
                 } else {
                     """<div id="liveBanner" class="banner" style="display:none;"></div>"""
                 }
+
+            val htmlLang = if (isIndonesian) "id" else "en"
+            val pageTitle = if (isIndonesian) "Alunara TV — Wizard Masuk Akun" else "Alunara TV — Account Sign-In Wizard"
+            val heroTitle = if (isIndonesian) "Alunara TV · Wizard Login" else "Alunara TV · Login Wizard"
+            val heroDesc =
+                if (isIndonesian) {
+                    "Ketik email, sandi, dan verifikasi langsung dari keyboard HP Anda — teks otomatis masuk ke layar TV melalui Wi-Fi lokal (tidak disimpan atau dikirim ke pihak lain)."
+                } else {
+                    "Type your email, password, and 2FA code directly from your phone keyboard — inputs are sent over local Wi-Fi straight to your TV (never stored or shared)."
+                }
+            val whyTitle =
+                if (isIndonesian) {
+                    "Kenapa tidak memakai kode TV seperti SmartTube?"
+                } else {
+                    "Why doesn't this use a TV code like SmartTube?"
+                }
+            val whyDesc =
+                if (isIndonesian) {
+                    "SmartTube hanya memakai API video YouTube biasa. YouTube Music memakai sesi web Google (<code>music.youtube.com</code>), sehingga login tercepat yang valid adalah mengisi WebView TV lewat HP ini."
+                } else {
+                    "SmartTube only uses standard YouTube video APIs. YouTube Music requires a Google web session (<code>music.youtube.com</code>), so filling the TV WebView from your phone is the fastest valid sign-in method."
+                }
+            val pillEmail = if (isIndonesian) "1. Email" else "1. Email"
+            val pillPassword = if (isIndonesian) "2. Sandi" else "2. Password"
+            val pillVerify = if (isIndonesian) "3. 2FA" else "3. 2FA"
+            val pillDone = if (isIndonesian) "4. Masuk" else "4. Done"
+            val connectingHint = if (isIndonesian) "Menghubungkan status ke layar TV…" else "Connecting to TV status…"
+
+            val step1Title = if (isIndonesian) "Langkah 1 · Email Google" else "Step 1 · Google Email"
+            val step1Badge = if (isIndonesian) "Langkah 1" else "Step 1"
+            val step1Desc =
+                if (isIndonesian) {
+                    "Isi alamat Gmail akun YouTube Music Anda, lalu tekan tombol untuk mengisi &amp; lanjut otomatis di TV."
+                } else {
+                    "Enter the Google email for your YouTube Music account, then tap the button to fill &amp; continue on your TV."
+                }
+            val emailLabel = if (isIndonesian) "Email / Nomor HP" else "Email / Phone"
+            val emailPlaceholder = if (isIndonesian) "nama@gmail.com" else "name@gmail.com"
+            val emailSubmit = if (isIndonesian) "Kirim Email &amp; Lanjut" else "Send Email &amp; Continue"
+
+            val step2Title = if (isIndonesian) "Langkah 2 · Sandi Akun Google" else "Step 2 · Google Password"
+            val step2Badge = if (isIndonesian) "Langkah 2" else "Step 2"
+            val step2Desc =
+                if (isIndonesian) {
+                    "Setelah layar TV berpindah ke halaman sandi, isi kata sandi Anda di sini (bisa pakai Password Manager HP)."
+                } else {
+                    "Once the TV advances to the password page, enter your password here (phone Password Managers work too)."
+                }
+            val passwordLabel = if (isIndonesian) "Kata Sandi" else "Password"
+            val passwordPlaceholder = if (isIndonesian) "Masukkan kata sandi Google" else "Enter your Google password"
+            val passwordSubmit = if (isIndonesian) "Kirim Sandi &amp; Masuk" else "Send Password &amp; Sign In"
+
+            val step3Title = if (isIndonesian) "Langkah 3 · Verifikasi 2-Langkah (2FA)" else "Step 3 · 2-Step Verification (2FA)"
+            val step3Badge = if (isIndonesian) "Langkah 3" else "Step 3"
+            val step3Desc =
+                if (isIndonesian) {
+                    """Jika muncul notifikasi <strong>Google Prompt ("Ya, itu saya")</strong> di HP Anda, cukup ketuk konfirmasi di HP. Bila Google meminta kode angka/SMS di TV, ketik kodenya di bawah ini:"""
+                } else {
+                    """If a <strong>Google Prompt ("Yes, it's me")</strong> pops up on your phone, simply approve it there. If Google asks for a numeric/SMS code on the TV, type it below:"""
+                }
+            val otpLabel = if (isIndonesian) "Kode OTP / Teks di Kolom Aktif TV" else "OTP Code / Text for Active TV Field"
+            val otpPlaceholder = if (isIndonesian) "Contoh: 123456" else "Example: 123456"
+            val otpSubmit = if (isIndonesian) "Kirim Kode ke TV" else "Send Code to TV"
+
+            val remoteTitle = if (isIndonesian) "Remote Kontrol Halaman TV" else "TV Page Remote Controls"
+            val remoteBadge = if (isIndonesian) "Opsional" else "Optional"
+            val remoteDesc =
+                if (isIndonesian) {
+                    "Geser sorotan tombol/link atau klik tombol Berikutnya di WebView TV tanpa mengambil remote fisik."
+                } else {
+                    "Move highlight focus or click Next inside the TV WebView without picking up the physical remote."
+                }
+            val remoteFocusUp = if (isIndonesian) "▲ Fokus Atas" else "▲ Focus Up"
+            val remoteFocusDown = if (isIndonesian) "▼ Fokus Bawah" else "▼ Focus Down"
+            val remoteClickNext = if (isIndonesian) "⏎ Klik Aktif/Lanjut" else "⏎ Click Active/Next"
+            val remoteReload = if (isIndonesian) "↻ Muat Ulang TV" else "↻ Reload TV"
+
+            val cookieSummary =
+                if (isIndonesian) {
+                    "Mode Lanjutan · Paste Cookie music.youtube.com Langsung"
+                } else {
+                    "Advanced Mode · Paste music.youtube.com Cookie Directly"
+                }
+            val cookieDesc =
+                if (isIndonesian) {
+                    "Jika Anda sudah login di browser HP/PC, tempel cookie dari <code>music.youtube.com</code> (harus memuat <code>SAPISID</code> / <code>__Secure-3PAPISID</code>) untuk masuk instan dalam 1 klik:"
+                } else {
+                    "If you are already signed in on a phone/PC browser, paste the cookie from <code>music.youtube.com</code> (must contain <code>SAPISID</code> / <code>__Secure-3PAPISID</code>) for instant 1-click sign-in:"
+                }
+            val cookiePlaceholder =
+                if (isIndonesian) {
+                    "Tempel string cookie music.youtube.com di sini..."
+                } else {
+                    "Paste music.youtube.com cookie string here..."
+                }
+            val cookieSubmit = if (isIndonesian) "Masuk dengan Cookie" else "Sign In with Cookie"
+
+            val jsBadgeDone = escapeJsonString(if (isIndonesian) "Selesai ✓" else "Done ✓")
+            val jsBadgeActive = escapeJsonString(if (isIndonesian) "Aktif di TV" else "Active on TV")
+            val jsStepPrefix = escapeJsonString(if (isIndonesian) "Langkah " else "Step ")
+            val jsSentFallback = escapeJsonString(if (isIndonesian) "Terkirim ke TV" else "Sent to TV")
+            val jsNetworkError =
+                escapeJsonString(
+                    if (isIndonesian) {
+                        "Gagal menghubungi layar TV di Wi-Fi lokal."
+                    } else {
+                        "Could not reach the TV on local Wi-Fi."
+                    },
+                )
+
             return """
                 <!DOCTYPE html>
-                <html lang="id">
+                <html lang="$htmlLang">
                 <head>
                   <meta charset="utf-8">
                   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-                  <title>Alunara TV — Wizard Masuk Akun</title>
+                  <title>$pageTitle</title>
                   <style>
                     :root { color-scheme: dark; }
                     body { margin:0; padding:18px 14px 36px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#101813; color:#E3EEE5; }
@@ -419,88 +611,88 @@ class LocalLoginCompanionServer(
                 <body>
                 <div class="wrap">
                   <div class="hero">
-                    <h1>Alunara TV · Wizard Login</h1>
-                    <p>Ketik email, sandi, dan verifikasi langsung dari keyboard HP Anda — teks otomatis masuk ke layar TV melalui Wi-Fi lokal (tidak disimpan atau dikirim ke pihak lain).</p>
+                    <h1>$heroTitle</h1>
+                    <p>$heroDesc</p>
                     <div class="why">
-                      <strong>Kenapa tidak memakai kode TV seperti SmartTube?</strong><br>
-                      SmartTube hanya memakai API video YouTube biasa. YouTube Music memakai sesi web Google (<code>music.youtube.com</code>), sehingga login tercepat yang valid adalah mengisi WebView TV lewat HP ini.
+                      <strong>$whyTitle</strong><br>
+                      $whyDesc
                     </div>
                     <div class="steps">
-                      <div id="pill-email" class="step">1. Email</div>
-                      <div id="pill-password" class="step">2. Sandi</div>
-                      <div id="pill-verify" class="step">3. 2FA</div>
-                      <div id="pill-done" class="step">4. Masuk</div>
+                      <div id="pill-email" class="step">$pillEmail</div>
+                      <div id="pill-password" class="step">$pillPassword</div>
+                      <div id="pill-verify" class="step">$pillVerify</div>
+                      <div id="pill-done" class="step">$pillDone</div>
                     </div>
-                    <div id="tvStepHint" class="hintLine">Menghubungkan status ke layar TV…</div>
+                    <div id="tvStepHint" class="hintLine">$connectingHint</div>
                   </div>
 
                   $bannerHtml
 
                   <div id="card-email" class="card">
                     <div class="cardHead">
-                      <h2>Langkah 1 · Email Google</h2>
-                      <span id="badge-email" class="badge">Langkah 1</span>
+                      <h2>$step1Title</h2>
+                      <span id="badge-email" class="badge">$step1Badge</span>
                     </div>
-                    <p class="sub">Isi alamat Gmail akun YouTube Music Anda, lalu tekan tombol untuk mengisi &amp; lanjut otomatis di TV.</p>
+                    <p class="sub">$step1Desc</p>
                     <form class="wizardForm" method="post" action="/submit?t=$token">
                       <input type="hidden" name="action" value="email">
-                      <label for="emailInput">Email / Nomor HP</label>
-                      <input id="emailInput" name="value" type="email" autocomplete="username" placeholder="nama@gmail.com" required>
-                      <button type="submit">Kirim Email &amp; Lanjut</button>
+                      <label for="emailInput">$emailLabel</label>
+                      <input id="emailInput" name="value" type="email" autocomplete="username" placeholder="$emailPlaceholder" required>
+                      <button type="submit">$emailSubmit</button>
                     </form>
                   </div>
 
                   <div id="card-password" class="card">
                     <div class="cardHead">
-                      <h2>Langkah 2 · Sandi Akun Google</h2>
-                      <span id="badge-password" class="badge">Langkah 2</span>
+                      <h2>$step2Title</h2>
+                      <span id="badge-password" class="badge">$step2Badge</span>
                     </div>
-                    <p class="sub">Setelah layar TV berpindah ke halaman sandi, isi kata sandi Anda di sini (bisa pakai Password Manager HP).</p>
+                    <p class="sub">$step2Desc</p>
                     <form class="wizardForm" method="post" action="/submit?t=$token">
                       <input type="hidden" name="action" value="password">
-                      <label for="passwordInput">Kata Sandi</label>
-                      <input id="passwordInput" name="value" type="password" autocomplete="current-password" placeholder="Masukkan kata sandi Google" required>
-                      <button type="submit">Kirim Sandi &amp; Masuk</button>
+                      <label for="passwordInput">$passwordLabel</label>
+                      <input id="passwordInput" name="value" type="password" autocomplete="current-password" placeholder="$passwordPlaceholder" required>
+                      <button type="submit">$passwordSubmit</button>
                     </form>
                   </div>
 
                   <div id="card-verify" class="card">
                     <div class="cardHead">
-                      <h2>Langkah 3 · Verifikasi 2-Langkah (2FA)</h2>
-                      <span id="badge-verify" class="badge">Langkah 3</span>
+                      <h2>$step3Title</h2>
+                      <span id="badge-verify" class="badge">$step3Badge</span>
                     </div>
-                    <p class="sub">Jika muncul notifikasi <strong>Google Prompt ("Ya, itu saya")</strong> di HP Anda, cukup ketuk konfirmasi di HP. Bila Google meminta kode angka/SMS di TV, ketik kodenya di bawah ini:</p>
+                    <p class="sub">$step3Desc</p>
                     <form class="wizardForm" method="post" action="/submit?t=$token">
                       <input type="hidden" name="action" value="text">
-                      <label for="otpInput">Kode OTP / Teks di Kolom Aktif TV</label>
-                      <input id="otpInput" name="value" type="text" autocomplete="one-time-code" placeholder="Contoh: 123456">
-                      <button class="secondary" type="submit">Kirim Kode ke TV</button>
+                      <label for="otpInput">$otpLabel</label>
+                      <input id="otpInput" name="value" type="text" autocomplete="one-time-code" placeholder="$otpPlaceholder">
+                      <button class="secondary" type="submit">$otpSubmit</button>
                     </form>
                   </div>
 
                   <div class="card">
                     <div class="cardHead">
-                      <h2>Remote Kontrol Halaman TV</h2>
-                      <span class="badge">Opsional</span>
+                      <h2>$remoteTitle</h2>
+                      <span class="badge">$remoteBadge</span>
                     </div>
-                    <p class="sub">Geser sorotan tombol/link atau klik tombol Berikutnya di WebView TV tanpa mengambil remote fisik.</p>
+                    <p class="sub">$remoteDesc</p>
                     <div class="remoteGrid">
-                      <button type="button" class="secondary" onclick="sendRemote('prev_focus')">▲ Fokus Atas</button>
-                      <button type="button" class="secondary" onclick="sendRemote('next_focus')">▼ Fokus Bawah</button>
-                      <button type="button" onclick="sendRemote('next')">⏎ Klik Aktif/Lanjut</button>
-                      <button type="button" class="secondary" onclick="sendRemote('reload')">↻ Muat Ulang TV</button>
+                      <button type="button" class="secondary" onclick="sendRemote('prev_focus')">$remoteFocusUp</button>
+                      <button type="button" class="secondary" onclick="sendRemote('next_focus')">$remoteFocusDown</button>
+                      <button type="button" onclick="sendRemote('next')">$remoteClickNext</button>
+                      <button type="button" class="secondary" onclick="sendRemote('reload')">$remoteReload</button>
                     </div>
                   </div>
 
                   <div class="card">
                     <details>
-                      <summary>Mode Lanjutan · Paste Cookie music.youtube.com Langsung</summary>
-                      <p class="sub" style="margin-top:10px;">Jika Anda sudah login di browser HP/PC, tempel cookie dari <code>music.youtube.com</code> (harus memuat <code>SAPISID</code> / <code>__Secure-3PAPISID</code>) untuk masuk instan dalam 1 klik:</p>
+                      <summary>$cookieSummary</summary>
+                      <p class="sub" style="margin-top:10px;">$cookieDesc</p>
                       <form class="wizardForm" method="post" action="/submit?t=$token">
                         <input type="hidden" name="action" value="cookie">
                         <label for="cookieInput">Cookie Header</label>
-                        <textarea id="cookieInput" name="value" placeholder="Tempel string cookie music.youtube.com di sini..." required></textarea>
-                        <button class="secondary" type="submit">Masuk dengan Cookie</button>
+                        <textarea id="cookieInput" name="value" placeholder="$cookiePlaceholder" required></textarea>
+                        <button class="secondary" type="submit">$cookieSubmit</button>
                       </form>
                     </details>
                   </div>
@@ -510,6 +702,11 @@ class LocalLoginCompanionServer(
                   var token = ${escapeJsonString(token)};
                   var stepOrder = ['email', 'password', 'verify', 'done'];
                   var lastSyncedStep = null;
+                  var lblDone = $jsBadgeDone;
+                  var lblActive = $jsBadgeActive;
+                  var lblStepPrefix = $jsStepPrefix;
+                  var lblSent = $jsSentFallback;
+                  var lblNetErr = $jsNetworkError;
                   function applyTvState(st) {
                     if (!st || !st.step) return;
                     var hintEl = document.getElementById('tvStepHint');
@@ -530,9 +727,9 @@ class LocalLoginCompanionServer(
                       }
                       var badge = document.getElementById('badge-' + name);
                       if (badge) {
-                        if (i < activeIdx) badge.textContent = 'Selesai ✓';
-                        else if (i === activeIdx) badge.textContent = 'Aktif di TV';
-                        else badge.textContent = 'Langkah ' + (i + 1);
+                        if (i < activeIdx) badge.textContent = lblDone;
+                        else if (i === activeIdx) badge.textContent = lblActive;
+                        else badge.textContent = lblStepPrefix + (i + 1);
                       }
                     });
                     if (lastSyncedStep !== st.step) {
@@ -568,8 +765,8 @@ class LocalLoginCompanionServer(
                       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                       body: 'action=' + encodeURIComponent(actionName) + '&ajax=1'
                     }).then(function(r) { return r.json(); })
-                      .then(function(res) { showBanner(res.message || 'Terkirim ke TV', !!res.ok); pollStatus(); burstPoll(); })
-                      .catch(function() { showBanner('Gagal menghubungi layar TV di Wi-Fi lokal.', false); });
+                      .then(function(res) { showBanner(res.message || lblSent, !!res.ok); pollStatus(); burstPoll(); })
+                      .catch(function() { showBanner(lblNetErr, false); });
                   }
                   Array.from(document.querySelectorAll('form.wizardForm')).forEach(function(form) {
                     form.addEventListener('submit', function(ev) {
@@ -587,14 +784,14 @@ class LocalLoginCompanionServer(
                       }).then(function(r) { return r.json(); })
                         .then(function(res) {
                           if (btn) btn.disabled = false;
-                          showBanner(res.message || 'Terkirim ke TV', !!res.ok);
+                          showBanner(res.message || lblSent, !!res.ok);
                           if (res.step) applyTvState({ step: res.step, hint: res.hint || '', host: '' });
                           pollStatus();
                           burstPoll();
                         })
                         .catch(function() {
                           if (btn) btn.disabled = false;
-                          showBanner('Gagal menghubungi layar TV di Wi-Fi lokal.', false);
+                          showBanner(lblNetErr, false);
                         });
                     });
                   });
@@ -604,7 +801,7 @@ class LocalLoginCompanionServer(
                       .then(function(st) { if (st) applyTvState(st); })
                       .catch(function() {});
                   }
-                  applyTvState($statusJson);
+                  applyTvState($resolvedStatusJson);
                   setInterval(pollStatus, 750);
                 </script>
                 </body>

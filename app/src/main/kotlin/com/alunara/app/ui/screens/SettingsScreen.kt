@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.Contrast
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.MotionPhotosOff
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material3.Icon
@@ -43,6 +44,7 @@ import androidx.tv.material3.Text
 import com.alunara.app.R
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.safeRequestFocus
+import com.alunara.app.ui.i18n.AppLanguage
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.AlunaraDisplayPrefs
 import com.alunara.app.ui.theme.AlunaraTypography
@@ -63,6 +65,8 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     audioQuality: AudioQualityPreset = AudioQualityPreset.AUTO,
     onSelectAudioQuality: (AudioQualityPreset) -> Unit = {},
+    appLanguage: AppLanguage = AppLanguage.ENGLISH,
+    onSelectAppLanguage: (AppLanguage) -> Unit = {},
     displayPrefs: AlunaraDisplayPrefs = AlunaraDisplayPrefs(),
     onUpdateDisplayPrefs: (AlunaraDisplayPrefs) -> Unit = {},
 ) {
@@ -160,6 +164,66 @@ fun SettingsScreen(
                             text = label,
                             highlighted = audioQuality == preset,
                             onClick = { onSelectAudioQuality(preset) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.focusProperties { canFocus = false },
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Language,
+                        contentDescription = null,
+                        tint = colors.primaryAccent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.language_section_title),
+                        color = colors.primaryAccent,
+                        fontSize = AlunaraTypography.body(activePrefs.textScale),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                val languageDescription =
+                    when (appLanguage) {
+                        AppLanguage.INDONESIAN -> stringResource(R.string.language_desc_indonesian)
+                        AppLanguage.ENGLISH -> stringResource(R.string.language_desc_english)
+                    }
+                Text(
+                    text = "$languageDescription · ${stringResource(R.string.language_subtitle)}",
+                    color = colors.mutedText,
+                    fontSize = AlunaraTypography.label(activePrefs.textScale),
+                    lineHeight = AlunaraTypography.label(activePrefs.textScale) * 1.4f,
+                    modifier = Modifier.focusProperties { canFocus = false },
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    val languageOptions =
+                        listOf(
+                            AppLanguage.INDONESIAN to stringResource(R.string.language_option_indonesian),
+                            AppLanguage.ENGLISH to stringResource(R.string.language_option_english),
+                        )
+                    languageOptions.forEach { (language, label) ->
+                        TvFocusableButton(
+                            text = label,
+                            highlighted = appLanguage == language,
+                            onClick = { onSelectAppLanguage(language) },
                             modifier = Modifier.weight(1f),
                         )
                     }

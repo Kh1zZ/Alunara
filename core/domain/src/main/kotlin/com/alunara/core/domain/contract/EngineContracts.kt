@@ -67,6 +67,8 @@ interface MusicEngine {
         trackId: String,
         liked: Boolean,
     ): Result<Unit> = Result.success(Unit)
+
+    fun setContentLanguage(languageTag: String) = Unit
 }
 
 interface LyricsEngine {
