@@ -2,8 +2,10 @@ package com.alunara.app.ui.components
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.Shader
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -71,6 +73,7 @@ import coil3.transform.Transformation
 import com.alunara.app.R
 import com.alunara.app.playback.PlaybackSessionUiState
 import com.alunara.app.ui.theme.AlunaraDimens
+import com.alunara.app.ui.theme.AlunaraPalette
 import com.alunara.app.ui.theme.AlunaraTypography
 import com.alunara.app.ui.theme.LocalAlunaraColors
 import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
@@ -117,7 +120,7 @@ object TvBackdropBlurTransformation : Transformation() {
     private const val BLUR_RADIUS = 3
     private const val PASSES = 2
 
-    override val cacheKey: String = "alunara_tv_backdrop_blur_r3_p2_v2"
+    override val cacheKey: String = "alunara_tv_backdrop_blur_r3_p2_v3_baked"
 
     override suspend fun transform(
         input: Bitmap,
@@ -160,7 +163,60 @@ object TvBackdropBlurTransformation : Transformation() {
             boxBlurVertical(scratch, pixels, dstW, dstH, BLUR_RADIUS)
         }
         out.setPixels(pixels, 0, dstW, 0, 0, dstW, dstH)
+
+        // Bake horizontal & vertical Forest Green darkening gradients once per track on Coil's worker
+        // thread so NowPlayingScreen draws a single layer with zero per-frame shader overdraw.
+        val baseRgb = (AlunaraPalette.BACKGROUND_HEX and 0x00FFFFFFL).toInt()
+        val horizColors =
+            intArrayOf(
+                bgColorWithAlpha(baseRgb, 0.48f),
+                bgColorWithAlpha(baseRgb, 0.60f),
+                bgColorWithAlpha(baseRgb, 0.72f),
+            )
+        val horizPaint =
+            Paint().apply {
+                shader =
+                    LinearGradient(
+                        0f,
+                        0f,
+                        dstW.toFloat(),
+                        0f,
+                        horizColors,
+                        floatArrayOf(0.0f, 0.45f, 1.0f),
+                        Shader.TileMode.CLAMP,
+                    )
+            }
+        canvas.drawRect(0f, 0f, dstW.toFloat(), dstH.toFloat(), horizPaint)
+
+        val vertColors =
+            intArrayOf(
+                bgColorWithAlpha(baseRgb, 0.10f),
+                bgColorWithAlpha(baseRgb, 0.28f),
+                bgColorWithAlpha(baseRgb, 0.68f),
+            )
+        val vertPaint =
+            Paint().apply {
+                shader =
+                    LinearGradient(
+                        0f,
+                        0f,
+                        0f,
+                        dstH.toFloat(),
+                        vertColors,
+                        floatArrayOf(0.0f, 0.55f, 1.0f),
+                        Shader.TileMode.CLAMP,
+                    )
+            }
+        canvas.drawRect(0f, 0f, dstW.toFloat(), dstH.toFloat(), vertPaint)
         return out
+    }
+
+    private fun bgColorWithAlpha(
+        baseRgb: Int,
+        alpha: Float,
+    ): Int {
+        val alphaByte = (alpha * 255f).roundToInt().coerceIn(0, 255)
+        return (alphaByte shl 24) or baseRgb
     }
 
     private fun boxBlurHorizontal(

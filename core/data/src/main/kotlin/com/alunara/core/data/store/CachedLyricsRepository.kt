@@ -124,8 +124,16 @@ class CachedLyricsRepository(
             val linePrefix = formatTag("[", "]", line.startTimeMs)
             if (line.hasWordSync) {
                 val wordsBody =
-                    line.words.joinToString(separator = "") { word ->
-                        "${formatTag("<", ">", word.startTimeMs)}${word.text}"
+                    buildString {
+                        line.words.forEachIndexed { idx, word ->
+                            append(formatTag("<", ">", word.startTimeMs))
+                            append(word.text)
+                            val endMs = word.endTimeMs
+                            val nextStartMs = line.words.getOrNull(idx + 1)?.startTimeMs
+                            if (endMs != null && (nextStartMs == null || endMs != nextStartMs)) {
+                                append(formatTag("<", ">", endMs))
+                            }
+                        }
                     }
                 "$linePrefix $wordsBody"
             } else {

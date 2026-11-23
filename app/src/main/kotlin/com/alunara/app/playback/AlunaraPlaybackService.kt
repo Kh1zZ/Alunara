@@ -92,8 +92,16 @@ class AlunaraPlaybackService : MediaSessionService() {
 
                 override fun hasPreviousMediaItem(): Boolean = sessionManager.uiState.value.queueState.items.isNotEmpty()
 
-                override fun getAvailableCommands(): Player.Commands =
-                    super.getAvailableCommands()
+                private var cachedBaseCommands: Player.Commands? = null
+                private var cachedAvailableCommands: Player.Commands? = null
+
+                override fun getAvailableCommands(): Player.Commands {
+                    val base = super.getAvailableCommands()
+                    val existing = cachedAvailableCommands
+                    if (existing != null && cachedBaseCommands == base) {
+                        return existing
+                    }
+                    return base
                         .buildUpon()
                         .addAll(
                             Player.COMMAND_PLAY_PAUSE,
@@ -106,6 +114,11 @@ class AlunaraPlaybackService : MediaSessionService() {
                             Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
                             Player.COMMAND_GET_METADATA,
                         ).build()
+                        .also {
+                            cachedBaseCommands = base
+                            cachedAvailableCommands = it
+                        }
+                }
 
                 override fun isCommandAvailable(command: Int): Boolean = getAvailableCommands().contains(command)
             }

@@ -515,44 +515,44 @@ private fun AlunaraTvApp(
         }
     }
 
-    Box(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .background(colors.background)
-                .onPreviewKeyEvent { keyEvent ->
-                    if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+    val onRootPreviewKeyEvent: (androidx.compose.ui.input.key.KeyEvent) -> Boolean =
+        remember(sessionManager) {
+            { keyEvent ->
+                if (keyEvent.type != KeyEventType.KeyDown) {
+                    false
+                } else {
+                    val liveState = sessionManager.uiState.value
                     when (keyEvent.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE ->
-                            if (sessionState.currentTrack != null) {
+                            if (liveState.currentTrack != null) {
                                 sessionManager.togglePlayPause()
                                 true
                             } else {
                                 false
                             }
                         KeyEvent.KEYCODE_MEDIA_PLAY ->
-                            if (sessionState.currentTrack != null && sessionState.status != PlaybackStatus.PLAYING) {
+                            if (liveState.currentTrack != null && liveState.status != PlaybackStatus.PLAYING) {
                                 sessionManager.togglePlayPause()
                                 true
                             } else {
                                 false
                             }
                         KeyEvent.KEYCODE_MEDIA_PAUSE ->
-                            if (sessionState.currentTrack != null && sessionState.status == PlaybackStatus.PLAYING) {
+                            if (liveState.currentTrack != null && liveState.status == PlaybackStatus.PLAYING) {
                                 sessionManager.togglePlayPause()
                                 true
                             } else {
                                 false
                             }
                         KeyEvent.KEYCODE_MEDIA_NEXT ->
-                            if (sessionState.queueState.currentIndex < sessionState.queueState.items.lastIndex) {
+                            if (liveState.queueState.currentIndex < liveState.queueState.items.lastIndex) {
                                 sessionManager.skipNext()
                                 true
                             } else {
                                 false
                             }
                         KeyEvent.KEYCODE_MEDIA_PREVIOUS ->
-                            if (sessionState.queueState.items.isNotEmpty()) {
+                            if (liveState.queueState.items.isNotEmpty()) {
                                 sessionManager.skipPrevious()
                                 true
                             } else {
@@ -560,7 +560,16 @@ private fun AlunaraTvApp(
                             }
                         else -> false
                     }
-                },
+                }
+            }
+        }
+
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(colors.background)
+                .onPreviewKeyEvent(onRootPreviewKeyEvent),
     ) {
         if (currentDestination == TvDestination.NOW_PLAYING) {
             NowPlayingScreen(

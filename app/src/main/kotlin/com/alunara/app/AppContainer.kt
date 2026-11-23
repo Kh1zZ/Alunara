@@ -123,10 +123,14 @@ class AppContainer(
         }
     }
 
+    @Volatile
+    private var isPlaybackServiceRunning: Boolean = false
+
     private fun syncPlaybackServiceState(shouldRunService: Boolean) {
         val intent = Intent(appContext, AlunaraPlaybackService::class.java)
         runCatching {
             if (shouldRunService) {
+                if (isPlaybackServiceRunning) return
                 val isForeground =
                     ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
                 if (isForeground) {
@@ -134,7 +138,9 @@ class AppContainer(
                 } else {
                     ContextCompat.startForegroundService(appContext, intent)
                 }
+                isPlaybackServiceRunning = true
             } else {
+                isPlaybackServiceRunning = false
                 appContext.stopService(intent)
             }
         }

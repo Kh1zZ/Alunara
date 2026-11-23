@@ -4,7 +4,7 @@ import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.SyncedLyricLine
 import com.atilika.kuromoji.ipadic.Token
 import com.atilika.kuromoji.ipadic.Tokenizer
-import java.lang.ref.WeakReference
+import java.lang.ref.SoftReference
 import java.util.Locale
 
 enum class LyricScript {
@@ -175,7 +175,7 @@ object LyricsRomanizer {
         )
 
     @Volatile
-    private var kuromojiWeakRef: WeakReference<Tokenizer>? = null
+    private var kuromojiSoftRef: SoftReference<Tokenizer>? = null
 
     private val icuTransliteratorBridge: Any? by lazy {
         runCatching {
@@ -195,103 +195,125 @@ object LyricsRomanizer {
 
     @Synchronized
     private fun obtainKuromojiTokenizer(): Tokenizer {
-        kuromojiWeakRef?.get()?.let { return it }
+        kuromojiSoftRef?.get()?.let { return it }
         return Tokenizer().also {
-            kuromojiWeakRef = WeakReference(it)
+            kuromojiSoftRef = SoftReference(it)
         }
     }
 
+    private fun isPureBasicLatin(text: String): Boolean = text.all { it.code < 0x0250 }
+
     fun attachRomanization(doc: LyricsDocument): DocumentRomanizationSummary {
-        var batchTokenizer: Tokenizer? = null
-        val batchProvider: () -> Tokenizer = {
-            batchTokenizer ?: obtainKuromojiTokenizer().also { batchTokenizer = it }
-        }
-        try {
-            return when (doc) {
-                is LyricsDocument.Synced -> {
-                    val docHasJapaneseKana = doc.lines.any { looksJapanese(it.text) }
-                    var totalConverted = 0
-                    var totalKanji = 0
-                    var totalCjk = 0
-                    val updatedLines =
-                        doc.lines.map { line ->
-                            val res = romanize(line.text, batchProvider, assumeJapanese = docHasJapaneseKana)
-                            totalConverted += res.convertedChars
-                            totalKanji += res.unsupportedKanjiChars
-                            totalCjk += res.totalCjkChars
-                            val effectiveRoman = line.romanizedText ?: res.text.takeIf { res.hasRomanization }
-                            val updatedWords =
-                                if (effectiveRoman != null && line.words.isNotEmpty()) {
-                                    val lineIsJapanese = docHasJapaneseKana || looksJapanese(line.text)
-                                    line.words.mapIndexed { idx, w ->
-                                        val wRes =
-                                            romanize(
-                                                w.text,
-                                                batchProvider,
-                                                assumeJapanese = lineIsJapanese,
-                                            )
-                                        val wRoman =
-                                            if (wRes.hasRomanization) {
-                                                val suffix = if (idx < line.words.lastIndex && !wRes.text.endsWith(" ")) " " else ""
-                                                wRes.text.trim() + suffix
-                                            } else {
-                                                w.text
-                                            }
-                                        w.copy(romanizedText = wRoman)
-                                    }
-                                } else {
-                                    line.words
-                                }
-                            line.copy(romanizedText = effectiveRoman, words = updatedWords)
-                        }
-                    val updatedDoc = doc.copy(lines = updatedLines)
-                    DocumentRomanizationSummary(
-                        document = updatedDoc,
-                        hasRomanizableLines = updatedLines.any { !it.romanizedText.isNullOrBlank() },
-                        hasUnsupportedKanji = totalKanji > 0,
-                        coverageRatio = if (totalCjk == 0) 0f else totalConverted.toFloat() / totalCjk.toFloat(),
-                    )
-                }
-
-                is LyricsDocument.Plain -> {
-                    val lines = doc.text.lines()
-                    val docHasJapaneseKana = lines.any { looksJapanese(it) }
-                    val romanizedLines =
-                        lines.map { line ->
-                            val res = romanize(line, batchProvider, assumeJapanese = docHasJapaneseKana)
-                            res to res.text
-                        }
-                    val totalConverted = romanizedLines.sumOf { it.first.convertedChars }
-                    val totalKanji = romanizedLines.sumOf { it.first.unsupportedKanjiChars }
-                    val totalCjk = romanizedLines.sumOf { it.first.totalCjkChars }
-                    val hasRoman = romanizedLines.any { it.first.hasRomanization }
-                    val updatedDoc =
-                        if (hasRoman) {
-                            doc.copy(romanizedText = romanizedLines.joinToString("\n") { it.second })
-                        } else {
-                            doc
-                        }
-                    DocumentRomanizationSummary(
-                        document = updatedDoc,
-                        hasRomanizableLines = hasRoman,
-                        hasUnsupportedKanji = totalKanji > 0,
-                        coverageRatio = if (totalCjk == 0) 0f else totalConverted.toFloat() / totalCjk.toFloat(),
-                    )
-                }
-
-                is LyricsDocument.Unavailable ->
-                    DocumentRomanizationSummary(
+        when (doc) {
+            is LyricsDocument.Synced ->
+                if (doc.lines.all { isPureBasicLatin(it.text) }) {
+                    return DocumentRomanizationSummary(
                         document = doc,
                         hasRomanizableLines = false,
                         hasUnsupportedKanji = false,
                         coverageRatio = 0f,
                     )
+                }
+            is LyricsDocument.Plain ->
+                if (isPureBasicLatin(doc.text)) {
+                    return DocumentRomanizationSummary(
+                        document = doc,
+                        hasRomanizableLines = false,
+                        hasUnsupportedKanji = false,
+                        coverageRatio = 0f,
+                    )
+                }
+            is LyricsDocument.Unavailable ->
+                return DocumentRomanizationSummary(
+                    document = doc,
+                    hasRomanizableLines = false,
+                    hasUnsupportedKanji = false,
+                    coverageRatio = 0f,
+                )
+        }
+        var batchTokenizer: Tokenizer? = null
+        val batchProvider: () -> Tokenizer = {
+            batchTokenizer ?: obtainKuromojiTokenizer().also { batchTokenizer = it }
+        }
+        return when (doc) {
+            is LyricsDocument.Synced -> {
+                val docHasJapaneseKana = doc.lines.any { looksJapanese(it.text) }
+                var totalConverted = 0
+                var totalKanji = 0
+                var totalCjk = 0
+                val updatedLines =
+                    doc.lines.map { line ->
+                        val res = romanize(line.text, batchProvider, assumeJapanese = docHasJapaneseKana)
+                        totalConverted += res.convertedChars
+                        totalKanji += res.unsupportedKanjiChars
+                        totalCjk += res.totalCjkChars
+                        val effectiveRoman = line.romanizedText ?: res.text.takeIf { res.hasRomanization }
+                        val updatedWords =
+                            if (effectiveRoman != null && line.words.isNotEmpty()) {
+                                val lineIsJapanese = docHasJapaneseKana || looksJapanese(line.text)
+                                line.words.mapIndexed { idx, w ->
+                                    val wRes =
+                                        romanize(
+                                            w.text,
+                                            batchProvider,
+                                            assumeJapanese = lineIsJapanese,
+                                        )
+                                    val wRoman =
+                                        if (wRes.hasRomanization) {
+                                            val suffix = if (idx < line.words.lastIndex && !wRes.text.endsWith(" ")) " " else ""
+                                            wRes.text.trim() + suffix
+                                        } else {
+                                            w.text
+                                        }
+                                    w.copy(romanizedText = wRoman)
+                                }
+                            } else {
+                                line.words
+                            }
+                        line.copy(romanizedText = effectiveRoman, words = updatedWords)
+                    }
+                val updatedDoc = doc.copy(lines = updatedLines)
+                DocumentRomanizationSummary(
+                    document = updatedDoc,
+                    hasRomanizableLines = updatedLines.any { !it.romanizedText.isNullOrBlank() },
+                    hasUnsupportedKanji = totalKanji > 0,
+                    coverageRatio = if (totalCjk == 0) 0f else totalConverted.toFloat() / totalCjk.toFloat(),
+                )
             }
-        } finally {
-            if (batchTokenizer != null) {
-                batchTokenizer = null
-                System.gc()
+
+            is LyricsDocument.Plain -> {
+                val lines = doc.text.lines()
+                val docHasJapaneseKana = lines.any { looksJapanese(it) }
+                val romanizedLines =
+                    lines.map { line ->
+                        val res = romanize(line, batchProvider, assumeJapanese = docHasJapaneseKana)
+                        res to res.text
+                    }
+                val totalConverted = romanizedLines.sumOf { it.first.convertedChars }
+                val totalKanji = romanizedLines.sumOf { it.first.unsupportedKanjiChars }
+                val totalCjk = romanizedLines.sumOf { it.first.totalCjkChars }
+                val hasRoman = romanizedLines.any { it.first.hasRomanization }
+                val updatedDoc =
+                    if (hasRoman) {
+                        doc.copy(romanizedText = romanizedLines.joinToString("\n") { it.second })
+                    } else {
+                        doc
+                    }
+                DocumentRomanizationSummary(
+                    document = updatedDoc,
+                    hasRomanizableLines = hasRoman,
+                    hasUnsupportedKanji = totalKanji > 0,
+                    coverageRatio = if (totalCjk == 0) 0f else totalConverted.toFloat() / totalCjk.toFloat(),
+                )
             }
+
+            is LyricsDocument.Unavailable ->
+                DocumentRomanizationSummary(
+                    document = doc,
+                    hasRomanizableLines = false,
+                    hasUnsupportedKanji = false,
+                    coverageRatio = 0f,
+                )
         }
     }
 
@@ -303,7 +325,7 @@ object LyricsRomanizer {
         tokenizerProvider: () -> Tokenizer,
         assumeJapanese: Boolean,
     ): RomanizationResult {
-        if (input.isEmpty()) {
+        if (input.isEmpty() || isPureBasicLatin(input)) {
             return RomanizationResult(
                 text = input,
                 script = LyricScript.NONE,

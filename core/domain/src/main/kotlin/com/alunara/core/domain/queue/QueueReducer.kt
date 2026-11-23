@@ -13,6 +13,10 @@ sealed interface QueueAction {
         val item: QueueItem,
     ) : QueueAction
 
+    data class EnqueueAll(
+        val items: List<QueueItem>,
+    ) : QueueAction
+
     data class RemoveAt(
         val index: Int,
     ) : QueueAction
@@ -58,6 +62,16 @@ object QueueReducer {
                 val updated = state.items + action.item
                 val nextIndex = if (state.currentIndex < 0) 0 else state.currentIndex
                 state.copy(items = updated, currentIndex = nextIndex)
+            }
+
+            is QueueAction.EnqueueAll -> {
+                if (action.items.isEmpty()) {
+                    state
+                } else {
+                    val updated = state.items + action.items
+                    val nextIndex = if (state.currentIndex < 0) 0 else state.currentIndex
+                    state.copy(items = updated, currentIndex = nextIndex)
+                }
             }
 
             is QueueAction.RemoveAt -> {

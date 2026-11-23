@@ -142,6 +142,7 @@ object LrcParser {
         val refVocab = buildReferenceVocabulary(referenceTexts)
         if (refVocab.isEmpty()) return doc
 
+        val docIsFragmented = isSyllableFragmented(doc)
         val repairedLines =
             doc.lines.map { line ->
                 if (line.hasWordSync) {
@@ -158,7 +159,7 @@ object LrcParser {
                         }
                     val rebuiltText = spaced.joinToString(separator = "") { it.text }.trim()
                     line.copy(text = rebuiltText, words = spaced)
-                } else if (isSyllableFragmented(doc)) {
+                } else if (docIsFragmented) {
                     val rawTokens =
                         line.text
                             .trim()

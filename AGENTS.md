@@ -21,6 +21,7 @@ Seluruh agent yang bekerja pada repositori **Alunara** WAJIB mematuhi seluruh kl
 5. **`CHANGELOG.md` Bersifat Inkremental (Append-Only):**
    - File [`CHANGELOG.md`](./CHANGELOG.md) mencatat seluruh perubahan setiap kenaikan versi secara kronologis (versi terbaru di atas).
    - **Dilarang keras menghapus atau memangkas entri/baris versi sebelumnya** — seluruh sejarah versi mulai dari `0.1.0` dan seterusnya wajib terekam utuh.
+   - Seluruh entri baru mulai versi `0.1.2` wajib ditulis dalam bahasa Inggris. Pertahankan isi entri historis `0.1.0` dan `0.1.1` apa adanya.
 6. **Instalasi & Uji Perangkat TV Hanya Atas Permintaan:**
    - Pemasangan APK ke Android TV fisik maupun pengujian ADB live **hanya dilakukan jika Dev memerintahkannya secara eksplisit**. Secara default, cukup selesaikan build dan rangkaian pengujian otomatis (unit test, lint, split APK release verification).
 
@@ -46,3 +47,4 @@ Proses rilis sepenuhnya dikendalikan oleh instruksi Dev dan dijalankan secara ot
    - Kedua file APK tersebut langsung diunggah ke halaman GitHub Release untuk versi terkait.
 5. **Deskripsi Rilis Otomatis dari `CHANGELOG.md`:**
    - Deskripsi halaman GitHub Release wajib diambil **hanya** dari bagian versi yang relevan (`## [<versi>]`) di `CHANGELOG.md` agar catatan rilis akurat dan ringkas sesuai APK yang dipublikasikan.
+   - Catatan rilis mulai versi `0.1.2` dan footer otomatis unduhan serta kredit wajib menggunakan bahasa Inggris.

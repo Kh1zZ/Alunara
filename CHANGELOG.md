@@ -2,6 +2,16 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.1.3] - 2026-11-23
+
+### Playback & UI Performance
+
+- Bake Now Playing horizontal and vertical dark gradients directly into the 360px `TvBackdropBlurTransformation` bitmap and remove `.allowHardware(false)` plus redundant full-screen gradient overlay boxes to eliminate 4.5x overdraw.
+- Isolate `ActiveWordSyncedLyricText`, `SyncedLyricsViewport`, `ElapsedTimeLabel`, and `IdleDimmableControl` recomposition scopes; pre-cache per-word `AnnotatedString` states; and add `CompositingStrategy.ModulateAlpha` to lyric rows to prevent offscreen FBO `saveLayerAlpha` allocations and per-tick text relayouts.
+- Enable touch scrolling (`userScrollEnabled = true`) in Now Playing lyrics panels while preserving TV D-pad focus safety.
+- Remove explicit `System.gc()` calls, switch Kuromoji tokenizer caching to `SoftReference`, add a fast single-pass basic-Latin check in `LyricsRomanizer`, move `isSyllableFragmented(doc)` out of the per-line loop in `LrcParser`, and preserve word `endTimeMs` tags in `CachedLyricsRepository`.
+- Batch queue additions via `QueueAction.EnqueueAll`, deduplicate redundant `PlaybackSessionUiState` emissions across track start and `STATE_READY`/`onIsPlayingChanged`, debounce repeated `startService` IPC calls in `AppContainer`, cache `Player.Commands` in `AlunaraPlaybackService`, and stabilize root media-key handling in `MainActivity`.
+
 ## [0.1.2] - 2026-11-23
 
 ### Playback

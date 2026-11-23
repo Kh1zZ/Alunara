@@ -160,12 +160,17 @@ class PlaybackSessionManager(
 
                     Player.STATE_READY -> {
                         val playing = playerController.isPlaying()
+                        val nextStatus = if (playing) PlaybackStatus.PLAYING else PlaybackStatus.PAUSED
                         mutableUiState.update {
-                            it.copy(
-                                status = if (playing) PlaybackStatus.PLAYING else PlaybackStatus.PAUSED,
-                                durationMs = duration,
-                                errorMessage = null,
-                            )
+                            if (it.status == nextStatus && it.durationMs == duration && it.errorMessage == null) {
+                                it
+                            } else {
+                                it.copy(
+                                    status = nextStatus,
+                                    durationMs = duration,
+                                    errorMessage = null,
+                                )
+                            }
                         }
                         if (playing) {
                             currentTrackAttempt = 0
@@ -194,11 +199,16 @@ class PlaybackSessionManager(
                     currentTrackAttempt = 0
                     consecutiveTrackFailures = 0
                     mutableUiState.update {
-                        it.copy(
-                            status = PlaybackStatus.PLAYING,
-                            durationMs = resolveDurationMs(it.currentTrack),
-                            errorMessage = null,
-                        )
+                        val dur = resolveDurationMs(it.currentTrack)
+                        if (it.status == PlaybackStatus.PLAYING && it.durationMs == dur && it.errorMessage == null) {
+                            it
+                        } else {
+                            it.copy(
+                                status = PlaybackStatus.PLAYING,
+                                durationMs = dur,
+                                errorMessage = null,
+                            )
+                        }
                     }
                     recordCurrentItemToHistoryIfNeeded()
                     startTickerIfNeeded()
@@ -361,8 +371,7 @@ class PlaybackSessionManager(
         currentTrackAttempt = 0
         lastAutoplayExtendedTrackId = null
         cachedSource = null
-        mutableUiState.update { it.copy(queueChips = emptyList(), activeQueueChipLabel = null) }
-        applyQueueAndStartTrack(nextQueue, startPositionMs = 0L)
+        applyQueueAndStartTrack(nextQueue, startPositionMs = 0L, clearQueueChips = true)
         if (autoExpandRadio && tracks.size == 1) {
             expandQueueWithRadio(seedTrack = tracks.first(), replaceUpcoming = false)
         }
@@ -387,11 +396,11 @@ class PlaybackSessionManager(
         if (tracks.isEmpty()) return
         val initialQueue = mutableUiState.value.queueState
         val wasEmpty = initialQueue.items.isEmpty()
-        var nextQueue = initialQueue
-        for (track in tracks) {
-            val item = QueueItem(queueItemId = "${track.id}-${UUID.randomUUID()}", track = track)
-            nextQueue = QueueReducer.reduce(nextQueue, QueueAction.Enqueue(item))
-        }
+        val newItems =
+            tracks.map { track ->
+                QueueItem(queueItemId = "${track.id}-${UUID.randomUUID()}", track = track)
+            }
+        val nextQueue = QueueReducer.reduce(initialQueue, QueueAction.EnqueueAll(newItems))
         mutableUiState.update {
             val activeTrack = nextQueue.currentItem?.track
             it.copy(
@@ -555,12 +564,13 @@ class PlaybackSessionManager(
                         currentQueue
                     }
                 val existingIds = baseQueue.items.map { it.track.id }.toSet()
-                val additional = fetchedTracks.filter { it.id !in existingIds }
-                var nextQueue = baseQueue
-                for (track in additional) {
-                    val item = QueueItem(queueItemId = "${track.id}-${UUID.randomUUID()}", track = track)
-                    nextQueue = QueueReducer.reduce(nextQueue, QueueAction.Enqueue(item))
-                }
+                val additional =
+                    fetchedTracks
+                        .filter { it.id !in existingIds }
+                        .map { track ->
+                            QueueItem(queueItemId = "${track.id}-${UUID.randomUUID()}", track = track)
+                        }
+                val nextQueue = QueueReducer.reduce(baseQueue, QueueAction.EnqueueAll(additional))
                 mutableUiState.update { state ->
                     state.copy(
                         queueState = nextQueue,
@@ -1010,13 +1020,16 @@ class PlaybackSessionManager(
                 withContext(ioDispatcher) {
                     runCatching { catalogStore.getRecentHistory(activeScope) }.getOrDefault(emptyList())
                 }
-            mutableUiState.update { it.copy(recentHistory = refreshed) }
+            mutableUiState.update { state ->
+                if (state.recentHistory == refreshed) state else state.copy(recentHistory = refreshed)
+            }
         }
     }
 
     private fun applyQueueAndStartTrack(
         nextQueue: QueueState,
         startPositionMs: Long,
+        clearQueueChips: Boolean = false,
     ) {
         cancelActiveWork()
         val track = nextQueue.currentItem?.track
@@ -1043,6 +1056,8 @@ class PlaybackSessionManager(
                 lyricsSyncOffsetMs = trackOffsetMs,
                 activeStreamCodecLabel = null,
                 errorMessage = null,
+                queueChips = if (clearQueueChips) emptyList() else it.queueChips,
+                activeQueueChipLabel = if (clearQueueChips) null else it.activeQueueChipLabel,
             )
         }
         persistQueueAsync(nextQueue)
@@ -1061,11 +1076,18 @@ class PlaybackSessionManager(
         resolveJob =
             scope.launch {
                 mutableUiState.update {
-                    it.copy(
-                        status = PlaybackStatus.RESOLVING,
-                        lyricsSyncOffsetMs = syncOffsetMs,
-                        errorMessage = null,
-                    )
+                    if (it.status == PlaybackStatus.RESOLVING &&
+                        it.lyricsSyncOffsetMs == syncOffsetMs &&
+                        it.errorMessage == null
+                    ) {
+                        it
+                    } else {
+                        it.copy(
+                            status = PlaybackStatus.RESOLVING,
+                            lyricsSyncOffsetMs = syncOffsetMs,
+                            errorMessage = null,
+                        )
+                    }
                 }
                 val cached =
                     cachedSource?.takeIf {
@@ -1209,11 +1231,11 @@ class PlaybackSessionManager(
                     val newTracks = recommended.filter { it.id !in existingIds }
                     if (isActive && currentState.currentTrack?.id == currentTrack.id && newTracks.isNotEmpty()) {
                         val nextStartIndex = currentState.queueState.items.size
-                        var extended = currentState.queueState
-                        for (track in newTracks) {
-                            val item = QueueItem(queueItemId = "${track.id}-${UUID.randomUUID()}", track = track)
-                            extended = QueueReducer.reduce(extended, QueueAction.Enqueue(item))
-                        }
+                        val newItems =
+                            newTracks.map { track ->
+                                QueueItem(queueItemId = "${track.id}-${UUID.randomUUID()}", track = track)
+                            }
+                        var extended = QueueReducer.reduce(currentState.queueState, QueueAction.EnqueueAll(newItems))
                         extended = QueueReducer.reduce(extended, QueueAction.SetQueue(extended.items, nextStartIndex))
                         mutableUiState.update { it.copy(radioLoading = false) }
                         currentTrackAttempt = 0
@@ -1433,8 +1455,8 @@ class PlaybackSessionManager(
 
     companion object {
         private const val DEFAULT_PREFETCH_DELAY_MS: Long = 15_000L
-        private const val WORD_SYNC_TICKER_INTERVAL_MS: Long = 100L
-        private const val LINE_SYNC_TICKER_INTERVAL_MS: Long = 250L
+        private const val WORD_SYNC_TICKER_INTERVAL_MS: Long = 80L
+        private const val LINE_SYNC_TICKER_INTERVAL_MS: Long = 150L
         private const val BROWSE_TICKER_INTERVAL_MS: Long = 1_000L
     }
 }
