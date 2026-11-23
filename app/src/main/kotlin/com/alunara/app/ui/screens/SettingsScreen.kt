@@ -49,7 +49,9 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.MotionPhotosOff
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -81,6 +83,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
+import com.alunara.app.BuildConfig
 import com.alunara.app.R
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvIconButton
@@ -91,6 +94,7 @@ import com.alunara.app.ui.theme.AlunaraDisplayPrefs
 import com.alunara.app.ui.theme.AlunaraTypography
 import com.alunara.app.ui.theme.LocalAlunaraColors
 import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
+import com.alunara.app.update.AppUpdateUiState
 import com.alunara.core.domain.model.AuthSessionState
 import com.alunara.core.domain.policy.AudioQualityPreset
 
@@ -111,6 +115,12 @@ fun SettingsScreen(
     onSelectAppLanguage: (AppLanguage) -> Unit = {},
     displayPrefs: AlunaraDisplayPrefs = AlunaraDisplayPrefs(),
     onUpdateDisplayPrefs: (AlunaraDisplayPrefs) -> Unit = {},
+    currentVersionName: String = BuildConfig.VERSION_NAME,
+    autoUpdateEnabled: Boolean = true,
+    updateUiState: AppUpdateUiState = AppUpdateUiState.Idle,
+    onToggleAutoUpdate: () -> Unit = {},
+    onCheckForUpdates: () -> Unit = {},
+    onOpenUpdateDialog: () -> Unit = {},
 ) {
     val colors = LocalAlunaraColors.current
     val activePrefs = LocalAlunaraDisplayPrefs.current
@@ -324,6 +334,139 @@ fun SettingsScreen(
                     icon = Icons.Rounded.MotionPhotosOff,
                     highlighted = displayPrefs.reduceMotion,
                     onClick = { onUpdateDisplayPrefs(displayPrefs.copy(reduceMotion = !displayPrefs.reduceMotion)) },
+                )
+            }
+        }
+
+        item {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .focusProperties { canFocus = false },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.SystemUpdate,
+                            contentDescription = null,
+                            tint = colors.primaryAccent,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = stringResource(R.string.update_section_title),
+                            color = colors.primaryAccent,
+                            fontSize = AlunaraTypography.body(activePrefs.textScale),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Box(
+                        modifier =
+                            Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.secondarySurface)
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.update_current_version, currentVersionName),
+                            color = colors.primaryText,
+                            fontSize = AlunaraTypography.caption(activePrefs.textScale),
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+
+                val updateStatusText =
+                    when (updateUiState) {
+                        AppUpdateUiState.Idle -> stringResource(R.string.update_auto_subtitle)
+                        AppUpdateUiState.Checking -> stringResource(R.string.update_status_checking)
+                        AppUpdateUiState.UpToDate ->
+                            stringResource(R.string.update_status_up_to_date, currentVersionName)
+                        is AppUpdateUiState.UpdateAvailable ->
+                            stringResource(R.string.update_status_available, updateUiState.info.versionName)
+                        is AppUpdateUiState.Downloading -> {
+                            val pct =
+                                if (updateUiState.totalBytes > 0L) {
+                                    ((updateUiState.downloadedBytes.toFloat() / updateUiState.totalBytes.toFloat()) * 100f)
+                                        .toInt()
+                                        .coerceIn(0, 100)
+                                } else {
+                                    0
+                                }
+                            stringResource(R.string.update_status_downloading, pct)
+                        }
+                        is AppUpdateUiState.PermissionRequired ->
+                            stringResource(R.string.update_dialog_permission_title)
+                        is AppUpdateUiState.ReadyToInstall ->
+                            stringResource(R.string.update_dialog_ready_title)
+                        is AppUpdateUiState.Error ->
+                            stringResource(R.string.update_status_error, updateUiState.message)
+                    }
+                val isErrorStatus = updateUiState is AppUpdateUiState.Error
+                Text(
+                    text = updateStatusText,
+                    color = if (isErrorStatus) colors.errorText else colors.mutedText,
+                    fontSize = AlunaraTypography.label(activePrefs.textScale),
+                    lineHeight = AlunaraTypography.label(activePrefs.textScale) * 1.4f,
+                    modifier = Modifier.focusProperties { canFocus = false },
+                )
+
+                SettingsInlineToggle(
+                    label = stringResource(R.string.update_auto_label),
+                    actionLabel =
+                        if (autoUpdateEnabled) {
+                            stringResource(R.string.state_on)
+                        } else {
+                            stringResource(R.string.state_off)
+                        },
+                    icon = Icons.Rounded.SystemUpdate,
+                    highlighted = autoUpdateEnabled,
+                    onClick = onToggleAutoUpdate,
+                )
+
+                val hasPendingActionDialog =
+                    updateUiState is AppUpdateUiState.UpdateAvailable ||
+                        updateUiState is AppUpdateUiState.Downloading ||
+                        updateUiState is AppUpdateUiState.PermissionRequired ||
+                        updateUiState is AppUpdateUiState.ReadyToInstall
+                val actionButtonText =
+                    when (updateUiState) {
+                        is AppUpdateUiState.UpdateAvailable ->
+                            stringResource(R.string.update_open_button, updateUiState.info.versionName)
+                        is AppUpdateUiState.Downloading -> {
+                            val pct =
+                                if (updateUiState.totalBytes > 0L) {
+                                    ((updateUiState.downloadedBytes.toFloat() / updateUiState.totalBytes.toFloat()) * 100f)
+                                        .toInt()
+                                        .coerceIn(0, 100)
+                                } else {
+                                    0
+                                }
+                            stringResource(R.string.update_status_downloading, pct)
+                        }
+                        is AppUpdateUiState.PermissionRequired,
+                        is AppUpdateUiState.ReadyToInstall,
+                        -> stringResource(R.string.update_dialog_install_now)
+                        else -> stringResource(R.string.update_check_button)
+                    }
+                TvFocusableButton(
+                    text = actionButtonText,
+                    icon = Icons.Rounded.Refresh,
+                    highlighted = hasPendingActionDialog,
+                    enabled = updateUiState !is AppUpdateUiState.Checking,
+                    onClick = if (hasPendingActionDialog) onOpenUpdateDialog else onCheckForUpdates,
                 )
             }
         }

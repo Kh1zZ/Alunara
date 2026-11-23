@@ -47,6 +47,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -91,16 +92,22 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.alunara.app.playback.PlaybackSessionManager
 import com.alunara.app.playback.PlaybackSessionUiState
+import com.alunara.app.ui.components.AppUpdateDialog
 import com.alunara.app.ui.components.DockedMiniPlayer
 import com.alunara.app.ui.components.safeRequestFocus
 import com.alunara.app.ui.i18n.AlunaraLanguageStore
 import com.alunara.app.ui.i18n.AppLanguage
 import com.alunara.app.ui.i18n.AppLocaleHelper
 import com.alunara.app.ui.i18n.LocalAppLanguage
+import com.alunara.app.update.AppUpdateManager
+import com.alunara.app.update.AppUpdateUiState
 import com.alunara.app.ui.screens.CatalogDetailScreen
 import com.alunara.app.ui.screens.CatalogTarget
 import com.alunara.app.ui.screens.HomeScreen
@@ -190,6 +197,7 @@ class MainActivity : ComponentActivity() {
                     AlunaraTvApp(
                         musicEngine = container.musicEngine,
                         sessionManager = container.playbackSessionManager,
+                        appUpdateManager = container.appUpdateManager,
                         displayPrefs = displayPrefs,
                         appLanguage = appLanguage,
                         openNowPlayingSignal = openNowPlayingSignal.intValue,
@@ -232,6 +240,7 @@ class MainActivity : ComponentActivity() {
 private fun AlunaraTvApp(
     musicEngine: MusicEngine,
     sessionManager: PlaybackSessionManager,
+    appUpdateManager: AppUpdateManager,
     displayPrefs: AlunaraDisplayPrefs,
     appLanguage: AppLanguage,
     openNowPlayingSignal: Int,
@@ -241,6 +250,11 @@ private fun AlunaraTvApp(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     val sessionState by sessionManager.uiState.collectAsStateWithLifecycle()
+    val updateUiState by appUpdateManager.uiState.collectAsStateWithLifecycle()
+    val updateDialogVisible by appUpdateManager.dialogVisible.collectAsStateWithLifecycle()
+    val autoUpdateEnabled by appUpdateManager.autoUpdateEnabled.collectAsStateWithLifecycle()
+    val hostActivityContext = LocalView.current.context
+    val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
 
     var currentDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
@@ -441,6 +455,10 @@ private fun AlunaraTvApp(
         }
     val onLogoutCb = remember(sessionManager) { { sessionManager.logoutAccount() } }
     val onSelectAudioQualityCb = remember(sessionManager) { { preset: AudioQualityPreset -> sessionManager.setAudioQuality(preset) } }
+    val onToggleAutoUpdateCb = remember(appUpdateManager) { { appUpdateManager.setAutoUpdateEnabled(!appUpdateManager.autoUpdateEnabled.value) } }
+    val onCheckForUpdatesCb = remember(appUpdateManager) { { appUpdateManager.checkForUpdatesManual() } }
+    val onOpenUpdateDialogCb = remember(appUpdateManager) { { appUpdateManager.openUpdateDialog() } }
+    var wasUpdateDialogOpen by remember { mutableStateOf(false) }
     val onSelectRailDest =
         remember {
             { dest: TvDestination ->
@@ -460,6 +478,36 @@ private fun AlunaraTvApp(
             homeLoadedOnce = true
             lastLoadedAuthScopeKey = authScopeKey
             loadHome()
+        }
+        appUpdateManager.checkOnStartup()
+    }
+
+    DisposableEffect(lifecycleOwner, appUpdateManager) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    appUpdateManager.onPermissionSettingsReturned()
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(updateUiState) {
+        val readyState = updateUiState as? AppUpdateUiState.ReadyToInstall ?: return@LaunchedEffect
+        runCatching {
+            hostActivityContext.startActivity(appUpdateManager.buildInstallIntent(readyState.apkFile))
+        }
+    }
+
+    LaunchedEffect(updateDialogVisible) {
+        if (updateDialogVisible) {
+            wasUpdateDialogOpen = true
+        } else if (wasUpdateDialogOpen) {
+            wasUpdateDialogOpen = false
+            if (currentDestination != TvDestination.NOW_PLAYING && !showWebViewLogin) {
+                focusRestoreTick++
+            }
         }
     }
 
@@ -612,7 +660,10 @@ private fun AlunaraTvApp(
                 onClearQueue = onClearQueue,
                 onRefreshRadio = onRefreshRadio,
                 onSelectQueueChip = onSelectQueueChip,
-                modifier = Modifier.fillMaxSize(),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .focusProperties { canFocus = !updateDialogVisible && !showWebViewLogin },
             )
         } else {
             val browseDest = lastBrowseDestination
@@ -622,7 +673,13 @@ private fun AlunaraTvApp(
                     browseDest == TvDestination.HOME ||
                     browseDest == TvDestination.LIBRARY
             val onHeaderSearchClick = remember { { openHeaderSearch(lastBrowseDestination) } }
-            Box(modifier = Modifier.fillMaxSize().background(colors.background)) {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(colors.background)
+                        .focusProperties { canFocus = !updateDialogVisible && !showWebViewLogin },
+            ) {
                 // Content reserves fixed rail width so navigation between rail and content causes zero layout shift
                 Column(
                     modifier =
@@ -772,6 +829,12 @@ private fun AlunaraTvApp(
                                             onSelectAppLanguage = onSelectAppLanguage,
                                             displayPrefs = displayPrefs,
                                             onUpdateDisplayPrefs = onUpdateDisplayPrefs,
+                                            currentVersionName = appUpdateManager.currentVersionName,
+                                            autoUpdateEnabled = autoUpdateEnabled,
+                                            updateUiState = updateUiState,
+                                            onToggleAutoUpdate = onToggleAutoUpdateCb,
+                                            onCheckForUpdates = onCheckForUpdatesCb,
+                                            onOpenUpdateDialog = onOpenUpdateDialogCb,
                                         )
 
                                     TvDestination.NOW_PLAYING -> Unit
@@ -840,6 +903,23 @@ private fun AlunaraTvApp(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+
+        AppUpdateDialog(
+            visible = updateDialogVisible,
+            state = updateUiState,
+            currentVersionName = appUpdateManager.currentVersionName,
+            onStartDownload = { info -> appUpdateManager.startDownload(info) },
+            onCancelDownload = { appUpdateManager.cancelDownload() },
+            onRetryCheck = { appUpdateManager.checkForUpdatesManual() },
+            onRequestInstallPermission = {
+                runCatching {
+                    hostActivityContext.startActivity(appUpdateManager.buildUnknownSourcesIntent())
+                }
+            },
+            onRetriggerInstall = { appUpdateManager.retriggerInstall() },
+            onDismiss = { appUpdateManager.dismissDialog() },
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 

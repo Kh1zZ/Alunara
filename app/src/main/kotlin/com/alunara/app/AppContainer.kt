@@ -14,6 +14,7 @@ import com.alunara.app.playback.PlaybackPreferences
 import com.alunara.app.playback.PlaybackSessionManager
 import com.alunara.app.playback.SharedPreferencesPlaybackPreferencesStore
 import com.alunara.app.playback.SinglePlayerLifecycleController
+import com.alunara.app.update.AppUpdateManager
 import com.alunara.core.data.cache.CacheBudgetDecision
 import com.alunara.core.data.cache.CacheBudgetManager
 import com.alunara.core.data.db.AlunaraDatabase
@@ -97,6 +98,14 @@ class AppContainer(
 
     val playbackLifecycleController: SinglePlayerLifecycleController by lazy {
         SinglePlayerLifecycleController(appContext, okHttpClient)
+    }
+
+    val appUpdateManager: AppUpdateManager by lazy {
+        AppUpdateManager(
+            context = appContext,
+            okHttpClient = okHttpClient,
+            currentVersionName = BuildConfig.VERSION_NAME,
+        )
     }
 
     val playbackSessionManager: PlaybackSessionManager by lazy {

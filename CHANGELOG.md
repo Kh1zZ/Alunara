@@ -2,6 +2,15 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.1.6] - 2026-11-23
+
+### App Updates
+
+- Add an in-app GitHub Releases updater (`Kh1zZ/Alunara/releases/latest`, with automatic web redirect fallback if anonymous API calls are rate-limited) featuring SemVer comparison and automatic split APK selection (`alunara-<ver>.armv8a.apk` vs `.armv7a.apk`) from `Build.SUPPORTED_ABIS`.
+- Add startup update detection (prompting first with the new version badge and formatted release notes when Auto-Update is enabled) plus an **App Updates** card in Settings with installed version display, **Auto-Update** toggle, and manual **Check for Updates** trigger.
+- Implement direct in-app APK streaming downloads to cache with live progress tracking and immediate system PackageInstaller handoff via `FileProvider` + `REQUEST_INSTALL_PACKAGES` (with seamless `ON_RESUME` auto-continuation after granting unknown-app installs).
+- Localize all update UI, progress labels, and permission prompts across English, Bahasa Indonesia, and Japanese with parity unit tests.
+
 ## [0.1.5] - 2026-11-23
 
 ### Lyrics, Localization & UI Polish

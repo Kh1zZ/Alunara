@@ -38,7 +38,7 @@ fun deriveSemVerCode(versionName: String): Int {
 }
 
 val resolvedVersionName =
-    providers.gradleProperty("versionName").orNull?.takeIf { it.isNotBlank() } ?: "0.1.5"
+    providers.gradleProperty("versionName").orNull?.takeIf { it.isNotBlank() } ?: "0.1.6"
 val resolvedVersionCode =
     providers.gradleProperty("versionCode").orNull?.toIntOrNull()?.coerceAtLeast(1)
         ?: deriveSemVerCode(resolvedVersionName)
@@ -169,6 +169,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
 
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     testImplementation(libs.junit)
