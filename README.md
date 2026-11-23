@@ -41,7 +41,7 @@ Television living rooms deserve a calmer music experience than a stretched phone
 | :--- | :--- |
 | **Memory Footprint** | **~72 MB PSS** on entry-level **1 GB RAM** Android TVs (R8 full-mode + `RGB_565` artwork) |
 | **Navigation Smoothness** | **60 FPS** D-pad focus routing with a fixed `72.dp` pure icon rail and zero-relayout GPU progress bar |
-| **Audio Pipeline** | **100% AAC-first** across all quality presets for hardware DSP decode (**Opus strictly fallback-only**) |
+| **Audio Pipeline** | Audio-only AAC/MP4A and Opus streams ranked by URL availability and the selected bitrate preset |
 | **Lyrics & Scripts** | `100 ms` decoupled karaoke sync (`[offset:±ms]`, `endTimeMs`) + offline **Romaji / Hangul / Cyrillic** |
 | **Sign-In Experience** | **Smart Phone QR Login Wizard** over local LAN HTTP — zero on-screen remote typing |
 | **Privacy & Licensing** | **Zero ads, zero telemetry**, guest mode out of the box, 100% open source under **GNU GPL v3.0** |
@@ -81,10 +81,10 @@ Rather than shifting colors aggressively with every album cover, Alunara locks i
 - GPU-drawn `drawBehind` mini-player progress strip eliminates layout passes while browsing Home, Search, Library, or Settings.
 - Coil downscaled `RGB_565` artwork caching keeps bitmap allocations tight on low-memory hardware.
 
-### 2. AAC-First Hardware DSP Audio Engine
+### 2. Audio Engine
 - Streams **audio-only** YouTube Music tracks with zero video decoder overhead.
-- Prioritizes **AAC (`mp4a`) 100% of the time** across every quality preset (`Low`, `Medium`, `Auto`, `High`) so budget Android TV SoCs can offload decoding to hardware DSPs instead of spiking CPU usage.
-- Falls back to **Opus strictly when no AAC stream exists** for a given track (`High` always picks the highest available bitrate).
+- Prefers direct stream URLs. AAC/MP4A and Opus follow the same bitrate rules across all quality presets.
+- `Low`, `Medium`, and `Auto` target 80, 160, and 192 kbps respectively. `High` selects the highest bitrate in the preferred stream pool.
 - Powered by a single-instance Media3 `AlunaraPlaybackService` with tuned `DefaultLoadControl` buffering (`15s` min / `30s` max / `2 MB` target), native TV Now Playing session integration, Up Next queue management, Shuffle/Repeat, and persistent session restore.
 
 ### 3. Synchronized Karaoke Lyrics & Offline Romanization

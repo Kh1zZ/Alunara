@@ -1,6 +1,7 @@
 package com.alunara.core.music
 
 import com.alunara.core.domain.model.AccountCredentials
+import com.alunara.core.domain.policy.AudioQualityPreset
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -336,6 +337,7 @@ class ArchiveTuneMusicAdapterTest {
     fun resolveAudioStream_prefersDirectAudioOnlyAndFallsBackCleanly() =
         runTest {
             val fallbackInvoked = AtomicBoolean(false)
+            var issuedUrls = 0
             val backend =
                 object : FakeMusicBackendBase() {
                     override suspend fun player(
@@ -358,7 +360,7 @@ class ArchiveTuneMusicAdapterTest {
                                             listOf(
                                                 testFormat(18, "video/mp4", 500_000, width = 640, url = "https://cdn/video.mp4"),
                                                 testFormat(140, "audio/mp4; codecs=\"mp4a.40.2\"", 128_000, url = "https://cdn/aac.m4a"),
-                                                testFormat(251, "audio/webm; codecs=\"opus\"", 160_000, url = "https://cdn/opus.webm"),
+                                                testFormat(251, "audio/webm; codecs=\"opus\"", 160_000, url = "https://cdn/opus-${++issuedUrls}.webm"),
                                             ),
                                     ),
                                 )
@@ -379,10 +381,17 @@ class ArchiveTuneMusicAdapterTest {
                 )
 
             val source = adapter.resolveAudioStream("track123").getOrThrow()
-            assertEquals("https://cdn/aac.m4a", source.streamUrl)
+            assertEquals("https://cdn/opus-1.webm", source.streamUrl)
             assertEquals("IOS", source.clientProfile)
             assertEquals(301_000L, source.expiresAtEpochMs)
             assertFalse(fallbackInvoked.get())
+
+            assertEquals(source, adapter.resolveAudioStream("track123").getOrThrow())
+            adapter.invalidateAudioStream(source, AudioQualityPreset.AUTO)
+            val refreshed = adapter.resolveAudioStream("track123").getOrThrow()
+            assertEquals("https://cdn/opus-2.webm", refreshed.streamUrl)
+            adapter.invalidateAudioStream(source, AudioQualityPreset.AUTO)
+            assertEquals(refreshed, adapter.resolveAudioStream("track123").getOrThrow())
         }
 
     @Test

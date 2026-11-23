@@ -171,6 +171,8 @@ class PlaybackSessionManagerTest {
         var accountClearedCount = 0
         var remoteLikes = mutableListOf<Pair<String, Boolean>>()
         var resolvedQualities = mutableListOf<AudioQualityPreset>()
+        val resolvedTrackIds = mutableListOf<String>()
+        val invalidatedSources = mutableListOf<AudioStreamSource>()
 
         override suspend fun searchGuest(query: String): Result<SearchResults> = Result.success(SearchResults())
 
@@ -179,11 +181,16 @@ class PlaybackSessionManagerTest {
         override suspend fun resolveAudioStream(trackId: String): Result<AudioStreamSource> =
             resolveAudioStream(trackId, AudioQualityPreset.AUTO)
 
+        override fun invalidateAudioStream(source: AudioStreamSource, quality: AudioQualityPreset) {
+            invalidatedSources += source
+        }
+
         override suspend fun resolveAudioStream(
             trackId: String,
             quality: AudioQualityPreset,
         ): Result<AudioStreamSource> {
             resolvedQualities += quality
+            resolvedTrackIds += trackId
             val (mime, bps) =
                 when (quality) {
                     AudioQualityPreset.LOW -> "audio/webm; codecs=\"opus\"" to 64_000
@@ -548,6 +555,7 @@ class PlaybackSessionManagerTest {
                     mainDispatcher = dispatcher,
                 )
 
+            manager.setLyricsPanelVisible(true)
             manager.playTracks(listOf(t1, t2), startIndex = 0)
             advanceUntilIdle()
             player.playingState = false
@@ -613,7 +621,31 @@ class PlaybackSessionManagerTest {
         }
 
     @Test
-    fun nextTrackLyricsPrefetch_runsAfterPlaybackStartsAndCancelsOnLowMemoryOrQueueClear() =
+    fun expiredStreamIsInvalidatedBeforeRetry() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val musicEngine = FakeMusicEngine()
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = musicEngine,
+                    lyricsEngine = emptyLyricsEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = FakePlayerControl(),
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+            manager.playTracks(listOf(Track(id = "expired", title = "Track")), startIndex = 0, autoExpandRadio = false)
+            advanceUntilIdle()
+            manager.handlePlaybackFailure(FailureCategory.EXPIRED_SOURCE, "403")
+            assertEquals("expired", musicEngine.invalidatedSources.single().trackId)
+            advanceUntilIdle()
+            assertEquals(listOf("expired", "expired"), musicEngine.resolvedTrackIds)
+            manager.clearQueue()
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun lyricsLoadOnDemandAndNextStreamPrefetchIsDeduplicatedAndSkipsLowMemory() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
             val fetchedIds = mutableListOf<String>()
@@ -631,13 +663,14 @@ class PlaybackSessionManagerTest {
                     }
                 }
             val player = FakePlayerControl()
+            val musicEngine = FakeMusicEngine()
             var lowMemory = false
             val t1 = Track(id = "p1", title = "Current Track")
             val t2 = Track(id = "p2", title = "Next Track")
 
             val manager =
                 PlaybackSessionManager(
-                    musicEngine = FakeMusicEngine(),
+                    musicEngine = musicEngine,
                     lyricsEngine = recordingLyricsEngine,
                     queueStore = memoryQueueStore,
                     playerController = player,
@@ -647,14 +680,23 @@ class PlaybackSessionManagerTest {
                     mainDispatcher = dispatcher,
                 )
 
-            manager.playTracks(listOf(t1, t2), startIndex = 0)
+            manager.playTracks(listOf(t1, t2), startIndex = 0, autoExpandRadio = false)
             advanceUntilIdle()
+            assertTrue(fetchedIds.isEmpty())
+            manager.setLyricsPanelVisible(true)
+            runCurrent()
+            manager.playerListener.onIsPlayingChanged(true)
+            runCurrent()
+            advanceTimeBy(50L)
             manager.playerListener.onPlaybackStateChanged(Player.STATE_READY)
+            advanceTimeBy(50L)
+            runCurrent()
+            assertEquals(listOf("p1", "p2"), musicEngine.resolvedTrackIds)
             advanceTimeBy(150L)
             runCurrent()
 
-            // First p1 lyrics, then bounded prefetch of 1 next track (p2), plus auto-enabled romanization toggle
-            assertEquals(listOf("p1", "p2"), fetchedIds)
+            assertEquals(listOf("p1", "p2"), musicEngine.resolvedTrackIds)
+            assertEquals(listOf("p1"), fetchedIds)
             assertTrue(manager.uiState.value.hasRomanizedLyrics)
             assertTrue(manager.uiState.value.showRomanizedLyrics)
             manager.toggleRomanizedLyrics()
@@ -664,6 +706,7 @@ class PlaybackSessionManagerTest {
 
             // Under runtime memory pressure, new playback skips prefetch
             fetchedIds.clear()
+            musicEngine.resolvedTrackIds.clear()
             lowMemory = true
             manager.playTrackAt(0)
             advanceUntilIdle()
@@ -671,6 +714,7 @@ class PlaybackSessionManagerTest {
             advanceTimeBy(150L)
             runCurrent()
             assertEquals(listOf("p1"), fetchedIds)
+            assertEquals(listOf("p1"), musicEngine.resolvedTrackIds)
 
             manager.clearQueue()
             advanceUntilIdle()
@@ -711,6 +755,8 @@ class PlaybackSessionManagerTest {
 
             manager.setNowPlayingVisible(false)
             manager.playTracks(listOf(track), startIndex = 0, autoExpandRadio = false)
+            runCurrent()
+            manager.setLyricsPanelVisible(true)
             runCurrent()
             // Simulate player advancing to 2.5s while lyrics are still fetching
             player.currentPositionValueMs = 2_500L

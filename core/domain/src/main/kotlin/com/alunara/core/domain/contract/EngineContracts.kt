@@ -29,6 +29,8 @@ interface MusicEngine {
         quality: AudioQualityPreset,
     ): Result<AudioStreamSource> = resolveAudioStream(trackId)
 
+    fun invalidateAudioStream(source: AudioStreamSource, quality: AudioQualityPreset) {}
+
     suspend fun fetchAlbumDetail(albumId: String): Result<AlbumDetail> =
         Result.failure(UnsupportedOperationException("Album detail not implemented"))
 

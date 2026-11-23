@@ -105,10 +105,10 @@
     <string name="audio_quality_low">Rendah</string>
     <string name="audio_quality_medium">Sedang</string>
     <string name="audio_quality_high">Tinggi</string>
-    <string name="audio_quality_desc_auto">Otomatis: AAC hemat CPU hingga ~192 kbps (Opus cadangan)</string>
+    <string name="audio_quality_desc_auto">Otomatis: Target bitrate 192 kbps</string>
     <string name="audio_quality_desc_low">Rendah: ≤80 kbps (hemat kuota &amp; buffer cepat)</string>
     <string name="audio_quality_desc_medium">Sedang: ≤160 kbps (kualitas audio TV standar)</string>
-    <string name="audio_quality_desc_high">Tinggi: Bitrate &amp; codec tertinggi yang tersedia</string>
+    <string name="audio_quality_desc_high">Tinggi: Bitrate tertinggi yang tersedia</string>
     <string name="language_section_title">Bahasa</string>
     <string name="language_subtitle">Berlaku langsung tanpa memutus pemutaran musik.</string>
     <string name="language_option_indonesian">Bahasa Indonesia</string>

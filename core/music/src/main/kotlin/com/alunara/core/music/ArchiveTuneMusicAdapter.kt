@@ -417,6 +417,13 @@ class ArchiveTuneMusicAdapter internal constructor(
     override suspend fun resolveAudioStream(trackId: String): Result<AudioStreamSource> =
         resolveAudioStream(trackId = trackId, quality = AudioQualityPreset.AUTO)
 
+    override fun invalidateAudioStream(source: AudioStreamSource, quality: AudioQualityPreset) {
+        val cacheKey = "${source.trackId}:${quality.name}"
+        synchronized(streamCacheLock) {
+            streamSourceCache.remove(cacheKey, source)
+        }
+    }
+
     override suspend fun resolveAudioStream(
         trackId: String,
         quality: AudioQualityPreset,

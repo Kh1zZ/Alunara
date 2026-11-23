@@ -2,6 +2,14 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.1.2] - 2026-11-23
+
+### Playback
+
+- Rank AAC/MP4A and Opus streams by direct URL availability and preset bitrate, with no codec preference.
+- Evict rejected stream URLs from the playback and resolver caches before retrying.
+- Load lyrics when the lyrics panel is visible and defer next-track stream prefetch until playback has stabilized.
+
 ## [0.1.1] - 2026-11-23
 
 ### Fitur Baru & Peningkatan Lokalisasi

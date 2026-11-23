@@ -2,6 +2,7 @@ package com.alunara.app.playback
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -14,8 +15,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.PlaybackStatsListener
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import com.alunara.app.BuildConfig
 import com.alunara.core.domain.contract.PlaybackLifecycleController
 import com.alunara.core.domain.media.ArtworkTier
 import com.alunara.core.domain.media.ArtworkUrlResolver
@@ -115,6 +118,17 @@ class SinglePlayerLifecycleController(
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .also { created ->
+                if (BuildConfig.DEBUG) {
+                    created.addAnalyticsListener(
+                        PlaybackStatsListener(false) { _, stats ->
+                            Log.d(
+                                "AlunaraPlaybackStats",
+                                "joinMs=${stats.meanJoinTimeMs} rebuffers=${stats.totalRebufferCount} " +
+                                    "rebufferMs=${stats.totalRebufferTimeMs} bitrateBps=${stats.meanInitialAudioFormatBitrate}",
+                            )
+                        },
+                    )
+                }
                 if (listener != null) {
                     created.addListener(listener)
                     attachedListener = listener

@@ -124,11 +124,13 @@ class PlaybackSessionManager(
 
     @Volatile
     private var nowPlayingVisible: Boolean = false
+    private var lyricsPanelVisible: Boolean = false
 
     private var resolveJob: Job? = null
     private var retryJob: Job? = null
     private var lyricsJob: Job? = null
     private var prefetchJob: Job? = null
+    private var prefetchTarget: Pair<String, AudioQualityPreset>? = null
     private var tickerJob: Job? = null
     private var persistJob: Job? = null
     private var radioJob: Job? = null
@@ -147,6 +149,7 @@ class PlaybackSessionManager(
                 val duration = resolveDurationMs(track)
                 when (playbackState) {
                     Player.STATE_BUFFERING -> {
+                        if (prefetchJob?.isActive == true) cancelStreamPrefetch()
                         mutableUiState.update {
                             it.copy(
                                 status = PlaybackStatus.BUFFERING,
@@ -169,7 +172,7 @@ class PlaybackSessionManager(
                             consecutiveTrackFailures = 0
                             recordCurrentItemToHistoryIfNeeded()
                             startTickerIfNeeded()
-                            scheduleNextTrackLyricsPrefetch()
+                            scheduleNextTrackStreamPrefetch()
                         } else {
                             stopTicker()
                         }
@@ -199,8 +202,9 @@ class PlaybackSessionManager(
                     }
                     recordCurrentItemToHistoryIfNeeded()
                     startTickerIfNeeded()
-                    scheduleNextTrackLyricsPrefetch()
+                    scheduleNextTrackStreamPrefetch()
                 } else {
+                    if (prefetchJob?.isActive == true) cancelStreamPrefetch()
                     stopTicker()
                     val pos = playerController.currentPositionMs()
                     mutablePositionMs.value = pos
@@ -229,9 +233,6 @@ class PlaybackSessionManager(
                         "onPlayerError track=${mutableUiState.value.currentTrack?.id} category=$category msg=${error.message}",
                         error,
                     )
-                }
-                if (category == FailureCategory.EXPIRED_SOURCE || category == FailureCategory.AUTH_INVALID) {
-                    cachedSource = null
                 }
                 handlePlaybackFailure(category, error.message ?: "Playback error")
             }
@@ -438,12 +439,10 @@ class PlaybackSessionManager(
                 persistQueueAsync(nextQueue)
             }
         } else {
-            prefetchJob?.cancel()
-            prefetchJob = null
             mutableUiState.update { it.copy(queueState = nextQueue) }
             persistQueueAsync(nextQueue)
             if (playerController.isPlaying()) {
-                scheduleNextTrackLyricsPrefetch()
+                scheduleNextTrackStreamPrefetch()
             }
         }
     }
@@ -452,13 +451,11 @@ class PlaybackSessionManager(
         fromIndex: Int,
         toIndex: Int,
     ) {
-        prefetchJob?.cancel()
-        prefetchJob = null
         val nextQueue = QueueReducer.reduce(mutableUiState.value.queueState, QueueAction.Move(fromIndex, toIndex))
         mutableUiState.update { it.copy(queueState = nextQueue) }
         persistQueueAsync(nextQueue)
         if (playerController.isPlaying()) {
-            scheduleNextTrackLyricsPrefetch()
+            scheduleNextTrackStreamPrefetch()
         }
     }
 
@@ -575,7 +572,7 @@ class PlaybackSessionManager(
                 if (nextQueue != currentQueue) {
                     persistQueueAsync(nextQueue)
                     if (playerController.isPlaying()) {
-                        scheduleNextTrackLyricsPrefetch()
+                        scheduleNextTrackStreamPrefetch()
                     }
                 }
             }
@@ -729,11 +726,23 @@ class PlaybackSessionManager(
         } else {
             currentTrackAttempt = 0
             resolveAndPlay(currentTrack, startPositionMs = state.positionMs)
-            fetchLyricsForTrack(currentTrack, state.selectedLyricsProvider)
+            if (lyricsPanelVisible) ensureLyricsLoaded()
         }
     }
 
-    fun ensureLyricsLoaded() {
+    fun setLyricsPanelVisible(visible: Boolean) {
+        if (lyricsPanelVisible == visible) return
+        lyricsPanelVisible = visible
+        if (visible) {
+            ensureLyricsLoaded()
+        } else if (lyricsJob?.isActive == true) {
+            lyricsJob?.cancel()
+            lyricsJob = null
+            mutableUiState.update { it.copy(lyricsLoading = false) }
+        }
+    }
+
+    private fun ensureLyricsLoaded() {
         val state = mutableUiState.value
         val track = state.currentTrack ?: return
         if (!state.lyricsLoading && state.lyrics is LyricsDocument.Unavailable && state.lyrics.reason.isEmpty()) {
@@ -1025,9 +1034,12 @@ class PlaybackSessionManager(
                 positionMs = startPositionMs,
                 durationMs = (track.durationSeconds ?: 0) * 1000L,
                 lyrics = LyricsDocument.Unavailable(""),
-                lyricsLoading = true,
+                lyricsLoading = false,
                 selectedLyricsProvider = null,
                 activeLyricIndex = -1,
+                showRomanizedLyrics = false,
+                hasRomanizedLyrics = false,
+                hasPartialKanjiNotice = false,
                 lyricsSyncOffsetMs = trackOffsetMs,
                 activeStreamCodecLabel = null,
                 errorMessage = null,
@@ -1035,7 +1047,7 @@ class PlaybackSessionManager(
         }
         persistQueueAsync(nextQueue)
         resolveAndPlay(track, startPositionMs)
-        fetchLyricsForTrack(track, preferredProvider = null)
+        if (lyricsPanelVisible) ensureLyricsLoaded()
     }
 
     private fun resolveAndPlay(
@@ -1102,6 +1114,10 @@ class PlaybackSessionManager(
         message: String,
     ) {
         val state = mutableUiState.value
+        if (category == FailureCategory.EXPIRED_SOURCE || category == FailureCategory.AUTH_INVALID) {
+            cachedSource?.let { musicEngine.invalidateAudioStream(it, state.audioQuality) }
+            cachedSource = null
+        }
         if (category == FailureCategory.AUTH_INVALID && state.authSession is AuthSessionState.Authenticated) {
             val expiredId = state.authSession.profile.accountId
             musicEngine.clearAccountSession()
@@ -1279,32 +1295,49 @@ class PlaybackSessionManager(
             }
     }
 
-    private fun scheduleNextTrackLyricsPrefetch() {
-        prefetchJob?.cancel()
-        prefetchJob = null
+    private fun scheduleNextTrackStreamPrefetch() {
         val state = mutableUiState.value
-        if (isLowMemoryPressure()) return
-        val nextTrack = state.queueState.items.getOrNull(state.queueState.currentIndex + 1)?.track ?: return
-        val currentId = state.currentTrack?.id ?: return
+        val currentItem = state.queueState.currentItem ?: return
+        val nextItem = state.queueState.items.getOrNull(state.queueState.currentIndex + 1)
+        if (nextItem == null || nextItem.track.id == currentItem.track.id || isLowMemoryPressure()) {
+            cancelStreamPrefetch()
+            return
+        }
+        val target = nextItem.queueItemId to state.audioQuality
+        if (prefetchTarget == target) return
+        cancelStreamPrefetch()
+        prefetchTarget = target
 
         prefetchJob =
             scope.launch {
-                if (prefetchDelayMs > 0L) {
-                    delay(prefetchDelayMs)
-                }
+                delay(prefetchDelayMs)
                 val latest = mutableUiState.value
                 if (!isActive ||
-                    latest.currentTrack?.id != currentId ||
-                    latest.status != PlaybackStatus.PLAYING ||
+                    latest.queueState.currentItem?.queueItemId != currentItem.queueItemId ||
+                    latest.queueState.items.getOrNull(latest.queueState.currentIndex + 1)?.queueItemId != nextItem.queueItemId ||
+                    latest.audioQuality != state.audioQuality ||
+                    !playerController.isPlaying() ||
                     isLowMemoryPressure()
                 ) {
+                    prefetchTarget = null
                     return@launch
                 }
                 withContext(ioDispatcher) {
-                    runCatching { lyricsEngine.fetchLyrics(nextTrack, null) }
-                    runCatching { musicEngine.resolveAudioStream(nextTrack.id, latest.audioQuality) }
+                    try {
+                        musicEngine.resolveAudioStream(nextItem.track.id, state.audioQuality)
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                        // Let playback resolve the stream when the item becomes current.
+                    }
                 }
             }
+    }
+
+    private fun cancelStreamPrefetch() {
+        prefetchJob?.cancel()
+        prefetchJob = null
+        prefetchTarget = null
     }
 
     private fun startTickerIfNeeded() {
@@ -1352,8 +1385,7 @@ class PlaybackSessionManager(
         retryJob = null
         lyricsJob?.cancel()
         lyricsJob = null
-        prefetchJob?.cancel()
-        prefetchJob = null
+        cancelStreamPrefetch()
         radioJob?.cancel()
         radioJob = null
         stopTicker()
@@ -1400,7 +1432,7 @@ class PlaybackSessionManager(
     }
 
     companion object {
-        private const val DEFAULT_PREFETCH_DELAY_MS: Long = 3_000L
+        private const val DEFAULT_PREFETCH_DELAY_MS: Long = 15_000L
         private const val WORD_SYNC_TICKER_INTERVAL_MS: Long = 100L
         private const val LINE_SYNC_TICKER_INTERVAL_MS: Long = 250L
         private const val BROWSE_TICKER_INTERVAL_MS: Long = 1_000L

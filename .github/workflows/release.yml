@@ -69,13 +69,13 @@ jobs:
           notes = match.group(1).strip()
           footer = (
               "\n\n---\n"
-              "### Unduhan APK Resmi (Android TV 9+ / API 28+)\n"
-              f"- **32-bit (`armeabi-v7a`, TV RAM 1 GB umum):** `alunara-{version}.armv7a.apk`\n"
-              f"- **64-bit (`arm64-v8a`, Android TV 64-bit modern):** `alunara-{version}.armv8a.apk`\n\n"
-              "### Kredit & Lisensi (GNU GPL v3.0)\n"
-              "Alunara dibangun dengan integrasi [ArchiveTune Core](https://github.com/rukamori/core) & "
-              "[ArchiveTune Lyrics](https://github.com/rukamori/lyrics) oleh [rukamori](https://github.com/rukamori), "
-              "serta [Kuromoji](https://github.com/atilika/kuromoji)."
+              "### Official APK Downloads (Android TV 9+ / API 28+)\n"
+              f"- **32-bit (`armeabi-v7a`, typical TVs with 1 GB of RAM):** `alunara-{version}.armv7a.apk`\n"
+              f"- **64-bit (`arm64-v8a`, modern 64-bit Android TVs):** `alunara-{version}.armv8a.apk`\n\n"
+              "### Credits & License (GNU GPL v3.0)\n"
+              "Alunara integrates [ArchiveTune Core](https://github.com/rukamori/core) and "
+              "[ArchiveTune Lyrics](https://github.com/rukamori/lyrics) by [rukamori](https://github.com/rukamori), "
+              "as well as [Kuromoji](https://github.com/atilika/kuromoji)."
           )
           sys.stdout.write(f"## Alunara v{version}\n\n{notes}{footer}\n")
           PY

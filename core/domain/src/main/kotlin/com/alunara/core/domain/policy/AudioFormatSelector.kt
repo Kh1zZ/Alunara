@@ -31,15 +31,9 @@ object AudioFormatSelector {
 
         val withinCap = pool.filter { it.bitrateBps in 1..maxPreferredBitrateBps }
         return if (withinCap.isNotEmpty()) {
-            withinCap.maxWithOrNull(
-                compareBy<AudioFormatCandidate> { codecPriority(it.mimeType) }
-                    .thenBy { it.bitrateBps },
-            )
+            withinCap.maxByOrNull { it.bitrateBps }
         } else {
-            pool.minWithOrNull(
-                compareBy<AudioFormatCandidate> { it.bitrateBps.takeIf { b -> b > 0 } ?: Int.MAX_VALUE }
-                    .thenByDescending { codecPriority(it.mimeType) },
-            )
+            pool.filter { it.bitrateBps > 0 }.minByOrNull { it.bitrateBps } ?: pool.first()
         }
     }
 
@@ -51,31 +45,12 @@ object AudioFormatSelector {
             return selectBest(candidates, maxPreferredBitrateBps = quality.maxBitrateBps)
         }
         val pool = eligibleAudioPool(candidates) ?: return null
-        return pool.maxWithOrNull(
-            compareBy<AudioFormatCandidate> { it.bitrateBps.coerceAtLeast(0) }
-                .thenBy { codecPriority(it.mimeType) },
-        )
+        return pool.maxByOrNull { it.bitrateBps.coerceAtLeast(0) }
     }
 
     private fun eligibleAudioPool(candidates: List<AudioFormatCandidate>): List<AudioFormatCandidate>? {
         val audioOnly = candidates.filter { it.isAudioOnly && it.mimeType.startsWith("audio/", ignoreCase = true) }
         if (audioOnly.isEmpty()) return null
-        val aacPool = audioOnly.filter { isAacMime(it.mimeType) }
-        val preferredCodecPool = aacPool.ifEmpty { audioOnly }
-        return preferredCodecPool.filter { it.hasDirectUrl }.ifEmpty { preferredCodecPool }
-    }
-
-    private fun isAacMime(mimeType: String): Boolean {
-        val lower = mimeType.lowercase()
-        return "mp4a" in lower || "audio/mp4" in lower || "aac" in lower
-    }
-
-    private fun codecPriority(mimeType: String): Int {
-        val lower = mimeType.lowercase()
-        return when {
-            isAacMime(lower) -> 2
-            "opus" in lower || "audio/webm" in lower -> 1
-            else -> 0
-        }
+        return audioOnly.filter { it.hasDirectUrl }.ifEmpty { audioOnly }
     }
 }

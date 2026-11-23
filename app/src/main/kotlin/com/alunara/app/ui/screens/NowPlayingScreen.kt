@@ -52,6 +52,7 @@ import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -171,6 +172,7 @@ fun NowPlayingScreen(
     onClearQueue: () -> Unit = {},
     onRefreshRadio: () -> Unit = onStartRadio,
     onSelectQueueChip: (QueueFilterChip?) -> Unit = {},
+    onLyricsPanelVisibilityChanged: (Boolean) -> Unit = {},
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
@@ -205,6 +207,12 @@ fun NowPlayingScreen(
     val switchProviderRequester = remember { FocusRequester() }
     val queueRefreshRequester = remember { FocusRequester() }
     var rightPanelMode by remember { mutableStateOf(NowPlayingRightPanelMode.LYRICS) }
+    if (rightPanelMode == NowPlayingRightPanelMode.LYRICS) {
+        DisposableEffect(onLyricsPanelVisibilityChanged) {
+            onLyricsPanelVisibilityChanged(true)
+            onDispose { onLyricsPanelVisibilityChanged(false) }
+        }
+    }
     val interactionEvents =
         remember {
             MutableSharedFlow<Unit>(

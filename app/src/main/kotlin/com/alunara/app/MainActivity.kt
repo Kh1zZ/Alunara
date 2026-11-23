@@ -310,7 +310,6 @@ private fun AlunaraTvApp(
         if (currentDestination != TvDestination.NOW_PLAYING) {
             lastBrowseDestination = currentDestination
             currentDestination = TvDestination.NOW_PLAYING
-            sessionManager.ensureLyricsLoaded()
         }
     }
 
@@ -566,6 +565,7 @@ private fun AlunaraTvApp(
         if (currentDestination == TvDestination.NOW_PLAYING) {
             NowPlayingScreen(
                 sessionState = sessionState,
+                onLyricsPanelVisibilityChanged = remember(sessionManager) { sessionManager::setLyricsPanelVisible },
                 positionMsFlow = sessionManager.positionMsFlow,
                 activeLyricIndexFlow = sessionManager.activeLyricIndexFlow,
                 onTogglePlayPause = onTogglePlayPause,

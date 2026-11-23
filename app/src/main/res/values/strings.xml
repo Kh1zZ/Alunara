@@ -105,10 +105,10 @@
     <string name="audio_quality_low">Low</string>
     <string name="audio_quality_medium">Medium</string>
     <string name="audio_quality_high">High</string>
-    <string name="audio_quality_desc_auto">Auto: Hardware-friendly AAC up to ~192 kbps (Opus fallback)</string>
+    <string name="audio_quality_desc_auto">Auto: 192 kbps bitrate target</string>
     <string name="audio_quality_desc_low">Low: ≤80 kbps (data saver / fast buffer)</string>
     <string name="audio_quality_desc_medium">Medium: ≤160 kbps (standard TV audio)</string>
-    <string name="audio_quality_desc_high">High: Highest available bitrate &amp; codec</string>
+    <string name="audio_quality_desc_high">High: Highest available bitrate</string>
     <string name="language_section_title">Language</string>
     <string name="language_subtitle">Applies immediately without interrupting playback.</string>
     <string name="language_option_indonesian">Bahasa Indonesia</string>
