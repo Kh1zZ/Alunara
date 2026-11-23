@@ -24,9 +24,11 @@ import com.alunara.core.domain.model.PlaybackStatus
 @OptIn(UnstableApi::class)
 class AlunaraPlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
+    private var isBootstrapForegroundStarted = false
 
     override fun onCreate() {
         super.onCreate()
+        ensureNotificationChannel()
         val container = (application as AlunaraApplication).container
         val sessionManager = container.playbackSessionManager
         val rawPlayer = container.playbackLifecycleController.obtainPlayer(sessionManager.playerListener)
@@ -130,7 +132,6 @@ class AlunaraPlaybackService : MediaSessionService() {
                 .build()
         mediaSession = session
         addSession(session)
-        ensureForegroundStarted()
     }
 
     override fun onStartCommand(
@@ -138,16 +139,12 @@ class AlunaraPlaybackService : MediaSessionService() {
         flags: Int,
         startId: Int,
     ): Int {
-        ensureForegroundStarted()
         val result = super.onStartCommand(intent, flags, startId)
-        val session = mediaSession
         val container = (application as AlunaraApplication).container
-        if (session != null &&
+        val hasActiveTrack =
             container.playbackSessionManager.uiState.value.currentTrack != null &&
-            container.playbackLifecycleController.hasActivePlayer
-        ) {
-            onUpdateNotification(session, true)
-        } else {
+                container.playbackLifecycleController.hasActivePlayer
+        if (!isBootstrapForegroundStarted && !hasActiveTrack) {
             ensureForegroundStarted()
         }
         return result
@@ -159,11 +156,10 @@ class AlunaraPlaybackService : MediaSessionService() {
         session: MediaSession,
         startInForegroundRequired: Boolean,
     ) {
-        val container = (application as AlunaraApplication).container
-        val keepForegroundAlive =
-            container.playbackSessionManager.uiState.value.currentTrack != null &&
-                container.playbackLifecycleController.hasActivePlayer
-        super.onUpdateNotification(session, startInForegroundRequired || keepForegroundAlive)
+        if (startInForegroundRequired) {
+            isBootstrapForegroundStarted = true
+        }
+        super.onUpdateNotification(session, startInForegroundRequired)
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -174,6 +170,7 @@ class AlunaraPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        isBootstrapForegroundStarted = false
         mediaSession?.let {
             removeSession(it)
             it.release()
@@ -182,7 +179,7 @@ class AlunaraPlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
-    private fun ensureForegroundStarted() {
+    private fun ensureNotificationChannel() {
         runCatching {
             val nm = getSystemService(NotificationManager::class.java)
             if (nm != null && nm.getNotificationChannel(CHANNEL_ID) == null) {
@@ -194,6 +191,12 @@ class AlunaraPlaybackService : MediaSessionService() {
                     ),
                 )
             }
+        }
+    }
+
+    private fun ensureForegroundStarted() {
+        runCatching {
+            ensureNotificationChannel()
             val track =
                 (application as? AlunaraApplication)
                     ?.container
@@ -212,6 +215,7 @@ class AlunaraPlaybackService : MediaSessionService() {
                     .setSilent(true)
                     .build()
             startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+            isBootstrapForegroundStarted = true
         }
     }
 

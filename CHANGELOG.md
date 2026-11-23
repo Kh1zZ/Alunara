@@ -2,6 +2,13 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.1.4] - 2026-11-23
+
+### Playback & Performance
+
+- Fix an infinite self-triggering `AlunaraPlaybackService` foreground start loop (`onStartCommand` calling `onUpdateNotification(session, true)` and overriding `startInForegroundRequired || keepForegroundAlive`), which repeatedly dispatched `startForegroundService()` (~90 starts/sec), congested the Main Looper (`VsyncDelay` 55–178 ms / ~10–15 FPS), and flooded system Binder transactions (`FAILED BINDER TRANSACTION`) during playback.
+- Create the playback notification channel once in `AlunaraPlaybackService.onCreate()`, remove the redundant `startForeground()` call from `onCreate()`, guard bootstrap `ensureForegroundStarted()` with `isBootstrapForegroundStarted` when no active track is attached, and preserve Media3's native `startInForegroundRequired` signal in `onUpdateNotification()`.
+
 ## [0.1.3] - 2026-11-23
 
 ### Playback & UI Performance
