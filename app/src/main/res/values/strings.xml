@@ -113,8 +113,15 @@
     <string name="language_subtitle">Applies immediately without interrupting playback.</string>
     <string name="language_option_indonesian">Bahasa Indonesia</string>
     <string name="language_option_english">English</string>
+    <string name="language_option_japanese">日本語</string>
     <string name="language_desc_indonesian">Displaying Alunara in Bahasa Indonesia</string>
     <string name="language_desc_english">Displaying Alunara in English</string>
+    <string name="language_desc_japanese">Displaying Alunara in Japanese</string>
+    <string name="language_picker_action_hint">Press OK to change</string>
+    <string name="language_picker_focus_hint">Use Left / Right to switch · OK or Back to confirm</string>
+    <string name="language_picker_prev_cd">Previous language</string>
+    <string name="language_picker_next_cd">Next language</string>
+    <string name="language_picker_done">Done</string>
     <string name="now_playing_tab_lyrics">Lyrics</string>
     <string name="now_playing_tab_queue">Queue (%1$d)</string>
     <string name="open_queue_action">Open Queue (%1$d)</string>

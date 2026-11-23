@@ -859,7 +859,11 @@ class ArchiveTuneMusicAdapterTest {
         assertEquals("ID", backend.locale.gl)
         assertEquals("en", backend.locale.hl)
 
+        adapter.setContentLanguage("ja")
+        assertEquals("ID", backend.locale.gl)
+        assertEquals("ja", backend.locale.hl)
+
         adapter.setContentLanguage("   ")
-        assertEquals("en", backend.locale.hl)
+        assertEquals("ja", backend.locale.hl)
     }
 }

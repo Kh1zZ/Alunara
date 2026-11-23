@@ -20,27 +20,44 @@ enum class AppLanguage(
     val storageKey: String,
     val bcp47Tag: String,
     val innerTubeHl: String,
+    val nativeDisplayName: String,
 ) {
     INDONESIAN(
         storageKey = "id",
         bcp47Tag = "id",
         innerTubeHl = "id",
+        nativeDisplayName = "Bahasa Indonesia",
     ),
     ENGLISH(
         storageKey = "en",
         bcp47Tag = "en",
         innerTubeHl = "en",
+        nativeDisplayName = "English",
+    ),
+    JAPANESE(
+        storageKey = "ja",
+        bcp47Tag = "ja",
+        innerTubeHl = "ja",
+        nativeDisplayName = "日本語",
     ),
     ;
 
     val isIndonesian: Boolean
         get() = this == INDONESIAN
 
+    fun cycle(delta: Int): AppLanguage {
+        val all = entries
+        val nextIndex = ((ordinal + delta) % all.size + all.size) % all.size
+        return all[nextIndex]
+    }
+
     companion object {
-        fun defaultForLocale(locale: Locale = Locale.getDefault()): AppLanguage {
-            val lang = locale.language.lowercase(Locale.ROOT)
-            return if (lang == "id" || lang == "in") INDONESIAN else ENGLISH
-        }
+        fun defaultForLocale(locale: Locale = Locale.getDefault()): AppLanguage =
+            when (locale.language.lowercase(Locale.ROOT)) {
+                "id", "in" -> INDONESIAN
+                "ja", "jp" -> JAPANESE
+                else -> ENGLISH
+            }
 
         fun fromStorageKey(
             raw: String?,
@@ -54,6 +71,7 @@ enum class AppLanguage(
             return when (primary) {
                 "id", "in" -> INDONESIAN
                 "en" -> ENGLISH
+                "ja", "jp" -> JAPANESE
                 else -> defaultForLocale(fallbackLocale)
             }
         }
@@ -61,6 +79,16 @@ enum class AppLanguage(
 }
 
 object AppLocaleHelper {
+    private fun buildLocaleList(
+        targetLocale: Locale,
+        language: AppLanguage,
+    ): LocaleList =
+        if (language == AppLanguage.ENGLISH) {
+            LocaleList(targetLocale)
+        } else {
+            LocaleList(targetLocale, Locale.ENGLISH)
+        }
+
     fun toLocale(
         language: AppLanguage,
         preserveRegionFrom: Locale? = null,
@@ -89,7 +117,7 @@ object AppLocaleHelper {
         val updatedConfig =
             Configuration(baseConfig).apply {
                 setLocale(targetLocale)
-                setLocales(LocaleList(targetLocale))
+                setLocales(buildLocaleList(targetLocale, language))
             }
         return base.createConfigurationContext(updatedConfig)
     }
@@ -109,7 +137,7 @@ object AppLocaleHelper {
         val updatedConfig =
             Configuration(baseConfig).apply {
                 setLocale(targetLocale)
-                setLocales(LocaleList(targetLocale))
+                setLocales(buildLocaleList(targetLocale, language))
             }
         val configContext = activity.createConfigurationContext(updatedConfig)
         val localizedResources = configContext.resources

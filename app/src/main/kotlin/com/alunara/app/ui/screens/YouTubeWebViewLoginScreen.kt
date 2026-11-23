@@ -66,6 +66,7 @@ import androidx.tv.material3.Text
 import com.alunara.app.R
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.safeRequestFocus
+import com.alunara.app.ui.i18n.AppLanguage
 import com.alunara.app.ui.i18n.LocalAppLanguage
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.LocalAlunaraColors
@@ -103,10 +104,10 @@ fun YouTubeWebViewLoginScreen(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
-    val isIndonesian = LocalAppLanguage.current.isIndonesian
+    val appLanguage = LocalAppLanguage.current
     val hostActivityContext = LocalView.current.context
-    val checkStepOnceJs = remember(isIndonesian) { buildCheckStepOnceJs(isIndonesian) }
-    val installStepWatcherJs = remember(isIndonesian) { buildInstallStepWatcherJs(isIndonesian) }
+    val checkStepOnceJs = remember(appLanguage) { buildCheckStepOnceJs(appLanguage) }
+    val installStepWatcherJs = remember(appLanguage) { buildInstallStepWatcherJs(appLanguage) }
     val companionScope = rememberCoroutineScope()
     var currentHost by remember { mutableStateOf("accounts.google.com") }
     var currentStep by remember { mutableStateOf(LocalLoginCompanionServer.STEP_EMAIL) }
@@ -172,10 +173,10 @@ fun YouTubeWebViewLoginScreen(
     }
 
     val companionServer =
-        remember(companionScope, isIndonesian) {
+        remember(companionScope, appLanguage) {
             LocalLoginCompanionServer(
                 scope = companionScope,
-                isIndonesian = isIndonesian,
+                language = appLanguage,
                 onInput = { payload ->
                     val webView = webViewHolder.value ?: return@LocalLoginCompanionServer
                     when (payload.action) {
@@ -431,10 +432,13 @@ fun YouTubeWebViewLoginScreen(
                                     currentStep = LocalLoginCompanionServer.STEP_DONE
                                     companionServer.currentStep = LocalLoginCompanionServer.STEP_DONE
                                     companionServer.lastStatusHint =
-                                        if (isIndonesian) {
-                                            "Berhasil masuk YouTube Music — memverifikasi akun…"
-                                        } else {
-                                            "Signed in to YouTube Music — verifying account…"
+                                        when (appLanguage) {
+                                            AppLanguage.INDONESIAN ->
+                                                "Berhasil masuk YouTube Music — memverifikasi akun…"
+                                            AppLanguage.JAPANESE ->
+                                                "YouTube Music にサインインしました — アカウントを確認中…"
+                                            else ->
+                                                "Signed in to YouTube Music — verifying account…"
                                         }
                                     view.evaluateJavascript(buildExtractYtcfgJs(0), null)
                                 }
@@ -447,7 +451,7 @@ fun YouTubeWebViewLoginScreen(
                                     companionServer.currentHost = parsedHost
                                 }
                                 if (!captured.get()) {
-                                    inferStepFromUrl(url, isIndonesian = isIndonesian)?.let { (step, hint) ->
+                                    inferStepFromUrl(url, language = appLanguage)?.let { (step, hint) ->
                                         currentStep = step
                                         companionServer.currentStep = step
                                         companionServer.lastStatusHint = hint
@@ -747,105 +751,128 @@ private fun LoginHelperChipButton(
     }
 }
 
+private fun webViewStepLabel(
+    language: AppLanguage,
+    id: String,
+    ja: String,
+    en: String,
+): String =
+    when (language) {
+        AppLanguage.INDONESIAN -> id
+        AppLanguage.JAPANESE -> ja
+        else -> en
+    }
+
 private fun inferStepFromUrl(
     url: String?,
-    isIndonesian: Boolean,
+    language: AppLanguage,
 ): Pair<String, String>? {
     if (url.isNullOrBlank()) return null
     val lower = url.lowercase()
     return when {
         lower.startsWith(YOUTUBE_MUSIC_ORIGIN) || lower.contains("://music.youtube.com") ->
             LocalLoginCompanionServer.STEP_DONE to
-                if (isIndonesian) {
-                    "Langkah 4 · Berhasil masuk YouTube Music"
-                } else {
-                    "Step 4 · Signed in to YouTube Music"
-                }
+                webViewStepLabel(
+                    language = language,
+                    id = "Langkah 4 · Berhasil masuk YouTube Music",
+                    ja = "ステップ 4 · YouTube Music にサインインしました",
+                    en = "Step 4 · Signed in to YouTube Music",
+                )
         lower.contains("/challenge/pwd") || lower.contains("/signin/v2/challenge/pwd") ->
             LocalLoginCompanionServer.STEP_PASSWORD to
-                if (isIndonesian) {
-                    "Langkah 2 dari 3 · Masukkan Kata Sandi akun Google"
-                } else {
-                    "Step 2 of 3 · Enter Google account password"
-                }
+                webViewStepLabel(
+                    language = language,
+                    id = "Langkah 2 dari 3 · Masukkan Kata Sandi akun Google",
+                    ja = "ステップ 2/3 · Google アカウントのパスワードを入力",
+                    en = "Step 2 of 3 · Enter Google account password",
+                )
         lower.contains("/challenge/dp") || lower.contains("/challenge/ootp") ->
             LocalLoginCompanionServer.STEP_VERIFY to
-                if (isIndonesian) {
-                    "Langkah 3 dari 3 · Ketuk 'Ya, itu saya' di notifikasi Google Prompt HP"
-                } else {
-                    "Step 3 of 3 · Tap 'Yes, it's me' on your phone's Google Prompt"
-                }
+                webViewStepLabel(
+                    language = language,
+                    id = "Langkah 3 dari 3 · Ketuk 'Ya, itu saya' di notifikasi Google Prompt HP",
+                    ja = "ステップ 3/3 · スマホの Google 通知で「はい、私です」をタップ",
+                    en = "Step 3 of 3 · Tap 'Yes, it's me' on your phone's Google Prompt",
+                )
         lower.contains("/challenge/") ->
             LocalLoginCompanionServer.STEP_VERIFY to
-                if (isIndonesian) {
-                    "Langkah 3 dari 3 · Verifikasi 2FA / Kode OTP di HP"
-                } else {
-                    "Step 3 of 3 · Complete 2FA / OTP verification on phone"
-                }
+                webViewStepLabel(
+                    language = language,
+                    id = "Langkah 3 dari 3 · Verifikasi 2FA / Kode OTP di HP",
+                    ja = "ステップ 3/3 · スマホで 2段階認証 / OTP コードを確認",
+                    en = "Step 3 of 3 · Complete 2FA / OTP verification on phone",
+                )
         lower.contains("/identifier") || lower.contains("accounts.google.com/servicelogin") ->
             LocalLoginCompanionServer.STEP_EMAIL to
-                if (isIndonesian) {
-                    "Langkah 1 dari 3 · Masukkan Email / No. HP akun Google"
-                } else {
-                    "Step 1 of 3 · Enter Google Email / Phone"
-                }
+                webViewStepLabel(
+                    language = language,
+                    id = "Langkah 1 dari 3 · Masukkan Email / No. HP akun Google",
+                    ja = "ステップ 1/3 · Google メールアドレス / 電話番号を入力",
+                    en = "Step 1 of 3 · Enter Google Email / Phone",
+                )
         else -> null
     }
 }
 
-private fun buildCheckStepOnceJs(isIndonesian: Boolean): String {
+private fun buildCheckStepOnceJs(language: AppLanguage): String {
     val defaultEmail =
         JSONObject.quote(
-            if (isIndonesian) {
-                "Langkah 1 dari 3 · Masukkan Email / No. HP Google"
-            } else {
-                "Step 1 of 3 · Enter Google Email / Phone"
-            },
+            webViewStepLabel(
+                language = language,
+                id = "Langkah 1 dari 3 · Masukkan Email / No. HP Google",
+                ja = "ステップ 1/3 · Google メールアドレス / 電話番号を入力",
+                en = "Step 1 of 3 · Enter Google Email / Phone",
+            ),
         )
     val doneHint =
         JSONObject.quote(
-            if (isIndonesian) {
-                "Langkah 4 · Berhasil masuk YouTube Music — memverifikasi akun…"
-            } else {
-                "Step 4 · Signed in to YouTube Music — verifying account…"
-            },
+            webViewStepLabel(
+                language = language,
+                id = "Langkah 4 · Berhasil masuk YouTube Music — memverifikasi akun…",
+                ja = "ステップ 4 · YouTube Music にサインイン完了 — アカウントを確認中…",
+                en = "Step 4 · Signed in to YouTube Music — verifying account…",
+            ),
         )
-    val step1Prefix = JSONObject.quote(if (isIndonesian) "Langkah 1 dari 3 · " else "Step 1 of 3 · ")
-    val step2Prefix = JSONObject.quote(if (isIndonesian) "Langkah 2 dari 3 · " else "Step 2 of 3 · ")
+    val step1Prefix = JSONObject.quote(webViewStepLabel(language, "Langkah 1 dari 3 · ", "ステップ 1/3 · ", "Step 1 of 3 · "))
+    val step2Prefix = JSONObject.quote(webViewStepLabel(language, "Langkah 2 dari 3 · ", "ステップ 2/3 · ", "Step 2 of 3 · "))
     val step2Default =
         JSONObject.quote(
-            if (isIndonesian) {
-                "Langkah 2 dari 3 · Masukkan Kata Sandi akun Google"
-            } else {
-                "Step 2 of 3 · Enter Google account password"
-            },
+            webViewStepLabel(
+                language = language,
+                id = "Langkah 2 dari 3 · Masukkan Kata Sandi akun Google",
+                ja = "ステップ 2/3 · Google アカウントのパスワードを入力",
+                en = "Step 2 of 3 · Enter Google account password",
+            ),
         )
     val step2Loading =
         JSONObject.quote(
-            if (isIndonesian) {
-                "Langkah 2 dari 3 · Memuat kolom Kata Sandi…"
-            } else {
-                "Step 2 of 3 · Loading Password field…"
-            },
+            webViewStepLabel(
+                language = language,
+                id = "Langkah 2 dari 3 · Memuat kolom Kata Sandi…",
+                ja = "ステップ 2/3 · パスワード入力欄を読み込み中…",
+                en = "Step 2 of 3 · Loading Password field…",
+            ),
         )
-    val step3Prefix = JSONObject.quote(if (isIndonesian) "Langkah 3 dari 3 · " else "Step 3 of 3 · ")
-    val step3OtpSuffix = JSONObject.quote(if (isIndonesian) " (Isi kode OTP di HP)" else " (Enter OTP code on phone)")
+    val step3Prefix = JSONObject.quote(webViewStepLabel(language, "Langkah 3 dari 3 · ", "ステップ 3/3 · ", "Step 3 of 3 · "))
+    val step3OtpSuffix = JSONObject.quote(webViewStepLabel(language, " (Isi kode OTP di HP)", "（スマホで OTP コードを入力）", " (Enter OTP code on phone)"))
     val step3OtpDefault =
         JSONObject.quote(
-            if (isIndonesian) {
-                "Langkah 3 dari 3 · Masukkan Kode Verifikasi OTP"
-            } else {
-                "Step 3 of 3 · Enter OTP Verification Code"
-            },
+            webViewStepLabel(
+                language = language,
+                id = "Langkah 3 dari 3 · Masukkan Kode Verifikasi OTP",
+                ja = "ステップ 3/3 · OTP 認証コードを入力",
+                en = "Step 3 of 3 · Enter OTP Verification Code",
+            ),
         )
-    val step3PromptSuffix = JSONObject.quote(if (isIndonesian) " (Konfirmasi di HP)" else " (Approve on phone)")
+    val step3PromptSuffix = JSONObject.quote(webViewStepLabel(language, " (Konfirmasi di HP)", "（スマホで承認）", " (Approve on phone)"))
     val step3PromptDefault =
         JSONObject.quote(
-            if (isIndonesian) {
-                "Langkah 3 dari 3 · Setujui Google Prompt di HP"
-            } else {
-                "Step 3 of 3 · Approve Google Prompt on phone"
-            },
+            webViewStepLabel(
+                language = language,
+                id = "Langkah 3 dari 3 · Setujui Google Prompt di HP",
+                ja = "ステップ 3/3 · スマホで Google 通知を承認",
+                en = "Step 3 of 3 · Approve Google Prompt on phone",
+            ),
         )
     return """
         (function() {
@@ -901,8 +928,8 @@ private fun buildCheckStepOnceJs(isIndonesian: Boolean): String {
         """.trimIndent()
 }
 
-private fun buildInstallStepWatcherJs(isIndonesian: Boolean): String {
-    val checkStepJs = buildCheckStepOnceJs(isIndonesian)
+private fun buildInstallStepWatcherJs(language: AppLanguage): String {
+    val checkStepJs = buildCheckStepOnceJs(language)
     return """
         (function() {
             window.__alunaraCheckStep = function() {

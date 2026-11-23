@@ -1,5 +1,6 @@
 package com.alunara.app.ui.screens
 
+import com.alunara.app.ui.i18n.AppLanguage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +41,7 @@ data class CompanionInputPayload(
  */
 class LocalLoginCompanionServer(
     private val scope: CoroutineScope,
-    private val isIndonesian: Boolean = true,
+    private val language: AppLanguage = AppLanguage.INDONESIAN,
     private val onInput: suspend (CompanionInputPayload) -> Unit,
 ) {
     val sessionToken: String = generateSessionToken()
@@ -53,11 +54,12 @@ class LocalLoginCompanionServer(
 
     @Volatile
     var lastStatusHint: String =
-        if (isIndonesian) {
-            "Langkah 1: Masukkan Email Google Anda di kartu pertama."
-        } else {
-            "Step 1: Enter your Google Email in the first card."
-        }
+        pickLocalized(
+            language = language,
+            id = "Langkah 1: Masukkan Email Google Anda di kartu pertama.",
+            ja = "ステップ 1：最初のカードに Google メールアドレスを入力してください。",
+            en = "Step 1: Enter your Google Email in the first card.",
+        )
 
     @Volatile
     private var serverSocket: ServerSocket? = null
@@ -124,7 +126,13 @@ class LocalLoginCompanionServer(
             val output = s.getOutputStream()
 
             val request = readHttpRequest(input) ?: run {
-                val msg = if (isIndonesian) "Permintaan tidak valid" else "Invalid request"
+                val msg =
+                    pickLocalized(
+                        language = language,
+                        id = "Permintaan tidak valid",
+                        ja = "無効なリクエストです",
+                        en = "Invalid request",
+                    )
                 writeResponse(output, 400, "text/plain; charset=utf-8", msg)
                 return
             }
@@ -132,11 +140,12 @@ class LocalLoginCompanionServer(
             val queryParams = parseQueryParams(request.query)
             if (queryParams["t"] != sessionToken) {
                 val msg =
-                    if (isIndonesian) {
-                        "Sesi QR tidak cocok atau sudah kedaluwarsa"
-                    } else {
-                        "QR session does not match or has expired"
-                    }
+                    pickLocalized(
+                        language = language,
+                        id = "Sesi QR tidak cocok atau sudah kedaluwarsa",
+                        ja = "QR セッションが一致しないか、有効期限が切れています",
+                        en = "QR session does not match or has expired",
+                    )
                 writeResponse(output, 403, "text/plain; charset=utf-8", msg)
                 return
             }
@@ -150,7 +159,7 @@ class LocalLoginCompanionServer(
                         buildMobileHtml(
                             token = sessionToken,
                             statusJson = buildStatusJson(),
-                            isIndonesian = isIndonesian,
+                            language = language,
                         ),
                     )
                 }
@@ -174,7 +183,13 @@ class LocalLoginCompanionServer(
                     val value = form["value"].orEmpty()
                     val isAjax = form["ajax"] == "1"
                     if (action == null) {
-                        val unknownMsg = if (isIndonesian) "Aksi tidak dikenali" else "Unknown action"
+                        val unknownMsg =
+                            pickLocalized(
+                                language = language,
+                                id = "Aksi tidak dikenali",
+                                ja = "不明な操作です",
+                                en = "Unknown action",
+                            )
                         if (isAjax) {
                             writeResponse(output, 400, "application/json; charset=utf-8", """{"ok":false,"message":${escapeJsonString(unknownMsg)}}""")
                         } else {
@@ -187,7 +202,7 @@ class LocalLoginCompanionServer(
                                     statusMessage = "$unknownMsg.",
                                     isError = true,
                                     statusJson = buildStatusJson(),
-                                    isIndonesian = isIndonesian,
+                                    language = language,
                                 ),
                             )
                         }
@@ -195,11 +210,12 @@ class LocalLoginCompanionServer(
                     }
                     if (action == CompanionAction.SUBMIT_COOKIE && !hasValidSapisidCookie(value)) {
                         val err =
-                            if (isIndonesian) {
-                                "Cookie tidak valid: pastikan menyertakan SAPISID atau __Secure-3PAPISID dari music.youtube.com."
-                            } else {
-                                "Invalid cookie: make sure it includes SAPISID or __Secure-3PAPISID from music.youtube.com."
-                            }
+                            pickLocalized(
+                                language = language,
+                                id = "Cookie tidak valid: pastikan menyertakan SAPISID atau __Secure-3PAPISID dari music.youtube.com.",
+                                ja = "無効な Cookie です：music.youtube.com の SAPISID または __Secure-3PAPISID が含まれていることを確認してください。",
+                                en = "Invalid cookie: make sure it includes SAPISID or __Secure-3PAPISID from music.youtube.com.",
+                            )
                         if (isAjax) {
                             writeResponse(output, 400, "application/json; charset=utf-8", """{"ok":false,"message":${escapeJsonString(err)}}""")
                         } else {
@@ -212,7 +228,7 @@ class LocalLoginCompanionServer(
                                     statusMessage = err,
                                     isError = true,
                                     statusJson = buildStatusJson(),
-                                    isIndonesian = isIndonesian,
+                                    language = language,
                                 ),
                             )
                         }
@@ -222,28 +238,40 @@ class LocalLoginCompanionServer(
                         onInput(CompanionInputPayload(action = action, value = value))
                     }
                     val feedback =
-                        if (isIndonesian) {
-                            when (action) {
-                                CompanionAction.FILL_EMAIL -> "Email dikirim ke layar TV — menunggu halaman Sandi."
-                                CompanionAction.FILL_PASSWORD -> "Sandi dikirim ke layar TV — cek verifikasi jika diminta Google."
-                                CompanionAction.FILL_TEXT -> "Teks/kode OTP dikirim ke kolom aktif TV."
-                                CompanionAction.CLICK_NEXT -> "Tombol Lanjut/Masuk ditekan di layar TV."
-                                CompanionAction.FOCUS_PREV -> "Fokus digeser ke elemen sebelumnya di TV."
-                                CompanionAction.FOCUS_NEXT -> "Fokus digeser ke elemen berikutnya di TV."
-                                CompanionAction.RELOAD_PAGE -> "Halaman login TV sedang dimuat ulang."
-                                CompanionAction.SUBMIT_COOKIE -> "Cookie sesi dikirim ke TV — memverifikasi akun YouTube Music."
-                            }
-                        } else {
-                            when (action) {
-                                CompanionAction.FILL_EMAIL -> "Email sent to TV — waiting for Password page."
-                                CompanionAction.FILL_PASSWORD -> "Password sent to TV — check 2FA verification if prompted."
-                                CompanionAction.FILL_TEXT -> "Text/OTP code sent to active TV input."
-                                CompanionAction.CLICK_NEXT -> "Next/Sign-in button clicked on TV."
-                                CompanionAction.FOCUS_PREV -> "Focus moved to previous element on TV."
-                                CompanionAction.FOCUS_NEXT -> "Focus moved to next element on TV."
-                                CompanionAction.RELOAD_PAGE -> "Reloading TV sign-in page."
-                                CompanionAction.SUBMIT_COOKIE -> "Session cookie sent to TV — verifying YouTube Music account."
-                            }
+                        when (language) {
+                            AppLanguage.INDONESIAN ->
+                                when (action) {
+                                    CompanionAction.FILL_EMAIL -> "Email dikirim ke layar TV — menunggu halaman Sandi."
+                                    CompanionAction.FILL_PASSWORD -> "Sandi dikirim ke layar TV — cek verifikasi jika diminta Google."
+                                    CompanionAction.FILL_TEXT -> "Teks/kode OTP dikirim ke kolom aktif TV."
+                                    CompanionAction.CLICK_NEXT -> "Tombol Lanjut/Masuk ditekan di layar TV."
+                                    CompanionAction.FOCUS_PREV -> "Fokus digeser ke elemen sebelumnya di TV."
+                                    CompanionAction.FOCUS_NEXT -> "Fokus digeser ke elemen berikutnya di TV."
+                                    CompanionAction.RELOAD_PAGE -> "Halaman login TV sedang dimuat ulang."
+                                    CompanionAction.SUBMIT_COOKIE -> "Cookie sesi dikirim ke TV — memverifikasi akun YouTube Music."
+                                }
+                            AppLanguage.JAPANESE ->
+                                when (action) {
+                                    CompanionAction.FILL_EMAIL -> "メールアドレスをテレビへ送信しました — パスワード画面を待機中です。"
+                                    CompanionAction.FILL_PASSWORD -> "パスワードをテレビへ送信しました — 認証を求められた場合は確認してください。"
+                                    CompanionAction.FILL_TEXT -> "OTP コード／テキストをテレビの入力欄へ送信しました。"
+                                    CompanionAction.CLICK_NEXT -> "テレビ画面の「次へ／ログイン」ボタンを押しました。"
+                                    CompanionAction.FOCUS_PREV -> "テレビのフォーカスを前の項目へ移動しました。"
+                                    CompanionAction.FOCUS_NEXT -> "テレビのフォーカスを次の項目へ移動しました。"
+                                    CompanionAction.RELOAD_PAGE -> "テレビのログイン画面を再読み込みしています。"
+                                    CompanionAction.SUBMIT_COOKIE -> "セッション Cookie をテレビへ送信しました — YouTube Music アカウントを確認中です。"
+                                }
+                            else ->
+                                when (action) {
+                                    CompanionAction.FILL_EMAIL -> "Email sent to TV — waiting for Password page."
+                                    CompanionAction.FILL_PASSWORD -> "Password sent to TV — check 2FA verification if prompted."
+                                    CompanionAction.FILL_TEXT -> "Text/OTP code sent to active TV input."
+                                    CompanionAction.CLICK_NEXT -> "Next/Sign-in button clicked on TV."
+                                    CompanionAction.FOCUS_PREV -> "Focus moved to previous element on TV."
+                                    CompanionAction.FOCUS_NEXT -> "Focus moved to next element on TV."
+                                    CompanionAction.RELOAD_PAGE -> "Reloading TV sign-in page."
+                                    CompanionAction.SUBMIT_COOKIE -> "Session cookie sent to TV — verifying YouTube Music account."
+                                }
                         }
                     if (isAjax) {
                         writeResponse(
@@ -261,13 +289,19 @@ class LocalLoginCompanionServer(
                                 token = sessionToken,
                                 statusMessage = feedback,
                                 statusJson = buildStatusJson(),
-                                isIndonesian = isIndonesian,
+                                language = language,
                             ),
                         )
                     }
                 }
                 else -> {
-                    val notFound = if (isIndonesian) "Tidak ditemukan" else "Not found"
+                    val notFound =
+                        pickLocalized(
+                            language = language,
+                            id = "Tidak ditemukan",
+                            ja = "見つかりません",
+                            en = "Not found",
+                        )
                     writeResponse(output, 404, "text/plain; charset=utf-8", notFound)
                 }
             }
@@ -437,19 +471,40 @@ class LocalLoginCompanionServer(
                 append('"')
             }
 
+        private fun pickLocalized(
+            language: AppLanguage,
+            id: String,
+            ja: String,
+            en: String,
+        ): String =
+            when (language) {
+                AppLanguage.INDONESIAN -> id
+                AppLanguage.JAPANESE -> ja
+                else -> en
+            }
+
         internal fun buildMobileHtml(
             token: String,
             statusMessage: String? = null,
             isError: Boolean = false,
             statusJson: String? = null,
-            isIndonesian: Boolean = true,
+            language: AppLanguage = AppLanguage.INDONESIAN,
         ): String {
+            fun t(
+                id: String,
+                ja: String,
+                en: String,
+            ): String = pickLocalized(language = language, id = id, ja = ja, en = en)
+
             val resolvedStatusJson =
                 statusJson
-                    ?: if (isIndonesian) {
-                        """{"step":"email","host":"accounts.google.com","hint":"Langkah 1: Masukkan Email Google Anda"}"""
-                    } else {
-                        """{"step":"email","host":"accounts.google.com","hint":"Step 1: Enter your Google Email"}"""
+                    ?: when (language) {
+                        AppLanguage.INDONESIAN ->
+                            """{"step":"email","host":"accounts.google.com","hint":"Langkah 1: Masukkan Email Google Anda"}"""
+                        AppLanguage.JAPANESE ->
+                            """{"step":"email","host":"accounts.google.com","hint":"ステップ 1：Google メールアドレスを入力してください"}"""
+                        else ->
+                            """{"step":"email","host":"accounts.google.com","hint":"Step 1: Enter your Google Email"}"""
                     }
             val bannerHtml =
                 if (!statusMessage.isNullOrBlank()) {
@@ -459,113 +514,128 @@ class LocalLoginCompanionServer(
                     """<div id="liveBanner" class="banner" style="display:none;"></div>"""
                 }
 
-            val htmlLang = if (isIndonesian) "id" else "en"
-            val pageTitle = if (isIndonesian) "Alunara TV — Wizard Masuk Akun" else "Alunara TV — Account Sign-In Wizard"
-            val heroTitle = if (isIndonesian) "Alunara TV · Wizard Login" else "Alunara TV · Login Wizard"
+            val htmlLang = t(id = "id", ja = "ja", en = "en")
+            val pageTitle =
+                t(
+                    id = "Alunara TV — Wizard Masuk Akun",
+                    ja = "Alunara TV — アカウントログインウィザード",
+                    en = "Alunara TV — Account Sign-In Wizard",
+                )
+            val heroTitle =
+                t(
+                    id = "Alunara TV · Wizard Login",
+                    ja = "Alunara TV · ログインウィザード",
+                    en = "Alunara TV · Login Wizard",
+                )
             val heroDesc =
-                if (isIndonesian) {
-                    "Ketik email, sandi, dan verifikasi langsung dari keyboard HP Anda — teks otomatis masuk ke layar TV melalui Wi-Fi lokal (tidak disimpan atau dikirim ke pihak lain)."
-                } else {
-                    "Type your email, password, and 2FA code directly from your phone keyboard — inputs are sent over local Wi-Fi straight to your TV (never stored or shared)."
-                }
+                t(
+                    id = "Ketik email, sandi, dan verifikasi langsung dari keyboard HP Anda — teks otomatis masuk ke layar TV melalui Wi-Fi lokal (tidak disimpan atau dikirim ke pihak lain).",
+                    ja = "メールアドレス・パスワード・2段階認証コードをスマホのキーボードから直接入力できます — ローカル Wi-Fi 経由でテレビ画面へ即時送信されます（保存や外部送信は一切行われません）。",
+                    en = "Type your email, password, and 2FA code directly from your phone keyboard — inputs are sent over local Wi-Fi straight to your TV (never stored or shared).",
+                )
             val whyTitle =
-                if (isIndonesian) {
-                    "Kenapa tidak memakai kode TV seperti SmartTube?"
-                } else {
-                    "Why doesn't this use a TV code like SmartTube?"
-                }
+                t(
+                    id = "Kenapa tidak memakai kode TV seperti SmartTube?",
+                    ja = "SmartTube のような TV コードを使わないのはなぜですか？",
+                    en = "Why doesn't this use a TV code like SmartTube?",
+                )
             val whyDesc =
-                if (isIndonesian) {
-                    "SmartTube hanya memakai API video YouTube biasa. YouTube Music memakai sesi web Google (<code>music.youtube.com</code>), sehingga login tercepat yang valid adalah mengisi WebView TV lewat HP ini."
-                } else {
-                    "SmartTube only uses standard YouTube video APIs. YouTube Music requires a Google web session (<code>music.youtube.com</code>), so filling the TV WebView from your phone is the fastest valid sign-in method."
-                }
-            val pillEmail = if (isIndonesian) "1. Email" else "1. Email"
-            val pillPassword = if (isIndonesian) "2. Sandi" else "2. Password"
-            val pillVerify = if (isIndonesian) "3. 2FA" else "3. 2FA"
-            val pillDone = if (isIndonesian) "4. Masuk" else "4. Done"
-            val connectingHint = if (isIndonesian) "Menghubungkan status ke layar TV…" else "Connecting to TV status…"
+                t(
+                    id = "SmartTube hanya memakai API video YouTube biasa. YouTube Music memakai sesi web Google (<code>music.youtube.com</code>), sehingga login tercepat yang valid adalah mengisi WebView TV lewat HP ini.",
+                    ja = "SmartTube は通常の YouTube 動画 API のみを使用します。YouTube Music は Google の Web セッション（<code>music.youtube.com</code>）が必要なため、スマホからテレビの WebView に入力する方法が最も速く確実です。",
+                    en = "SmartTube only uses standard YouTube video APIs. YouTube Music requires a Google web session (<code>music.youtube.com</code>), so filling the TV WebView from your phone is the fastest valid sign-in method.",
+                )
+            val pillEmail = t(id = "1. Email", ja = "1. メール", en = "1. Email")
+            val pillPassword = t(id = "2. Sandi", ja = "2. パスワード", en = "2. Password")
+            val pillVerify = t(id = "3. 2FA", ja = "3. 2段階認証", en = "3. 2FA")
+            val pillDone = t(id = "4. Masuk", ja = "4. 完了", en = "4. Done")
+            val connectingHint =
+                t(
+                    id = "Menghubungkan status ke layar TV…",
+                    ja = "テレビの状態に接続しています…",
+                    en = "Connecting to TV status…",
+                )
 
-            val step1Title = if (isIndonesian) "Langkah 1 · Email Google" else "Step 1 · Google Email"
-            val step1Badge = if (isIndonesian) "Langkah 1" else "Step 1"
+            val step1Title = t(id = "Langkah 1 · Email Google", ja = "ステップ 1 · Google メール", en = "Step 1 · Google Email")
+            val step1Badge = t(id = "Langkah 1", ja = "ステップ 1", en = "Step 1")
             val step1Desc =
-                if (isIndonesian) {
-                    "Isi alamat Gmail akun YouTube Music Anda, lalu tekan tombol untuk mengisi &amp; lanjut otomatis di TV."
-                } else {
-                    "Enter the Google email for your YouTube Music account, then tap the button to fill &amp; continue on your TV."
-                }
-            val emailLabel = if (isIndonesian) "Email / Nomor HP" else "Email / Phone"
-            val emailPlaceholder = if (isIndonesian) "nama@gmail.com" else "name@gmail.com"
-            val emailSubmit = if (isIndonesian) "Kirim Email &amp; Lanjut" else "Send Email &amp; Continue"
+                t(
+                    id = "Isi alamat Gmail akun YouTube Music Anda, lalu tekan tombol untuk mengisi &amp; lanjut otomatis di TV.",
+                    ja = "YouTube Music に使う Google メールアドレスを入力し、ボタンを押してテレビ側を自動入力・続行してください。",
+                    en = "Enter the Google email for your YouTube Music account, then tap the button to fill &amp; continue on your TV.",
+                )
+            val emailLabel = t(id = "Email / Nomor HP", ja = "メールアドレス / 電話番号", en = "Email / Phone")
+            val emailPlaceholder = t(id = "nama@gmail.com", ja = "name@gmail.com", en = "name@gmail.com")
+            val emailSubmit = t(id = "Kirim Email &amp; Lanjut", ja = "メールを送信して次へ", en = "Send Email &amp; Continue")
 
-            val step2Title = if (isIndonesian) "Langkah 2 · Sandi Akun Google" else "Step 2 · Google Password"
-            val step2Badge = if (isIndonesian) "Langkah 2" else "Step 2"
+            val step2Title = t(id = "Langkah 2 · Sandi Akun Google", ja = "ステップ 2 · Google パスワード", en = "Step 2 · Google Password")
+            val step2Badge = t(id = "Langkah 2", ja = "ステップ 2", en = "Step 2")
             val step2Desc =
-                if (isIndonesian) {
-                    "Setelah layar TV berpindah ke halaman sandi, isi kata sandi Anda di sini (bisa pakai Password Manager HP)."
-                } else {
-                    "Once the TV advances to the password page, enter your password here (phone Password Managers work too)."
-                }
-            val passwordLabel = if (isIndonesian) "Kata Sandi" else "Password"
-            val passwordPlaceholder = if (isIndonesian) "Masukkan kata sandi Google" else "Enter your Google password"
-            val passwordSubmit = if (isIndonesian) "Kirim Sandi &amp; Masuk" else "Send Password &amp; Sign In"
+                t(
+                    id = "Setelah layar TV berpindah ke halaman sandi, isi kata sandi Anda di sini (bisa pakai Password Manager HP).",
+                    ja = "テレビ画面がパスワード入力に切り替わったら、こちらに入力してください（スマホのパスワードマネージャーも使えます）。",
+                    en = "Once the TV advances to the password page, enter your password here (phone Password Managers work too).",
+                )
+            val passwordLabel = t(id = "Kata Sandi", ja = "パスワード", en = "Password")
+            val passwordPlaceholder = t(id = "Masukkan kata sandi Google", ja = "Google パスワードを入力", en = "Enter your Google password")
+            val passwordSubmit = t(id = "Kirim Sandi &amp; Masuk", ja = "パスワードを送信してログイン", en = "Send Password &amp; Sign In")
 
-            val step3Title = if (isIndonesian) "Langkah 3 · Verifikasi 2-Langkah (2FA)" else "Step 3 · 2-Step Verification (2FA)"
-            val step3Badge = if (isIndonesian) "Langkah 3" else "Step 3"
+            val step3Title = t(id = "Langkah 3 · Verifikasi 2-Langkah (2FA)", ja = "ステップ 3 · 2段階認証 (2FA)", en = "Step 3 · 2-Step Verification (2FA)")
+            val step3Badge = t(id = "Langkah 3", ja = "ステップ 3", en = "Step 3")
             val step3Desc =
-                if (isIndonesian) {
-                    """Jika muncul notifikasi <strong>Google Prompt ("Ya, itu saya")</strong> di HP Anda, cukup ketuk konfirmasi di HP. Bila Google meminta kode angka/SMS di TV, ketik kodenya di bawah ini:"""
-                } else {
-                    """If a <strong>Google Prompt ("Yes, it's me")</strong> pops up on your phone, simply approve it there. If Google asks for a numeric/SMS code on the TV, type it below:"""
-                }
-            val otpLabel = if (isIndonesian) "Kode OTP / Teks di Kolom Aktif TV" else "OTP Code / Text for Active TV Field"
-            val otpPlaceholder = if (isIndonesian) "Contoh: 123456" else "Example: 123456"
-            val otpSubmit = if (isIndonesian) "Kirim Kode ke TV" else "Send Code to TV"
+                t(
+                    id = """Jika muncul notifikasi <strong>Google Prompt ("Ya, itu saya")</strong> di HP Anda, cukup ketuk konfirmasi di HP. Bila Google meminta kode angka/SMS di TV, ketik kodenya di bawah ini:""",
+                    ja = """スマホに <strong>Google からの通知（「はい、私です」）</strong>が届いた場合はそのままスマホで承認してください。テレビ側で数字・SMS コードを求められた場合は以下に入力してください：""",
+                    en = """If a <strong>Google Prompt ("Yes, it's me")</strong> pops up on your phone, simply approve it there. If Google asks for a numeric/SMS code on the TV, type it below:""",
+                )
+            val otpLabel = t(id = "Kode OTP / Teks di Kolom Aktif TV", ja = "OTP コード / テレビ側の入力文字", en = "OTP Code / Text for Active TV Field")
+            val otpPlaceholder = t(id = "Contoh: 123456", ja = "例：123456", en = "Example: 123456")
+            val otpSubmit = t(id = "Kirim Kode ke TV", ja = "テレビにコードを送信", en = "Send Code to TV")
 
-            val remoteTitle = if (isIndonesian) "Remote Kontrol Halaman TV" else "TV Page Remote Controls"
-            val remoteBadge = if (isIndonesian) "Opsional" else "Optional"
+            val remoteTitle = t(id = "Remote Kontrol Halaman TV", ja = "テレビ画面のリモート操作", en = "TV Page Remote Controls")
+            val remoteBadge = t(id = "Opsional", ja = "任意", en = "Optional")
             val remoteDesc =
-                if (isIndonesian) {
-                    "Geser sorotan tombol/link atau klik tombol Berikutnya di WebView TV tanpa mengambil remote fisik."
-                } else {
-                    "Move highlight focus or click Next inside the TV WebView without picking up the physical remote."
-                }
-            val remoteFocusUp = if (isIndonesian) "▲ Fokus Atas" else "▲ Focus Up"
-            val remoteFocusDown = if (isIndonesian) "▼ Fokus Bawah" else "▼ Focus Down"
-            val remoteClickNext = if (isIndonesian) "⏎ Klik Aktif/Lanjut" else "⏎ Click Active/Next"
-            val remoteReload = if (isIndonesian) "↻ Muat Ulang TV" else "↻ Reload TV"
+                t(
+                    id = "Geser sorotan tombol/tautan atau klik tombol Berikutnya di WebView TV tanpa mengambil remote fisik.",
+                    ja = "テレビのリモコンを手に取らなくても、WebView 内のフォーカス移動や「次へ」のクリックができます。",
+                    en = "Move highlight focus or click Next inside the TV WebView without picking up the physical remote.",
+                )
+            val remoteFocusUp = t(id = "▲ Fokus Atas", ja = "▲ 上へ移動", en = "▲ Focus Up")
+            val remoteFocusDown = t(id = "▼ Fokus Bawah", ja = "▼ 下へ移動", en = "▼ Focus Down")
+            val remoteClickNext = t(id = "⏎ Klik Aktif/Lanjut", ja = "⏎ 選択項目 / 次へ", en = "⏎ Click Active/Next")
+            val remoteReload = t(id = "↻ Muat Ulang TV", ja = "↻ テレビ再読み込み", en = "↻ Reload TV")
 
             val cookieSummary =
-                if (isIndonesian) {
-                    "Mode Lanjutan · Paste Cookie music.youtube.com Langsung"
-                } else {
-                    "Advanced Mode · Paste music.youtube.com Cookie Directly"
-                }
+                t(
+                    id = "Mode Lanjutan · Tempel Cookie music.youtube.com Langsung",
+                    ja = "詳細モード · music.youtube.com の Cookie を直接貼り付け",
+                    en = "Advanced Mode · Paste music.youtube.com Cookie Directly",
+                )
             val cookieDesc =
-                if (isIndonesian) {
-                    "Jika Anda sudah login di browser HP/PC, tempel cookie dari <code>music.youtube.com</code> (harus memuat <code>SAPISID</code> / <code>__Secure-3PAPISID</code>) untuk masuk instan dalam 1 klik:"
-                } else {
-                    "If you are already signed in on a phone/PC browser, paste the cookie from <code>music.youtube.com</code> (must contain <code>SAPISID</code> / <code>__Secure-3PAPISID</code>) for instant 1-click sign-in:"
-                }
+                t(
+                    id = "Jika Anda sudah login di browser HP/PC, tempel cookie dari <code>music.youtube.com</code> (harus memuat <code>SAPISID</code> / <code>__Secure-3PAPISID</code>) untuk masuk instan dalam 1 klik:",
+                    ja = "スマホや PC のブラウザですでにログイン済みの場合は、<code>music.youtube.com</code> の Cookie（<code>SAPISID</code> または <code>__Secure-3PAPISID</code> を含むもの）を貼り付けてワンクリックでログインできます：",
+                    en = "If you are already signed in on a phone/PC browser, paste the cookie from <code>music.youtube.com</code> (must contain <code>SAPISID</code> / <code>__Secure-3PAPISID</code>) for instant 1-click sign-in:",
+                )
             val cookiePlaceholder =
-                if (isIndonesian) {
-                    "Tempel string cookie music.youtube.com di sini..."
-                } else {
-                    "Paste music.youtube.com cookie string here..."
-                }
-            val cookieSubmit = if (isIndonesian) "Masuk dengan Cookie" else "Sign In with Cookie"
+                t(
+                    id = "Tempel string cookie music.youtube.com di sini...",
+                    ja = "music.youtube.com の Cookie 文字列をここに貼り付け…",
+                    en = "Paste music.youtube.com cookie string here...",
+                )
+            val cookieSubmit = t(id = "Masuk dengan Cookie", ja = "Cookie でログイン", en = "Sign In with Cookie")
 
-            val jsBadgeDone = escapeJsonString(if (isIndonesian) "Selesai ✓" else "Done ✓")
-            val jsBadgeActive = escapeJsonString(if (isIndonesian) "Aktif di TV" else "Active on TV")
-            val jsStepPrefix = escapeJsonString(if (isIndonesian) "Langkah " else "Step ")
-            val jsSentFallback = escapeJsonString(if (isIndonesian) "Terkirim ke TV" else "Sent to TV")
+            val jsBadgeDone = escapeJsonString(t(id = "Selesai ✓", ja = "完了 ✓", en = "Done ✓"))
+            val jsBadgeActive = escapeJsonString(t(id = "Aktif di TV", ja = "テレビで表示中", en = "Active on TV"))
+            val jsStepPrefix = escapeJsonString(t(id = "Langkah ", ja = "ステップ ", en = "Step "))
+            val jsSentFallback = escapeJsonString(t(id = "Terkirim ke TV", ja = "テレビへ送信しました", en = "Sent to TV"))
             val jsNetworkError =
                 escapeJsonString(
-                    if (isIndonesian) {
-                        "Gagal menghubungi layar TV di Wi-Fi lokal."
-                    } else {
-                        "Could not reach the TV on local Wi-Fi."
-                    },
+                    t(
+                        id = "Gagal menghubungi layar TV di Wi-Fi lokal.",
+                        ja = "ローカル Wi-Fi 上のテレビに接続できませんでした。",
+                        en = "Could not reach the TV on local Wi-Fi.",
+                    ),
                 )
 
             return """

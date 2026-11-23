@@ -6,6 +6,18 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.Shader
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,6 +60,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.ScaleFactor
@@ -345,6 +358,23 @@ fun TvArtwork(
 }
 
 @Composable
+private fun rememberFocusScale(
+    focused: Boolean,
+    targetScale: Float,
+    reduceMotion: Boolean,
+): Float =
+    animateFloatAsState(
+        targetValue = if (focused && !reduceMotion) targetScale else 1f,
+        animationSpec =
+            if (reduceMotion) {
+                snap()
+            } else {
+                spring(dampingRatio = 0.72f, stiffness = 520f)
+            },
+        label = "tv_focus_scale",
+    ).value
+
+@Composable
 fun TvFocusableButton(
     text: String,
     onClick: () -> Unit,
@@ -356,6 +386,7 @@ fun TvFocusableButton(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
+    val focusScale = rememberFocusScale(focused = focused && enabled, targetScale = 1.03f, reduceMotion = prefs.reduceMotion)
     val shape = ControlCornerShape
     val bgColor =
         when {
@@ -381,6 +412,10 @@ fun TvFocusableButton(
     Row(
         modifier =
             modifier
+                .graphicsLayer {
+                    scaleX = focusScale
+                    scaleY = focusScale
+                }
                 .heightIn(min = AlunaraDimens.ControlHeight)
                 .background(bgColor, shape)
                 .border(BorderStroke(colors.focusBorderWidth, borderColor), shape)
@@ -425,7 +460,9 @@ fun TvIconButton(
     enabled: Boolean = true,
 ) {
     val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
+    val focusScale = rememberFocusScale(focused = focused && enabled, targetScale = 1.05f, reduceMotion = prefs.reduceMotion)
     val bgColor =
         when {
             !enabled -> colors.surface.copy(alpha = 0.45f)
@@ -451,6 +488,10 @@ fun TvIconButton(
         modifier =
             modifier
                 .size(size)
+                .graphicsLayer {
+                    scaleX = focusScale
+                    scaleY = focusScale
+                }
                 .clip(CircleShape)
                 .background(bgColor, CircleShape)
                 .border(BorderStroke(colors.focusBorderWidth, borderColor), CircleShape)
@@ -462,12 +503,25 @@ fun TvIconButton(
                 .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = tintColor,
-            modifier = Modifier.size(iconSize),
-        )
+        AnimatedContent(
+            targetState = icon,
+            transitionSpec = {
+                if (prefs.reduceMotion) {
+                    EnterTransition.None togetherWith ExitTransition.None
+                } else {
+                    (fadeIn(tween(130)) + scaleIn(animationSpec = tween(130), initialScale = 0.82f)) togetherWith
+                        (fadeOut(tween(100)) + scaleOut(animationSpec = tween(100), targetScale = 0.82f))
+                }
+            },
+            label = "tv_icon_morph",
+        ) { currentIcon ->
+            Icon(
+                imageVector = currentIcon,
+                contentDescription = contentDescription,
+                tint = tintColor,
+                modifier = Modifier.size(iconSize),
+            )
+        }
     }
 }
 
@@ -484,6 +538,7 @@ fun TvSongRow(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var rowFocused by remember { mutableStateOf(false) }
+    val rowFocusScale = rememberFocusScale(focused = rowFocused, targetScale = 1.015f, reduceMotion = prefs.reduceMotion)
     val hasSecondary = secondaryActionLabel != null && onSecondaryClick != null
     val mainRowRequester = remember { FocusRequester() }
     val secondaryActionRequester = remember { FocusRequester() }
@@ -507,6 +562,10 @@ fun TvSongRow(
                 Modifier
                     .weight(1f)
                     .heightIn(min = AlunaraDimens.SongRowHeight)
+                    .graphicsLayer {
+                        scaleX = rowFocusScale
+                        scaleY = rowFocusScale
+                    }
                     .focusRequester(mainRowRequester)
                     .then(
                         if (hasSecondary) {
@@ -608,12 +667,17 @@ fun TvMediaCard(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
+    val focusScale = rememberFocusScale(focused = focused, targetScale = 1.035f, reduceMotion = prefs.reduceMotion)
 
     Column(
         modifier =
             modifier
                 .width(AlunaraDimens.CardWidth)
                 .heightIn(min = AlunaraDimens.CardHeight)
+                .graphicsLayer {
+                    scaleX = focusScale
+                    scaleY = focusScale
+                }
                 .clip(CardCornerShape)
                 .drawBehind {
                     val cr = CornerRadius(AlunaraDimens.RadiusCard.toPx())

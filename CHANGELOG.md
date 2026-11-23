@@ -2,6 +2,16 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.1.5] - 2026-11-23
+
+### Lyrics, Localization & UI Polish
+
+- Anchor synced lyrics vertically at the exact viewport center (`contentPadding` equal to half the viewport height and item-center scroll offsets) so even opening lines at track start and closing lines remain centered, with refined multi-tier distance fade.
+- Add subtle spring bounce physics (`scale` and upward lift via GPU `graphicsLayer`) to both active line-sync rows and active word-sync tokens (using safe syllable-grouped `FlowRow` tokens on the active line, while preserving fast single-text rendering when `Reduce Motion` is enabled).
+- Rework in-app language selection into a scalable, focus-locked spotlight picker triggered from Settings: pressing OK locks D-pad focus onto the centered selector, D-pad Left/Right smoothly cycles languages with horizontal transitions and debounced InnerTube refresh, and OK/Back returns focus cleanly.
+- Add Japanese (`日本語`, `values-ja`, `hl=ja`) as the third supported language alongside Bahasa Indonesia and English, with explicit English secondary fallback (`LocaleList(target, ENGLISH)`), complete localized QR login companion support, Indonesian terminology/register polish, and expanded parity/placeholder unit tests.
+- Add lightweight GPU focus micro-scale, Play/Pause icon morphing, artwork playback breathing scale, Now Playing tab crossfade, browse pane fade transition, and slide/fade animations for `DockedMiniPlayer` (all automatically bypassed when `Reduce Motion` is active).
+
 ## [0.1.4] - 2026-11-23
 
 ### Playback & Performance

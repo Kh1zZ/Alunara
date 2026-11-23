@@ -1,5 +1,6 @@
 package com.alunara.app.ui.screens
 
+import com.alunara.app.ui.i18n.AppLanguage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,7 +41,7 @@ class LocalLoginCompanionServerTest {
         assertTrue(html.contains("/status?t="))
         assertTrue(html.contains("prev_focus"))
         assertTrue(html.contains("next_focus"))
-        assertTrue(html.contains("Paste Cookie"))
+        assertTrue(html.contains("Tempel Cookie"))
         assertTrue(html.contains("wizardForm"))
         assertTrue(html.contains("burstPoll"))
         assertFalse(html.contains("<script>alert(1)</script>"))
@@ -83,7 +84,7 @@ class LocalLoginCompanionServerTest {
                 token = "EN789",
                 statusMessage = "Email sent",
                 isError = false,
-                isIndonesian = false,
+                language = AppLanguage.ENGLISH,
             )
 
         assertTrue(html.contains("""<html lang="en">"""))
@@ -97,14 +98,37 @@ class LocalLoginCompanionServerTest {
     }
 
     @Test
+    fun buildMobileHtml_supportsJapaneseLocalizationAndDefaultHint() {
+        val html =
+            LocalLoginCompanionServer.buildMobileHtml(
+                token = "JA123",
+                statusMessage = "メール送信済み",
+                isError = false,
+                language = AppLanguage.JAPANESE,
+            )
+
+        assertTrue(html.contains("""<html lang="ja">"""))
+        assertTrue(html.contains("Alunara TV · ログインウィザード"))
+        assertTrue(html.contains("ステップ 1 · Google メール"))
+        assertTrue(html.contains("メールを送信して次へ"))
+        assertTrue(html.contains("テレビで表示中"))
+        assertTrue(html.contains("完了 ✓"))
+        assertFalse(html.contains("Step 1 · Google Email"))
+        assertFalse(html.contains("Langkah 1 · Email Google"))
+    }
+
+    @Test
     fun serverInitialHint_matchesRequestedLanguage() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         try {
-            val idServer = LocalLoginCompanionServer(scope = scope, isIndonesian = true) {}
+            val idServer = LocalLoginCompanionServer(scope = scope, language = AppLanguage.INDONESIAN) {}
             assertTrue(idServer.lastStatusHint.contains("Langkah 1"))
 
-            val enServer = LocalLoginCompanionServer(scope = scope, isIndonesian = false) {}
+            val enServer = LocalLoginCompanionServer(scope = scope, language = AppLanguage.ENGLISH) {}
             assertTrue(enServer.lastStatusHint.contains("Step 1"))
+
+            val jaServer = LocalLoginCompanionServer(scope = scope, language = AppLanguage.JAPANESE) {}
+            assertTrue(jaServer.lastStatusHint.contains("ステップ 1"))
         } finally {
             scope.cancel()
         }

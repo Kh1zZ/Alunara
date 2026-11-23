@@ -7,6 +7,19 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -57,6 +70,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -80,6 +94,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Text
 import com.alunara.app.playback.PlaybackSessionManager
+import com.alunara.app.playback.PlaybackSessionUiState
 import com.alunara.app.ui.components.DockedMiniPlayer
 import com.alunara.app.ui.components.safeRequestFocus
 import com.alunara.app.ui.i18n.AlunaraLanguageStore
@@ -113,6 +128,7 @@ import com.alunara.core.domain.model.Track
 import com.alunara.core.domain.policy.AudioQualityPreset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -459,6 +475,9 @@ private fun AlunaraTvApp(
     LaunchedEffect(appLanguage) {
         val prevLang = lastAppliedLanguage
         lastAppliedLanguage = appLanguage
+        if (prevLang != null && prevLang != appLanguage) {
+            delay(350L)
+        }
         withContext(Dispatchers.IO) {
             musicEngine.setContentLanguage(appLanguage.innerTubeHl)
         }
@@ -628,12 +647,6 @@ private fun AlunaraTvApp(
                         )
                     }
                     val paneTarget: Any = activeCatalogTarget ?: browseDest
-                    val paneStateKey =
-                        when (paneTarget) {
-                            is CatalogTarget -> "catalog:${paneTarget}"
-                            is TvDestination -> "dest:${paneTarget.name}"
-                            else -> "other"
-                        }
                     Box(
                         modifier =
                             Modifier
@@ -649,105 +662,162 @@ private fun AlunaraTvApp(
                                     bottom = AlunaraDimens.OverscanVertical,
                                 ),
                     ) {
-                        saveableStateHolder.SaveableStateProvider(key = paneStateKey) {
-                            when (paneTarget) {
-                                is CatalogTarget ->
-                                    CatalogDetailScreen(
-                                        target = paneTarget,
-                                        musicEngine = musicEngine,
-                                        activeTrackId = sessionState.currentTrack?.id,
-                                        onBack = onCatalogBack,
-                                        onPlayTracks = onPlayTracksAndOpen,
-                                        onEnqueueTrack = onEnqueueTrack,
-                                        onEnqueueAll = onEnqueueAllTracks,
-                                        onStartRadio = onStartRadioSeedAndOpen,
-                                        onOpenAlbum = onOpenAlbumCb,
-                                        onOpenPlaylist = onOpenPlaylistCb,
-                                    )
+                        AnimatedContent(
+                            targetState = paneTarget,
+                            contentKey = { target ->
+                                when (target) {
+                                    is CatalogTarget -> "catalog:${target}"
+                                    is TvDestination -> "dest:${target.name}"
+                                    else -> "other"
+                                }
+                            },
+                            transitionSpec = {
+                                if (prefs.reduceMotion) {
+                                    EnterTransition.None togetherWith ExitTransition.None
+                                } else {
+                                    fadeIn(tween(durationMillis = 160)) togetherWith
+                                        fadeOut(tween(durationMillis = 110))
+                                }
+                            },
+                            label = "browse_pane_transition",
+                            modifier = Modifier.fillMaxSize(),
+                        ) { activePane ->
+                            val activePaneKey =
+                                when (activePane) {
+                                    is CatalogTarget -> "catalog:${activePane}"
+                                    is TvDestination -> "dest:${activePane.name}"
+                                    else -> "other"
+                                }
+                            saveableStateHolder.SaveableStateProvider(key = activePaneKey) {
+                                when (activePane) {
+                                    is CatalogTarget ->
+                                        CatalogDetailScreen(
+                                            target = activePane,
+                                            musicEngine = musicEngine,
+                                            activeTrackId = sessionState.currentTrack?.id,
+                                            onBack = onCatalogBack,
+                                            onPlayTracks = onPlayTracksAndOpen,
+                                            onEnqueueTrack = onEnqueueTrack,
+                                            onEnqueueAll = onEnqueueAllTracks,
+                                            onStartRadio = onStartRadioSeedAndOpen,
+                                            onOpenAlbum = onOpenAlbumCb,
+                                            onOpenPlaylist = onOpenPlaylistCb,
+                                        )
 
-                                TvDestination.HOME ->
-                                    HomeScreen(
-                                        sections = homeSections,
-                                        isLoading = homeLoading,
-                                        errorMessage = homeError,
-                                        resumeTrack = sessionState.currentTrack,
-                                        recentHistory = mergedHistory,
-                                        favorites = mergedFavorites,
-                                        authSession = sessionState.authSession,
-                                        onRetry = onRetryHome,
-                                        onContinueQueue = onOpenNowPlayingCb,
-                                        onPlaySongFromSection = onPlayTracksAndOpen,
-                                        onOpenAlbum = onOpenAlbumCb,
-                                        onOpenPlaylist = onOpenPlaylistCb,
-                                    )
+                                    TvDestination.HOME ->
+                                        HomeScreen(
+                                            sections = homeSections,
+                                            isLoading = homeLoading,
+                                            errorMessage = homeError,
+                                            resumeTrack = sessionState.currentTrack,
+                                            recentHistory = mergedHistory,
+                                            favorites = mergedFavorites,
+                                            authSession = sessionState.authSession,
+                                            onRetry = onRetryHome,
+                                            onContinueQueue = onOpenNowPlayingCb,
+                                            onPlaySongFromSection = onPlayTracksAndOpen,
+                                            onOpenAlbum = onOpenAlbumCb,
+                                            onOpenPlaylist = onOpenPlaylistCb,
+                                        )
 
-                                TvDestination.SEARCH ->
-                                    SearchScreen(
-                                        query = searchQuery,
-                                        results = searchResults,
-                                        isLoading = searchLoading,
-                                        errorMessage = searchError,
-                                        activeTrackId = sessionState.currentTrack?.id,
-                                        onQueryChange = onQueryChangeCb,
-                                        onSubmitSearch = onSubmitSearchCb,
-                                        onPlaySong = onPlayTracksAndOpen,
-                                        onEnqueueSong = onEnqueueTrack,
-                                        onOpenAlbum = onOpenAlbumCb,
-                                        onOpenArtist = onOpenArtistCb,
-                                        onOpenPlaylist = onOpenPlaylistCb,
-                                        requestInputFocusTick = searchFocusTick,
-                                    )
+                                    TvDestination.SEARCH ->
+                                        SearchScreen(
+                                            query = searchQuery,
+                                            results = searchResults,
+                                            isLoading = searchLoading,
+                                            errorMessage = searchError,
+                                            activeTrackId = sessionState.currentTrack?.id,
+                                            onQueryChange = onQueryChangeCb,
+                                            onSubmitSearch = onSubmitSearchCb,
+                                            onPlaySong = onPlayTracksAndOpen,
+                                            onEnqueueSong = onEnqueueTrack,
+                                            onOpenAlbum = onOpenAlbumCb,
+                                            onOpenArtist = onOpenArtistCb,
+                                            onOpenPlaylist = onOpenPlaylistCb,
+                                            requestInputFocusTick = searchFocusTick,
+                                        )
 
-                                TvDestination.LIBRARY ->
-                                    LibraryScreen(
-                                        favorites = mergedFavorites,
-                                        recentHistory = mergedHistory,
-                                        localHistoryCount = sessionState.recentHistory.size,
-                                        accountPlaylists = sessionState.accountPlaylists,
-                                        authSession = sessionState.authSession,
-                                        librarySyncing = sessionState.librarySyncing,
-                                        activeTrackId = sessionState.currentTrack?.id,
-                                        onPlayTracks = onPlayTracksAndOpen,
-                                        onEnqueueTrack = onEnqueueTrack,
-                                        onToggleFavorite = onToggleFavoriteTrack,
-                                        onClearHistory = onClearHistoryCb,
-                                        onRefreshLibrary = onRefreshLibraryCb,
-                                        onOpenPlaylist = onOpenPlaylistCb,
-                                        onOpenWebViewLogin = onOpenWebViewLoginCb,
-                                        onNavigateToSearch = onNavigateSearchFromLibrary,
-                                        onNavigateToSettings = onNavigateSettingsCb,
-                                    )
+                                    TvDestination.LIBRARY ->
+                                        LibraryScreen(
+                                            favorites = mergedFavorites,
+                                            recentHistory = mergedHistory,
+                                            localHistoryCount = sessionState.recentHistory.size,
+                                            accountPlaylists = sessionState.accountPlaylists,
+                                            authSession = sessionState.authSession,
+                                            librarySyncing = sessionState.librarySyncing,
+                                            activeTrackId = sessionState.currentTrack?.id,
+                                            onPlayTracks = onPlayTracksAndOpen,
+                                            onEnqueueTrack = onEnqueueTrack,
+                                            onToggleFavorite = onToggleFavoriteTrack,
+                                            onClearHistory = onClearHistoryCb,
+                                            onRefreshLibrary = onRefreshLibraryCb,
+                                            onOpenPlaylist = onOpenPlaylistCb,
+                                            onOpenWebViewLogin = onOpenWebViewLoginCb,
+                                            onNavigateToSearch = onNavigateSearchFromLibrary,
+                                            onNavigateToSettings = onNavigateSettingsCb,
+                                        )
 
-                                TvDestination.SETTINGS ->
-                                    SettingsScreen(
-                                        autoplayEnabled = sessionState.queueState.autoplayEnabled,
-                                        authSession = sessionState.authSession,
-                                        authLoading = sessionState.authLoading,
-                                        authErrorMessage = sessionState.authErrorMessage,
-                                        onToggleAutoplay = onToggleAutoplayCb,
-                                        onOpenWebViewLogin = onOpenWebViewLoginCb,
-                                        onLogout = onLogoutCb,
-                                        audioQuality = sessionState.audioQuality,
-                                        onSelectAudioQuality = onSelectAudioQualityCb,
-                                        appLanguage = appLanguage,
-                                        onSelectAppLanguage = onSelectAppLanguage,
-                                        displayPrefs = displayPrefs,
-                                        onUpdateDisplayPrefs = onUpdateDisplayPrefs,
-                                    )
+                                    TvDestination.SETTINGS ->
+                                        SettingsScreen(
+                                            autoplayEnabled = sessionState.queueState.autoplayEnabled,
+                                            authSession = sessionState.authSession,
+                                            authLoading = sessionState.authLoading,
+                                            authErrorMessage = sessionState.authErrorMessage,
+                                            onToggleAutoplay = onToggleAutoplayCb,
+                                            onOpenWebViewLogin = onOpenWebViewLoginCb,
+                                            onLogout = onLogoutCb,
+                                            audioQuality = sessionState.audioQuality,
+                                            onSelectAudioQuality = onSelectAudioQualityCb,
+                                            appLanguage = appLanguage,
+                                            onSelectAppLanguage = onSelectAppLanguage,
+                                            displayPrefs = displayPrefs,
+                                            onUpdateDisplayPrefs = onUpdateDisplayPrefs,
+                                        )
 
-                                TvDestination.NOW_PLAYING -> Unit
+                                    TvDestination.NOW_PLAYING -> Unit
+                                }
                             }
                         }
                     }
 
-                    if (sessionState.currentTrack != null) {
-                        DockedMiniPlayer(
-                            sessionState = sessionState,
-                            positionMsFlow = sessionManager.positionMsFlow,
-                            playPauseFocusRequester = miniPlayerPlayPauseRequester,
-                            onTogglePlayPause = onTogglePlayPause,
-                            onOpenNowPlaying = onOpenNowPlayingCb,
-                        )
+                    val hasMiniPlayerTrack = sessionState.currentTrack != null
+                    var retainedMiniPlayerState by remember { mutableStateOf<PlaybackSessionUiState?>(null) }
+                    if (hasMiniPlayerTrack) {
+                        retainedMiniPlayerState = sessionState
+                    }
+                    LaunchedEffect(hasMiniPlayerTrack) {
+                        if (!hasMiniPlayerTrack) {
+                            delay(220L)
+                            retainedMiniPlayerState = null
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = hasMiniPlayerTrack,
+                        enter =
+                            if (prefs.reduceMotion) {
+                                EnterTransition.None
+                            } else {
+                                fadeIn(tween(durationMillis = 180)) +
+                                    slideInVertically(tween(durationMillis = 200)) { it / 2 }
+                            },
+                        exit =
+                            if (prefs.reduceMotion) {
+                                ExitTransition.None
+                            } else {
+                                fadeOut(tween(durationMillis = 140)) +
+                                    slideOutVertically(tween(durationMillis = 160)) { it / 2 }
+                            },
+                    ) {
+                        val visibleMiniPlayerState = retainedMiniPlayerState
+                        if (visibleMiniPlayerState?.currentTrack != null) {
+                            DockedMiniPlayer(
+                                sessionState = visibleMiniPlayerState,
+                                positionMsFlow = sessionManager.positionMsFlow,
+                                playPauseFocusRequester = miniPlayerPlayPauseRequester,
+                                onTogglePlayPause = onTogglePlayPause,
+                                onOpenNowPlaying = onOpenNowPlayingCb,
+                            )
+                        }
                     }
                 }
 
@@ -873,7 +943,19 @@ private fun RailItem(
     onClick: () -> Unit,
 ) {
     val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
+    val focusScale by
+        animateFloatAsState(
+            targetValue = if (focused && !prefs.reduceMotion) 1.04f else 1f,
+            animationSpec =
+                if (prefs.reduceMotion) {
+                    snap()
+                } else {
+                    spring(dampingRatio = 0.72f, stiffness = 520f)
+                },
+            label = "rail_focus_scale",
+        )
     val selectedBorder = remember(colors.primaryAccent) { colors.primaryAccent.copy(alpha = 0.55f) }
     val tintColor =
         when {
@@ -887,6 +969,10 @@ private fun RailItem(
             modifier
                 .fillMaxWidth()
                 .height(AlunaraDimens.RailItemHeight)
+                .graphicsLayer {
+                    scaleX = focusScale
+                    scaleY = focusScale
+                }
                 .focusProperties { right = rightFocusRequester }
                 .clip(RailControlShape)
                 .drawBehind {

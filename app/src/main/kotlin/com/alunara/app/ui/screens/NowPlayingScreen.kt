@@ -1,9 +1,16 @@
 package com.alunara.app.ui.screens
 
-import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -13,6 +20,8 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -58,6 +67,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -81,6 +91,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -88,7 +99,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -132,9 +142,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.onStart
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private const val IDLE_DIM_TIMEOUT_MS = 10_000L
-private val SmoothDecelerateEasing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
 
 private enum class NowPlayingRightPanelMode {
     LYRICS,
@@ -291,11 +301,25 @@ fun NowPlayingScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val cardShape = RoundedCornerShape(18.dp)
+                val artScale by
+                    animateFloatAsState(
+                        targetValue = if (sessionState.status == PlaybackStatus.PLAYING) 1f else 0.96f,
+                        animationSpec =
+                            if (prefs.reduceMotion) {
+                                snap()
+                            } else {
+                                spring(dampingRatio = 0.72f, stiffness = 300f)
+                            },
+                        label = "art_play_scale",
+                    )
                 Box(
                     modifier =
                         Modifier
                             .size(220.dp)
-                            .clip(cardShape)
+                            .graphicsLayer {
+                                scaleX = artScale
+                                scaleY = artScale
+                            }.clip(cardShape)
                             .background(colors.secondarySurface, cardShape)
                             .border(1.dp, colors.primaryAccent.copy(alpha = 0.28f), cardShape),
                     contentAlignment = Alignment.Center,
@@ -629,52 +653,66 @@ fun NowPlayingScreen(
                 }
 
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                    when (rightPanelMode) {
-                        NowPlayingRightPanelMode.LYRICS ->
-                            PersistentReadOnlyLyricsPanel(
-                                lyrics = sessionState.lyrics,
-                                isLoading = sessionState.lyricsLoading,
-                                selectedProvider = sessionState.selectedLyricsProvider,
-                                fallbackActiveLineIndex = sessionState.activeLyricIndex,
-                                activeLyricIndexFlow = activeLyricIndexFlow,
-                                positionMsFlow = positionMsFlow,
-                                fallbackPositionMs = if (positionMsFlow != null) 0L else sessionState.positionMs,
-                                lyricsSyncOffsetMs = sessionState.lyricsSyncOffsetMs,
-                                showRomanizedLyrics = sessionState.showRomanizedLyrics,
-                                hasPartialKanjiNotice = sessionState.hasPartialKanjiNotice,
-                                queueCount = sessionState.queueState.items.size,
-                                lyricsTabRequester = lyricsTabRequester,
-                                queueTabRequester = queueTabRequester,
-                                romajiTabRequester = if (romajiVisible) romajiTabRequester else queueTabRequester,
-                                leftPaneReturnRequester = playButtonRequester,
-                                syncMinusRequester = syncMinusRequester,
-                                syncPlusRequester = syncPlusRequester,
-                                syncResetRequester = syncResetRequester,
-                                switchProviderRequester = switchProviderRequester,
-                                onSwitchLyricsProvider = onSwitchLyricsProvider,
-                                onAdjustLyricsSync = onAdjustLyricsSync,
-                                onResetLyricsSync = onResetLyricsSync,
-                                onOpenQueue = { rightPanelMode = NowPlayingRightPanelMode.QUEUE },
-                                modifier = Modifier.fillMaxSize(),
-                            )
+                    AnimatedContent(
+                        targetState = rightPanelMode,
+                        transitionSpec = {
+                            if (prefs.reduceMotion) {
+                                EnterTransition.None togetherWith ExitTransition.None
+                            } else {
+                                fadeIn(tween(durationMillis = 170)) togetherWith
+                                    fadeOut(tween(durationMillis = 120))
+                            }
+                        },
+                        label = "right_pane_mode",
+                        modifier = Modifier.fillMaxSize(),
+                    ) { panelMode ->
+                        when (panelMode) {
+                            NowPlayingRightPanelMode.LYRICS ->
+                                PersistentReadOnlyLyricsPanel(
+                                    lyrics = sessionState.lyrics,
+                                    isLoading = sessionState.lyricsLoading,
+                                    selectedProvider = sessionState.selectedLyricsProvider,
+                                    fallbackActiveLineIndex = sessionState.activeLyricIndex,
+                                    activeLyricIndexFlow = activeLyricIndexFlow,
+                                    positionMsFlow = positionMsFlow,
+                                    fallbackPositionMs = if (positionMsFlow != null) 0L else sessionState.positionMs,
+                                    lyricsSyncOffsetMs = sessionState.lyricsSyncOffsetMs,
+                                    showRomanizedLyrics = sessionState.showRomanizedLyrics,
+                                    hasPartialKanjiNotice = sessionState.hasPartialKanjiNotice,
+                                    queueCount = sessionState.queueState.items.size,
+                                    lyricsTabRequester = lyricsTabRequester,
+                                    queueTabRequester = queueTabRequester,
+                                    romajiTabRequester = if (romajiVisible) romajiTabRequester else queueTabRequester,
+                                    leftPaneReturnRequester = playButtonRequester,
+                                    syncMinusRequester = syncMinusRequester,
+                                    syncPlusRequester = syncPlusRequester,
+                                    syncResetRequester = syncResetRequester,
+                                    switchProviderRequester = switchProviderRequester,
+                                    onSwitchLyricsProvider = onSwitchLyricsProvider,
+                                    onAdjustLyricsSync = onAdjustLyricsSync,
+                                    onResetLyricsSync = onResetLyricsSync,
+                                    onOpenQueue = { rightPanelMode = NowPlayingRightPanelMode.QUEUE },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
 
-                        NowPlayingRightPanelMode.QUEUE ->
-                            NowPlayingQueuePanel(
-                                queueState = sessionState.queueState,
-                                queueChips = sessionState.queueChips,
-                                activeChipLabel = sessionState.activeQueueChipLabel,
-                                radioLoading = sessionState.radioLoading,
-                                refreshFocusRequester = queueRefreshRequester,
-                                queueTabRequester = queueTabRequester,
-                                leftPaneReturnRequester = radioButtonRequester,
-                                onPlayQueueAt = onPlayQueueAt,
-                                onMoveQueueItem = onMoveQueueItem,
-                                onRemoveQueueItem = onRemoveQueueItem,
-                                onClearQueue = onClearQueue,
-                                onRefreshRadio = onRefreshRadio,
-                                onSelectQueueChip = onSelectQueueChip,
-                                modifier = Modifier.fillMaxSize(),
-                            )
+                            NowPlayingRightPanelMode.QUEUE ->
+                                NowPlayingQueuePanel(
+                                    queueState = sessionState.queueState,
+                                    queueChips = sessionState.queueChips,
+                                    activeChipLabel = sessionState.activeQueueChipLabel,
+                                    radioLoading = sessionState.radioLoading,
+                                    refreshFocusRequester = queueRefreshRequester,
+                                    queueTabRequester = queueTabRequester,
+                                    leftPaneReturnRequester = radioButtonRequester,
+                                    onPlayQueueAt = onPlayQueueAt,
+                                    onMoveQueueItem = onMoveQueueItem,
+                                    onRemoveQueueItem = onRemoveQueueItem,
+                                    onClearQueue = onClearQueue,
+                                    onRefreshRadio = onRefreshRadio,
+                                    onSelectQueueChip = onSelectQueueChip,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                        }
                     }
                 }
             }
@@ -1315,6 +1353,7 @@ private fun SyncedLyricsViewport(
     colors: AlunaraColorTokens,
     textScale: Float,
 ) {
+    val density = LocalDensity.current
     val activeLineIndex =
         if (activeLyricIndexFlow != null) {
             activeLyricIndexFlow.collectAsStateWithLifecycle().value
@@ -1323,52 +1362,97 @@ private fun SyncedLyricsViewport(
         }
     val stableLines = remember(lyrics) { lyrics.lines.map(::StableSyncedLyricLine) }
     val listState = rememberLazyListState()
-    LaunchedEffect(activeLineIndex, reduceMotion) {
-        if (activeLineIndex >= 0) {
-            val target = (activeLineIndex - 1).coerceAtLeast(0)
-            val jumpDistance = abs(target - listState.firstVisibleItemIndex)
-            if (reduceMotion || jumpDistance > 3) {
-                listState.scrollToItem(target)
-            } else {
-                listState.animateScrollToItem(target)
+    var viewportHeightPx by remember { mutableIntStateOf(0) }
+    var hasInitialCentered by remember(lyrics) { mutableStateOf(false) }
+
+    val halfViewportDp =
+        with(density) {
+            if (viewportHeightPx > 0) (viewportHeightPx / 2f).toDp() else 180.dp
+        }
+    val anchorLineIndex =
+        if (stableLines.isEmpty()) {
+            -1
+        } else if (activeLineIndex >= 0) {
+            activeLineIndex.coerceAtMost(stableLines.lastIndex)
+        } else {
+            0
+        }
+    val estimatedItemPx =
+        with(density) {
+            (AlunaraTypography.lyricActive(textScale) * 0.94f * (if (showRomanizedLyrics) 2.25f else 1.40f))
+                .toPx()
+                .roundToInt()
+        }
+
+    LaunchedEffect(anchorLineIndex, viewportHeightPx, reduceMotion, stableLines.size) {
+        if (anchorLineIndex < 0 || viewportHeightPx <= 0) return@LaunchedEffect
+        val measuredSize = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == anchorLineIndex }?.size
+        val targetOffset = ((measuredSize ?: estimatedItemPx) / 2).coerceAtLeast(0)
+        val jumpDistance = abs(anchorLineIndex - listState.firstVisibleItemIndex)
+        val snapDirectly = !hasInitialCentered || reduceMotion || jumpDistance > 3
+        if (snapDirectly) {
+            listState.scrollToItem(anchorLineIndex, targetOffset)
+            hasInitialCentered = true
+        } else {
+            listState.animateScrollToItem(anchorLineIndex, targetOffset)
+        }
+        if (measuredSize == null) {
+            withFrameNanos { }
+            val refinedSize = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == anchorLineIndex }?.size
+            if (refinedSize != null && abs(refinedSize - estimatedItemPx) > 8) {
+                val refinedOffset = (refinedSize / 2).coerceAtLeast(0)
+                if (reduceMotion) {
+                    listState.scrollToItem(anchorLineIndex, refinedOffset)
+                } else {
+                    listState.animateScrollToItem(anchorLineIndex, refinedOffset)
+                }
             }
         }
     }
-    LazyColumn(
-        state = listState,
-        userScrollEnabled = true,
+
+    Box(
         modifier =
             Modifier
                 .fillMaxSize()
-                .focusProperties { canFocus = false },
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+                .onSizeChanged { viewportHeightPx = it.height },
     ) {
-        itemsIndexed(
-            items = stableLines,
-            key = { idx, line -> "${idx}_${line.value.startTimeMs}" },
-            contentType = { _, _ -> "synced-lyric" },
-        ) { idx, line ->
-            val isActive = idx == activeLineIndex
-            val distanceTier = (if (activeLineIndex < 0) 2 else abs(idx - activeLineIndex)).coerceAtMost(3)
-            val nextLineStartMs =
-                stableLines
-                    .getOrNull(idx + 1)
-                    ?.value
-                    ?.startTimeMs
-                    ?: (line.value.startTimeMs + 5_000L)
-            SyncedLyricRowItem(
-                line = line,
-                nextLineStartMs = nextLineStartMs,
-                distanceFromActive = distanceTier,
-                isActive = isActive,
-                showRomanized = showRomanizedLyrics,
-                positionMsFlow = if (isActive && line.value.hasWordSync) positionMsFlow else null,
-                fallbackPositionMs = fallbackPositionMs,
-                lyricsSyncOffsetMs = lyricsSyncOffsetMs,
-                reduceMotion = reduceMotion,
-                colors = colors,
-                textScale = textScale,
-            )
+        LazyColumn(
+            state = listState,
+            userScrollEnabled = true,
+            contentPadding = PaddingValues(top = halfViewportDp, bottom = halfViewportDp),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .focusProperties { canFocus = false },
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            itemsIndexed(
+                items = stableLines,
+                key = { idx, line -> "${idx}_${line.value.startTimeMs}" },
+                contentType = { _, _ -> "synced-lyric" },
+            ) { idx, line ->
+                val isActive = idx == activeLineIndex
+                val distanceTier = (if (activeLineIndex < 0) idx else abs(idx - activeLineIndex)).coerceAtMost(5)
+                val nextLineStartMs =
+                    stableLines
+                        .getOrNull(idx + 1)
+                        ?.value
+                        ?.startTimeMs
+                        ?: (line.value.startTimeMs + 5_000L)
+                SyncedLyricRowItem(
+                    line = line,
+                    nextLineStartMs = nextLineStartMs,
+                    distanceFromActive = distanceTier,
+                    isActive = isActive,
+                    showRomanized = showRomanizedLyrics,
+                    positionMsFlow = if (isActive && line.value.hasWordSync) positionMsFlow else null,
+                    fallbackPositionMs = fallbackPositionMs,
+                    lyricsSyncOffsetMs = lyricsSyncOffsetMs,
+                    reduceMotion = reduceMotion,
+                    colors = colors,
+                    textScale = textScale,
+                )
+            }
         }
     }
 }
@@ -1391,12 +1475,14 @@ private fun SyncedLyricRowItem(
     val baseInactiveAlpha =
         when (distanceFromActive) {
             0 -> 1.0f
-            1 -> 0.56f
+            1 -> 0.54f
             2 -> 0.34f
-            else -> 0.20f
+            3 -> 0.18f
+            4 -> 0.09f
+            else -> 0.04f
         }
 
-    // Only animate active state transitions (2 rows per line change) with ModulateAlpha to avoid FBO saveLayers
+    // Animate only active state transitions (2 rows per line change) with spring bounce & ModulateAlpha
     val activeProgressState =
         animateFloatAsState(
             targetValue = if (isActive) 1f else 0f,
@@ -1404,7 +1490,7 @@ private fun SyncedLyricRowItem(
                 if (reduceMotion) {
                     snap()
                 } else {
-                    tween(durationMillis = 220, easing = SmoothDecelerateEasing)
+                    spring(dampingRatio = 0.62f, stiffness = 340f)
                 },
             label = "lyric_row_active",
         )
@@ -1417,15 +1503,11 @@ private fun SyncedLyricRowItem(
             .fillMaxWidth()
             .padding(end = 18.dp)
             .graphicsLayer {
-                val activeProgress = activeProgressState.value
-                val scale = if (reduceMotion) 1f else 1f + 0.04f * activeProgress
-                val liftDp = if (reduceMotion) 0f else -2f * activeProgress
-                alpha =
-                    if (activeProgress > 0f) {
-                        0.56f + (1.0f - 0.56f) * activeProgress
-                    } else {
-                        baseInactiveAlpha
-                    }
+                val p = activeProgressState.value
+                val clampedP = p.coerceIn(0f, 1f)
+                val scale = if (reduceMotion) 1f else 1f + 0.045f * p
+                val liftDp = if (reduceMotion) 0f else -3f * p
+                alpha = baseInactiveAlpha + (1.0f - baseInactiveAlpha) * clampedP
                 scaleX = scale
                 scaleY = scale
                 translationY = liftDp * density.density
@@ -1505,6 +1587,29 @@ private fun SyncedLyricRowItem(
     }
 }
 
+private fun Char.isCjkOrKanaOrHangul(): Boolean {
+    val block = Character.UnicodeBlock.of(this)
+    return block == Character.UnicodeBlock.HIRAGANA ||
+        block == Character.UnicodeBlock.KATAKANA ||
+        block == Character.UnicodeBlock.KATAKANA_PHONETIC_EXTENSIONS ||
+        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
+        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+        block == Character.UnicodeBlock.CJK_SYMBOLS_AND_PUNCTUATION ||
+        block == Character.UnicodeBlock.HANGUL_SYLLABLES ||
+        block == Character.UnicodeBlock.HANGUL_JAMO ||
+        block == Character.UnicodeBlock.HANGUL_COMPATIBILITY_JAMO
+}
+
+private fun String.isTrailingPunctuationToken(): Boolean {
+    val trimmed = trim()
+    return trimmed.isNotEmpty() && trimmed.all { ch ->
+        ch == ',' || ch == '.' || ch == '!' || ch == '?' || ch == ';' || ch == ':' ||
+            ch == ')' || ch == ']' || ch == '、' || ch == '。' || ch == '，' || ch == '．' ||
+            ch == '！' || ch == '？' || ch == '）' || ch == '」' || ch == '』'
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ActiveWordSyncedLyricText(
     line: StableSyncedLyricLine,
@@ -1520,15 +1625,25 @@ private fun ActiveWordSyncedLyricText(
     modifier: Modifier = Modifier,
 ) {
     val words = line.value.words
+    val tokenTexts =
+        remember(line, useRomanizedWords) {
+            words.map { word ->
+                if (useRomanizedWords && !word.romanizedText.isNullOrBlank()) {
+                    word.romanizedText!!
+                } else {
+                    word.text
+                }
+            }
+        }
     val cachedStates =
-        remember(line, useRomanizedWords, colors) {
+        remember(line, tokenTexts, colors) {
             val totalStates = (words.size * 2) + 1
             List(totalStates) { stateIdx ->
                 val isSingingWord = stateIdx % 2 == 1
                 val activeWordIdx = if (isSingingWord) stateIdx / 2 else -1
                 val passedCount = stateIdx / 2
                 buildAnnotatedString {
-                    words.forEachIndexed { wIdx, word ->
+                    tokenTexts.forEachIndexed { wIdx, wordText ->
                         val wordColor =
                             when {
                                 wIdx < passedCount -> colors.primaryText
@@ -1541,12 +1656,6 @@ private fun ActiveWordSyncedLyricText(
                                 fontWeight = FontWeight.Bold,
                             ),
                         ) {
-                            val wordText =
-                                if (useRomanizedWords && !word.romanizedText.isNullOrBlank()) {
-                                    word.romanizedText
-                                } else {
-                                    word.text
-                                }
                             append(wordText)
                         }
                     }
@@ -1584,11 +1693,119 @@ private fun ActiveWordSyncedLyricText(
             }
         }
 
-    Text(
-        text = cachedStates[wordStateIdx],
-        fontSize = baseFontSize,
-        lineHeight = lineHeight,
+    if (reduceMotion) {
+        Text(
+            text = cachedStates[wordStateIdx],
+            fontSize = baseFontSize,
+            lineHeight = lineHeight,
+            modifier = modifier,
+        )
+        return
+    }
+
+    val wordGroups =
+        remember(tokenTexts) {
+            val groups = mutableListOf<List<Int>>()
+            val currentGroup = mutableListOf<Int>()
+            for (idx in tokenTexts.indices) {
+                val txt = tokenTexts[idx]
+                currentGroup.add(idx)
+                val nextToken = tokenTexts.getOrNull(idx + 1)
+                val endsWithSpace = txt.lastOrNull()?.isWhitespace() == true
+                val hasCjk = txt.any { it.isCjkOrKanaOrHangul() }
+                val nextIsPunctuation = nextToken?.isTrailingPunctuationToken() == true
+                if ((endsWithSpace || hasCjk) && !nextIsPunctuation) {
+                    groups.add(currentGroup.toList())
+                    currentGroup.clear()
+                }
+            }
+            if (currentGroup.isNotEmpty()) {
+                groups.add(currentGroup.toList())
+            }
+            groups
+        }
+
+    val passedCount = wordStateIdx / 2
+    val singingWordIdx = if (wordStateIdx % 2 == 1) wordStateIdx / 2 else -1
+
+    FlowRow(
         modifier = modifier,
+        horizontalArrangement = Arrangement.Start,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        wordGroups.forEach { group ->
+            if (group.size == 1) {
+                val wIdx = group[0]
+                SyncedWordToken(
+                    text = tokenTexts[wIdx],
+                    isPassed = wIdx < passedCount,
+                    isSinging = wIdx == singingWordIdx,
+                    baseFontSize = baseFontSize,
+                    lineHeight = lineHeight,
+                    colors = colors,
+                )
+            } else {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    group.forEach { wIdx ->
+                        SyncedWordToken(
+                            text = tokenTexts[wIdx],
+                            isPassed = wIdx < passedCount,
+                            isSinging = wIdx == singingWordIdx,
+                            baseFontSize = baseFontSize,
+                            lineHeight = lineHeight,
+                            colors = colors,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SyncedWordToken(
+    text: String,
+    isPassed: Boolean,
+    isSinging: Boolean,
+    baseFontSize: TextUnit,
+    lineHeight: TextUnit,
+    colors: AlunaraColorTokens,
+) {
+    val density = LocalDensity.current
+    val bounce by
+        animateFloatAsState(
+            targetValue = if (isSinging) 1f else 0f,
+            animationSpec = spring(dampingRatio = 0.55f, stiffness = 420f),
+            label = "word_bounce",
+        )
+    val targetColor =
+        when {
+            isPassed -> colors.primaryText
+            isSinging -> colors.focusOutline
+            else -> colors.mutedText.copy(alpha = 0.38f)
+        }
+    val tokenColor by
+        animateColorAsState(
+            targetValue = targetColor,
+            animationSpec = tween(durationMillis = 110),
+            label = "word_color",
+        )
+
+    Text(
+        text = text,
+        color = tokenColor,
+        fontSize = baseFontSize,
+        fontWeight = FontWeight.Bold,
+        lineHeight = lineHeight,
+        modifier =
+            Modifier.graphicsLayer {
+                val b = bounce
+                translationY = (-3f * b) * density.density
+                val s = 1f + 0.045f * b
+                scaleX = s
+                scaleY = s
+                transformOrigin = TransformOrigin(0.5f, 0.85f)
+            },
     )
 }
 
