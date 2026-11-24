@@ -138,13 +138,26 @@ class PlaybackSessionManager(
     private var currentTrackAttempt = 0
     private var consecutiveTrackFailures = 0
     private var cachedSource: AudioStreamSource? = null
+    private var expectedPlayerTrackId: String? = null
     private var queueRestored = false
     private var lastRecordedQueueItemId: String? = null
     private var lastAutoplayExtendedTrackId: String? = null
 
+    private fun isPlayerSyncedToCurrentTrack(): Boolean {
+        val currentId = mutableUiState.value.currentTrack?.id ?: return false
+        if (expectedPlayerTrackId != currentId) return false
+        val activeId = playerController.activeTrackId
+        return activeId == null || activeId == currentId
+    }
+
     internal val playerListener =
         object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_IDLE) {
+                    stopTicker()
+                    return
+                }
+                if (!isPlayerSyncedToCurrentTrack()) return
                 val track = mutableUiState.value.currentTrack
                 val duration = resolveDurationMs(track)
                 when (playbackState) {
@@ -187,14 +200,11 @@ class PlaybackSessionManager(
                         stopTicker()
                         handleTrackEnded()
                     }
-
-                    Player.STATE_IDLE -> {
-                        stopTicker()
-                    }
                 }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!isPlayerSyncedToCurrentTrack()) return
                 if (isPlaying) {
                     currentTrackAttempt = 0
                     consecutiveTrackFailures = 0
@@ -235,6 +245,7 @@ class PlaybackSessionManager(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                if (!isPlayerSyncedToCurrentTrack()) return
                 stopTicker()
                 val category = PlaybackErrorClassifier.classify(error)
                 runCatching {
@@ -470,6 +481,7 @@ class PlaybackSessionManager(
 
     fun clearQueue() {
         cancelActiveWork()
+        expectedPlayerTrackId = null
         playerController.onAppBackgroundedOrStopped()
         onBackgroundServiceStateChanged(false)
         cachedSource = null
@@ -835,7 +847,12 @@ class PlaybackSessionManager(
     }
 
     private fun updateVisibleLyricsPosition() {
-        val livePos = if (playerController.hasActivePlayer) playerController.currentPositionMs() else mutablePositionMs.value
+        val livePos =
+            if (playerController.hasActivePlayer && isPlayerSyncedToCurrentTrack()) {
+                playerController.currentPositionMs()
+            } else {
+                mutablePositionMs.value
+            }
         mutablePositionMs.value = livePos
         if (lyricsPanelVisible) {
             val state = mutableUiState.value
@@ -992,6 +1009,7 @@ class PlaybackSessionManager(
 
     override fun onAppBackgroundedOrStopped() {
         cancelActiveWork()
+        expectedPlayerTrackId = null
         val capturedPosition =
             if (playerController.hasActivePlayer) {
                 playerController.currentPositionMs()
@@ -1044,6 +1062,10 @@ class PlaybackSessionManager(
         clearQueueChips: Boolean = false,
     ) {
         cancelActiveWork()
+        expectedPlayerTrackId = null
+        if (playerController.hasActivePlayer) {
+            playerController.stopCurrentTrack()
+        }
         val track = nextQueue.currentItem?.track
         if (track == null) {
             clearQueue()
@@ -1120,6 +1142,7 @@ class PlaybackSessionManager(
                         val codecBadge = formatStreamBadge(source)
                         mutableUiState.update { it.copy(activeStreamCodecLabel = codecBadge) }
                         onBackgroundServiceStateChanged(true)
+                        expectedPlayerTrackId = track.id
                         playerController.prepareAudioStream(
                             source = source,
                             startPositionMs = startPositionMs,

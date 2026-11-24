@@ -49,7 +49,7 @@ class ArchiveTuneLyricsAdapter(
                     ?: return LyricsDocument.Unavailable("Provider ${preferredProvider.name} not configured")
             val primaryDoc = fetchSingleProvider(target, track)
             if (primaryDoc is LyricsDocument.Synced &&
-                (primaryDoc.isWordSynced || LrcParser.isSyllableFragmented(primaryDoc)) &&
+                LrcParser.needsWordBoundaryRepair(primaryDoc) &&
                 target.id != LyricsProviderId.LRCLIB
             ) {
                 val refProvider = providers.firstOrNull { it.id == LyricsProviderId.LRCLIB }
@@ -167,7 +167,7 @@ class ArchiveTuneLyricsAdapter(
         return docs.map { doc ->
             if (doc is LyricsDocument.Synced &&
                 !isDurationMismatched(doc, track) &&
-                (doc.isWordSynced || LrcParser.isSyllableFragmented(doc))
+                LrcParser.needsWordBoundaryRepair(doc)
             ) {
                 LrcParser.repairWordBoundaries(doc, refTexts)
             } else {

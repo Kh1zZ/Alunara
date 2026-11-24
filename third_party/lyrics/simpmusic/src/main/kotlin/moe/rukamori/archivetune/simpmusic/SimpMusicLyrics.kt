@@ -17,6 +17,7 @@ import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import moe.rukamori.archivetune.simpmusic.models.LyricsData
 import moe.rukamori.archivetune.simpmusic.models.SimpMusicApiResponse
@@ -55,7 +56,7 @@ object SimpMusicLyrics {
     }
 
     suspend fun getLyricsByVideoId(videoId: String): List<LyricsData> =
-        runCatching {
+        try {
             val response = client.get(BASE_URL + videoId)
 
             if (response.status == HttpStatusCode.OK) {
@@ -68,7 +69,11 @@ object SimpMusicLyrics {
             } else {
                 emptyList()
             }
-        }.getOrDefault(emptyList())
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (_: Throwable) {
+            emptyList()
+        }
 
     suspend fun getLyrics(
         videoId: String,

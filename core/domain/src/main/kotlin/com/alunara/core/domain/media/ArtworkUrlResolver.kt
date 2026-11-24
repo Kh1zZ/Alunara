@@ -3,7 +3,7 @@ package com.alunara.core.domain.media
 enum class ArtworkTier(
     val maxPx: Int,
 ) {
-    THUMBNAIL(256),
+    THUMBNAIL(160),
     CARD(360),
     HERO(720),
 }

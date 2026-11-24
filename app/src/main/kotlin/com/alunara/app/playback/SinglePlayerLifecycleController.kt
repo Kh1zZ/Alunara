@@ -29,6 +29,8 @@ import okhttp3.OkHttpClient
 
 interface AudioPlayerControl : PlaybackLifecycleController {
     val hasActivePlayer: Boolean
+    val activeTrackId: String?
+        get() = null
 
     fun prepareAudioStream(
         source: AudioStreamSource,
@@ -41,6 +43,10 @@ interface AudioPlayerControl : PlaybackLifecycleController {
     fun play()
 
     fun pause()
+
+    fun stopCurrentTrack() {
+        pause()
+    }
 
     fun seekTo(positionMs: Long)
 
@@ -68,8 +74,17 @@ class SinglePlayerLifecycleController(
     private var player: ExoPlayer? = null
     private var attachedListener: Player.Listener? = null
 
+    @Volatile
+    private var currentPreparedTrackId: String? = null
+    private var lastMediaSourceUserAgent: String? = null
+    @OptIn(UnstableApi::class)
+    private var cachedMediaSourceFactory: ProgressiveMediaSource.Factory? = null
+
     override val hasActivePlayer: Boolean
         get() = player != null
+
+    override val activeTrackId: String?
+        get() = currentPreparedTrackId
 
     @OptIn(UnstableApi::class)
     @Synchronized
@@ -147,15 +162,21 @@ class SinglePlayerLifecycleController(
         track: Track?,
     ) {
         val activePlayer = obtainPlayer(listener)
-        val dataSourceFactory =
-            OkHttpDataSource
-                .Factory(okHttpClient as Call.Factory)
-                .setUserAgent(source.userAgent)
+        currentPreparedTrackId = source.trackId
+        val mediaSourceFactory =
+            cachedMediaSourceFactory?.takeIf { lastMediaSourceUserAgent == source.userAgent }
+                ?: run {
+                    val dataSourceFactory =
+                        OkHttpDataSource
+                            .Factory(okHttpClient as Call.Factory)
+                            .setUserAgent(source.userAgent)
+                    ProgressiveMediaSource.Factory(dataSourceFactory).also {
+                        lastMediaSourceUserAgent = source.userAgent
+                        cachedMediaSourceFactory = it
+                    }
+                }
         val mediaItem = buildMediaItem(source.streamUrl, source.trackId, track)
-        val mediaSource =
-            ProgressiveMediaSource
-                .Factory(dataSourceFactory)
-                .createMediaSource(mediaItem)
+        val mediaSource = mediaSourceFactory.createMediaSource(mediaItem)
         activePlayer.setMediaSource(mediaSource, startPositionMs.coerceAtLeast(0L))
         activePlayer.playWhenReady = playWhenReady
         activePlayer.prepare()
@@ -165,6 +186,7 @@ class SinglePlayerLifecycleController(
     fun updateMediaMetadata(track: Track) {
         val activePlayer = player ?: return
         val currentItem = activePlayer.currentMediaItem ?: return
+        currentPreparedTrackId = track.id
         val updated =
             currentItem
                 .buildUpon()
@@ -182,6 +204,15 @@ class SinglePlayerLifecycleController(
     @Synchronized
     override fun pause() {
         player?.pause()
+    }
+
+    @Synchronized
+    override fun stopCurrentTrack() {
+        currentPreparedTrackId = null
+        player?.let { active ->
+            active.stop()
+            active.clearMediaItems()
+        }
     }
 
     @Synchronized
@@ -207,6 +238,7 @@ class SinglePlayerLifecycleController(
         val current = player ?: return
         val lastPositionMs = current.currentPosition.coerceAtLeast(0L)
         onPersistPositionMs(lastPositionMs)
+        currentPreparedTrackId = null
         attachedListener?.let(current::removeListener)
         attachedListener = null
         current.stop()

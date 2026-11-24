@@ -42,7 +42,11 @@ import org.junit.Test
 class PlaybackSessionManagerTest {
     private class FakePlayerControl : AudioPlayerControl {
         override var hasActivePlayer: Boolean = false
+        var currentTrackId: String? = null
+        override val activeTrackId: String?
+            get() = currentTrackId
         var preparedTracks = mutableListOf<String>()
+        var stopCurrentTrackCalls: Int = 0
         var lastStartPositionMs: Long = 0L
         var currentPositionValueMs: Long = 0L
         var playingState: Boolean = false
@@ -56,6 +60,7 @@ class PlaybackSessionManagerTest {
             track: Track?,
         ) {
             hasActivePlayer = true
+            currentTrackId = source.trackId
             playingState = playWhenReady
             lastStartPositionMs = startPositionMs
             currentPositionValueMs = startPositionMs
@@ -71,6 +76,13 @@ class PlaybackSessionManagerTest {
             playingState = false
         }
 
+        override fun stopCurrentTrack() {
+            stopCurrentTrackCalls++
+            playingState = false
+            currentPositionValueMs = 0L
+            currentTrackId = null
+        }
+
         override fun seekTo(positionMs: Long) {
             currentPositionValueMs = positionMs
         }
@@ -84,6 +96,7 @@ class PlaybackSessionManagerTest {
         override fun onAppBackgroundedOrStopped() {
             hasActivePlayer = false
             playingState = false
+            currentTrackId = null
         }
     }
 
@@ -795,6 +808,61 @@ class PlaybackSessionManagerTest {
             manager.setLyricsPanelVisible(true)
             assertEquals(0, manager.activeLyricIndexFlow.value)
 
+            manager.clearQueue()
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun trackSwitch_stopsPreviousTrackImmediatelyAndIgnoresStaleCallbacksWhileResolving() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val player = FakePlayerControl()
+            val t1 = Track(id = "t1", title = "Track One", durationSeconds = 180)
+            val t2 = Track(id = "t2", title = "Track Two", durationSeconds = 200)
+            val baseEngine = FakeMusicEngine()
+            val slowSecondTrackEngine =
+                object : MusicEngine by baseEngine {
+                    override suspend fun resolveAudioStream(
+                        trackId: String,
+                        quality: AudioQualityPreset,
+                    ): Result<AudioStreamSource> {
+                        if (trackId == "t2") {
+                            kotlinx.coroutines.delay(500L)
+                        }
+                        return baseEngine.resolveAudioStream(trackId, quality)
+                    }
+                }
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = slowSecondTrackEngine,
+                    lyricsEngine = emptyLyricsEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = player,
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+
+            manager.playTracks(listOf(t1, t2), startIndex = 0, autoExpandRadio = false)
+            advanceUntilIdle()
+            manager.playerListener.onPlaybackStateChanged(Player.STATE_READY)
+            player.currentPositionValueMs = 120_000L
+
+            // Switch to t2: t1 must stop immediately and stale STATE_ENDED/position must be ignored while resolving
+            manager.skipNext()
+            runCurrent()
+            assertEquals(1, player.stopCurrentTrackCalls)
+            assertEquals("t2", manager.uiState.value.currentTrack?.id)
+            assertEquals(PlaybackStatus.RESOLVING, manager.uiState.value.status)
+
+            player.currentPositionValueMs = 120_000L
+            manager.playerListener.onPlaybackStateChanged(Player.STATE_ENDED)
+            manager.setLyricsPanelVisible(true)
+            runCurrent()
+            assertEquals("t2", manager.uiState.value.currentTrack?.id)
+            assertEquals(0L, manager.positionMsFlow.value)
+
+            advanceUntilIdle()
+            assertEquals(listOf("t1", "t2"), player.preparedTracks)
             manager.clearQueue()
             advanceUntilIdle()
         }

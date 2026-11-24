@@ -23,7 +23,10 @@ Seluruh agent yang bekerja pada repositori **Alunara** WAJIB mematuhi seluruh kl
    - **Dilarang keras menghapus atau memangkas entri/baris versi sebelumnya** — seluruh sejarah versi mulai dari `0.1.0` dan seterusnya wajib terekam utuh.
    - Seluruh entri baru mulai versi `0.1.2` wajib ditulis dalam bahasa Inggris. Pertahankan isi entri historis `0.1.0` dan `0.1.1` apa adanya.
 6. **Instalasi & Uji Perangkat TV Hanya Atas Permintaan:**
-   - Pemasangan APK ke Android TV fisik maupun pengujian ADB live **hanya dilakukan jika Dev memerintahkannya secara eksplisit**. Secara default, cukup selesaikan build dan rangkaian pengujian otomatis (unit test, lint, split APK release verification).
+   - Pemasangan APK ke Android TV fisik maupun pengujian ADB live **hanya dilakukan jika Dev memerintahkannya secara eksplisit**. Secara default, cukup selesaikan rangkaian verifikasi debug/unit test dan Android Lint lokal.
+7. **Build Lokal Hanya Debug/Unit Test — Build Release Hanya via GitHub Actions:**
+   - Mulai saat ini, proses build dan verifikasi yang dijalankan di lokal **hanyalah debug/unit test** (`test`, `testDebugUnitTest`, `lintDebug`, atau kompilasi debug test bila relevan) — **tidak menjalankan build release (`assembleRelease`) di lokal**.
+   - Seluruh proses **build APK Release** hanya dilakukan melalui **GitHub Actions** ([`.github/workflows/release.yml`](./.github/workflows/release.yml)).
 
 ---
 
@@ -35,7 +38,7 @@ Proses rilis sepenuhnya dikendalikan oleh instruksi Dev dan dijalankan secara ot
 2. **`proceed`:** Kata kunci persetujuan Dev bahwa Implementation Plan telah disetujui dan siap dieksekusi.
 3. **Eksekusi Rilis ke GitHub Releases:**
    - Setelah `proceed` dan `bump` disetujui/dijalankan, agent:
-     1. Memastikan seluruh unit test, Android Lint, dan split release APK build lokal lulus (`exit 0`),
+     1. Memastikan seluruh debug/unit test dan Android Lint lokal lulus (`exit 0`) tanpa menjalankan build release di lokal (build release dijalankan sepenuhnya oleh GitHub Actions),
      2. Membuat commit bersih,
      3. Membuat Git tag `v<versi>` (contoh: `v0.1.0`),
      4. Menjalankan push ke `origin/main` serta push tag `v<versi>` untuk memicu workflow [`.github/workflows/release.yml`](./.github/workflows/release.yml),

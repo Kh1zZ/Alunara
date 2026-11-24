@@ -2,10 +2,12 @@ package com.alunara.core.domain.lyrics
 
 import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.SyncedLyricLine
+import com.alunara.core.domain.model.SyncedLyricWord
 import com.atilika.kuromoji.ipadic.Token
 import com.atilika.kuromoji.ipadic.Tokenizer
-import java.lang.ref.SoftReference
+import java.lang.ref.WeakReference
 import java.util.Locale
+import kotlin.math.roundToInt
 
 enum class LyricScript {
     NONE,
@@ -175,7 +177,7 @@ object LyricsRomanizer {
         )
 
     @Volatile
-    private var kuromojiSoftRef: SoftReference<Tokenizer>? = null
+    private var kuromojiWeakRef: WeakReference<Tokenizer>? = null
 
     private val icuTransliteratorBridge: Any? by lazy {
         runCatching {
@@ -195,9 +197,9 @@ object LyricsRomanizer {
 
     @Synchronized
     private fun obtainKuromojiTokenizer(): Tokenizer {
-        kuromojiSoftRef?.get()?.let { return it }
+        kuromojiWeakRef?.get()?.let { return it }
         return Tokenizer().also {
-            kuromojiSoftRef = SoftReference(it)
+            kuromojiWeakRef = WeakReference(it)
         }
     }
 
@@ -251,22 +253,11 @@ object LyricsRomanizer {
                         val updatedWords =
                             if (effectiveRoman != null && line.words.isNotEmpty()) {
                                 val lineIsJapanese = docHasJapaneseKana || looksJapanese(line.text)
-                                line.words.mapIndexed { idx, w ->
-                                    val wRes =
-                                        romanize(
-                                            w.text,
-                                            batchProvider,
-                                            assumeJapanese = lineIsJapanese,
-                                        )
-                                    val wRoman =
-                                        if (wRes.hasRomanization) {
-                                            val suffix = if (idx < line.words.lastIndex && !wRes.text.endsWith(" ")) " " else ""
-                                            wRes.text.trim() + suffix
-                                        } else {
-                                            w.text
-                                        }
-                                    w.copy(romanizedText = wRoman)
-                                }
+                                romanizeWordsInContext(
+                                    words = line.words,
+                                    tokenizerProvider = batchProvider,
+                                    assumeJapanese = lineIsJapanese,
+                                )
                             } else {
                                 line.words
                             }
@@ -360,6 +351,268 @@ object LyricsRomanizer {
         }
     }
 
+    private data class TokenRomanizedSegment(
+        val text: String,
+        val converted: Int,
+        val unsupportedKanji: Int,
+        val sawKorean: Boolean,
+    )
+
+    private fun resolveJapaneseTokenSegment(
+        token: Token,
+        nextToken: Token?,
+    ): TokenRomanizedSegment {
+        val surface = token.surface
+        val reading = token.reading?.takeIf { it.isNotEmpty() && it != "*" }
+        val nextReading =
+            nextToken?.reading?.takeIf { it.isNotEmpty() && it != "*" }
+                ?: nextToken?.surface?.let(::hiraganaToKatakana)
+
+        if (reading != null) {
+            val effectiveKana =
+                when {
+                    (token.partOfSpeechLevel1 == "助詞" || token.partOfSpeechLevel1 == "感動詞") &&
+                        !token.pronunciation.isNullOrEmpty() &&
+                        token.pronunciation != "*" -> {
+                        if (token.pronunciation == "ヲ") "オ" else token.pronunciation
+                    }
+                    token.partOfSpeechLevel1 == "助詞" && reading == "ヲ" -> "オ"
+                    else -> reading
+                }
+            return TokenRomanizedSegment(
+                text = romanizeKanaSegment(effectiveKana, nextReading),
+                converted = surface.count { !it.isWhitespace() },
+                unsupportedKanji = 0,
+                sawKorean = false,
+            )
+        }
+        if (surface.any(::isKana)) {
+            val normalizedKana = hiraganaToKatakana(surface)
+            return TokenRomanizedSegment(
+                text = romanizeKanaSegment(normalizedKana, nextReading),
+                converted = surface.count { !it.isWhitespace() },
+                unsupportedKanji = 0,
+                sawKorean = false,
+            )
+        }
+        if (isKorean(surface)) {
+            val kr = romanizeKoreanArchiveTune(surface)
+            return TokenRomanizedSegment(
+                text = kr.text,
+                converted = kr.convertedChars,
+                unsupportedKanji = 0,
+                sawKorean = true,
+            )
+        }
+        val unsupportedCount = surface.count(::isHanIdeograph)
+        if (unsupportedCount > 0) {
+            val icu = transliterateWithIcu(surface)
+            if (icu != null && icu != surface) {
+                return TokenRomanizedSegment(
+                    text = icu,
+                    converted = unsupportedCount,
+                    unsupportedKanji = 0,
+                    sawKorean = false,
+                )
+            }
+            return TokenRomanizedSegment(
+                text = surface,
+                converted = 0,
+                unsupportedKanji = unsupportedCount,
+                sawKorean = false,
+            )
+        }
+        return TokenRomanizedSegment(
+            text = surface,
+            converted = 0,
+            unsupportedKanji = 0,
+            sawKorean = false,
+        )
+    }
+
+    private fun romanizeWordsInContext(
+        words: List<SyncedLyricWord>,
+        tokenizerProvider: () -> Tokenizer,
+        assumeJapanese: Boolean,
+    ): List<SyncedLyricWord> {
+        if (words.isEmpty()) return words
+        val concatText = buildString { words.forEach { append(it.text) } }
+        if (concatText.isEmpty() || isPureBasicLatin(concatText)) return words
+
+        val wordStarts = IntArray(words.size)
+        val wordEnds = IntArray(words.size)
+        var cursor = 0
+        for (i in words.indices) {
+            wordStarts[i] = cursor
+            cursor += words[i].text.length
+            wordEnds[i] = cursor
+        }
+
+        val hasKorean = isKorean(concatText)
+        val hasJapanese = looksJapanese(concatText) || (assumeJapanese && concatText.any(::isHanIdeograph))
+
+        if (hasJapanese) {
+            val tokens = tokenizerProvider().tokenize(concatText)
+            val builders = Array(words.size) { StringBuilder() }
+            var lastNonEmptyWordIdx = -1
+            var lastEmittedChar: Char? = null
+
+            tokens.forEachIndexed { index, token ->
+                val surface = token.surface
+                val tokStart = token.position
+                val tokEnd = tokStart + surface.length
+                var firstOverlap = -1
+                var lastOverlap = -1
+                for (wIdx in words.indices) {
+                    if (wordEnds[wIdx] > tokStart && wordStarts[wIdx] < tokEnd) {
+                        if (firstOverlap == -1) firstOverlap = wIdx
+                        lastOverlap = wIdx
+                    }
+                }
+                if (surface.isBlank()) {
+                    if (lastEmittedChar != null && lastEmittedChar != ' ') {
+                        val targetIdx = if (firstOverlap >= 0) firstOverlap else lastNonEmptyWordIdx
+                        if (targetIdx >= 0) {
+                            builders[targetIdx].append(' ')
+                            lastEmittedChar = ' '
+                            if (targetIdx > lastNonEmptyWordIdx) lastNonEmptyWordIdx = targetIdx
+                        }
+                    }
+                    return@forEachIndexed
+                }
+
+                val prevToken = tokens.getOrNull(index - 1)
+                val seg = resolveJapaneseTokenSegment(token, tokens.getOrNull(index + 1))
+                val trimmed = seg.text.trim()
+                if (trimmed.isEmpty()) return@forEachIndexed
+
+                val attachToPrev = shouldAttachToPreviousToken(prevToken, token)
+                val prevChar = lastEmittedChar
+                val needsLeadingSpace =
+                    prevChar != null &&
+                        prevChar != ' ' &&
+                        !attachToPrev &&
+                        !isOpeningBracketOrQuote(prevChar) &&
+                        !isClosingPunctuation(trimmed.first()) &&
+                        !(prevToken?.surface?.all { !it.isLetterOrDigit() && !isKana(it) && !isHanIdeograph(it) } == true && !trimmed.first().isLetterOrDigit())
+
+                if (needsLeadingSpace && lastNonEmptyWordIdx >= 0) {
+                    val spaceOwner = if (firstOverlap > lastNonEmptyWordIdx) lastNonEmptyWordIdx else firstOverlap.coerceAtLeast(0)
+                    builders[spaceOwner].append(' ')
+                }
+
+                if (firstOverlap < 0) {
+                    builders[0].append(trimmed)
+                    lastNonEmptyWordIdx = 0
+                } else if (firstOverlap == lastOverlap) {
+                    builders[firstOverlap].append(trimmed)
+                    lastNonEmptyWordIdx = firstOverlap
+                } else {
+                    var totalOverlap = 0
+                    for (wIdx in firstOverlap..lastOverlap) {
+                        totalOverlap += (minOf(wordEnds[wIdx], tokEnd) - maxOf(wordStarts[wIdx], tokStart)).coerceAtLeast(0)
+                    }
+                    if (totalOverlap <= 0) {
+                        builders[firstOverlap].append(trimmed)
+                        lastNonEmptyWordIdx = firstOverlap
+                    } else {
+                        var consumedChars = 0
+                        var outStart = 0
+                        for (wIdx in firstOverlap..lastOverlap) {
+                            val overlap = (minOf(wordEnds[wIdx], tokEnd) - maxOf(wordStarts[wIdx], tokStart)).coerceAtLeast(0)
+                            consumedChars += overlap
+                            val outEnd =
+                                if (wIdx == lastOverlap) {
+                                    trimmed.length
+                                } else {
+                                    ((trimmed.length.toFloat() * consumedChars) / totalOverlap).roundToInt().coerceIn(outStart, trimmed.length)
+                                }
+                            if (outEnd > outStart) {
+                                builders[wIdx].append(trimmed, outStart, outEnd)
+                                lastNonEmptyWordIdx = wIdx
+                            }
+                            outStart = outEnd
+                        }
+                    }
+                }
+                if (lastNonEmptyWordIdx >= 0) {
+                    lastEmittedChar = builders[lastNonEmptyWordIdx].lastOrNull() ?: lastEmittedChar
+                }
+            }
+
+            return words.mapIndexed { idx, w ->
+                val mapped = builders[idx].toString()
+                w.copy(romanizedText = mapped.ifEmpty { w.text })
+            }
+        }
+
+        if (hasKorean) {
+            val builders = Array(words.size) { StringBuilder() }
+            var prevFinal: String? = null
+            var prevWordIdx = 0
+            var wIdx = 0
+            for (i in concatText.indices) {
+                while (wIdx < words.lastIndex && i >= wordEnds[wIdx]) {
+                    wIdx++
+                }
+                val ch = concatText[i]
+                if (isHangulSyllable(ch)) {
+                    val sIndex = ch.code - HANGUL_BASE
+                    val choIndex = sIndex / (V_COUNT * T_COUNT)
+                    val jungIndex = (sIndex % (V_COUNT * T_COUNT)) / T_COUNT
+                    val jongIndex = sIndex % T_COUNT
+
+                    val choChar = (0x1100 + choIndex).toChar().toString()
+                    val jungChar = (0x1161 + jungIndex).toChar().toString()
+                    val jongChar = if (jongIndex == 0) null else (0x11A7 + jongIndex).toChar().toString()
+
+                    var choConsumedByContext = false
+                    if (prevFinal != null) {
+                        val contextKey = prevFinal + choChar
+                        val contextMapped = HANGUL_ROMAJA_MAP["jong"]?.get(contextKey)
+                        if (contextMapped != null) {
+                            builders[prevWordIdx].append(contextMapped)
+                            choConsumedByContext = true
+                        } else {
+                            builders[prevWordIdx].append(HANGUL_ROMAJA_MAP["jong"]?.get(prevFinal) ?: prevFinal)
+                        }
+                    }
+
+                    val cho = if (choConsumedByContext) "" else (HANGUL_ROMAJA_MAP["cho"]?.get(choChar) ?: choChar)
+                    val jung = HANGUL_ROMAJA_MAP["jung"]?.get(jungChar) ?: jungChar
+                    builders[wIdx].append(cho).append(jung)
+
+                    prevFinal = jongChar
+                    prevWordIdx = wIdx
+                } else {
+                    if (prevFinal != null) {
+                        builders[prevWordIdx].append(HANGUL_ROMAJA_MAP["jong"]?.get(prevFinal) ?: prevFinal)
+                        prevFinal = null
+                    }
+                    builders[wIdx].append(ch)
+                }
+            }
+            if (prevFinal != null) {
+                builders[prevWordIdx].append(HANGUL_ROMAJA_MAP["jong"]?.get(prevFinal) ?: prevFinal)
+            }
+            return words.mapIndexed { idx, w ->
+                w.copy(romanizedText = builders[idx].toString().ifEmpty { w.text })
+            }
+        }
+
+        return words.mapIndexed { idx, w ->
+            val wRes = romanize(w.text, tokenizerProvider, assumeJapanese = assumeJapanese)
+            val wRoman =
+                if (wRes.hasRomanization) {
+                    val suffix = if (idx < words.lastIndex && !wRes.text.endsWith(" ")) " " else ""
+                    wRes.text.trim() + suffix
+                } else {
+                    w.text
+                }
+            w.copy(romanizedText = wRoman)
+        }
+    }
+
     private fun romanizeJapaneseWithKuromoji(
         input: String,
         tokenizerProvider: () -> Tokenizer,
@@ -380,53 +633,12 @@ object LyricsRomanizer {
             }
 
             val prevToken = tokens.getOrNull(index - 1)
-            val nextToken = tokens.getOrNull(index + 1)
-            val reading = token.reading?.takeIf { it.isNotEmpty() && it != "*" }
-            val nextReading =
-                nextToken?.reading?.takeIf { it.isNotEmpty() && it != "*" }
-                    ?: nextToken?.surface?.let(::hiraganaToKatakana)
+            val seg = resolveJapaneseTokenSegment(token, tokens.getOrNull(index + 1))
+            converted += seg.converted
+            unsupportedKanji += seg.unsupportedKanji
+            if (seg.sawKorean) sawKorean = true
 
-            val segmentText: String
-            if (reading != null) {
-                val effectiveKana =
-                    when {
-                        (token.partOfSpeechLevel1 == "助詞" || token.partOfSpeechLevel1 == "感動詞") &&
-                            !token.pronunciation.isNullOrEmpty() &&
-                            token.pronunciation != "*" -> {
-                            if (token.pronunciation == "ヲ") "オ" else token.pronunciation
-                        }
-                        token.partOfSpeechLevel1 == "助詞" && reading == "ヲ" -> "オ"
-                        else -> reading
-                    }
-                segmentText = romanizeKanaSegment(effectiveKana, nextReading)
-                converted += surface.count { !it.isWhitespace() }
-            } else if (surface.any(::isKana)) {
-                val normalizedKana = hiraganaToKatakana(surface)
-                segmentText = romanizeKanaSegment(normalizedKana, nextReading)
-                converted += surface.count { !it.isWhitespace() }
-            } else if (isKorean(surface)) {
-                val kr = romanizeKoreanArchiveTune(surface)
-                sawKorean = true
-                converted += kr.convertedChars
-                segmentText = kr.text
-            } else {
-                val unsupportedCount = surface.count(::isHanIdeograph)
-                unsupportedKanji += unsupportedCount
-                segmentText =
-                    if (unsupportedCount > 0) {
-                        val icu = transliterateWithIcu(surface)
-                        if (icu != null && icu != surface) {
-                            converted += unsupportedCount
-                            icu
-                        } else {
-                            surface
-                        }
-                    } else {
-                        surface
-                    }
-            }
-
-            val trimmed = segmentText.trim()
+            val trimmed = seg.text.trim()
             if (trimmed.isEmpty()) return@forEachIndexed
 
             val attachToPrev = shouldAttachToPreviousToken(prevToken, token)

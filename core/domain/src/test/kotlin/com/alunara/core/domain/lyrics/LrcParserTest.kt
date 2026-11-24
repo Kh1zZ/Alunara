@@ -161,4 +161,33 @@ class LrcParserTest {
         assertEquals("terang", repairedWords[1].text)
         assertEquals(12_100L, repairedWords[1].endTimeMs)
     }
+
+    @Test
+    fun parse_capturesLeadingWordBeforeFirstWordTimestamp() {
+        val raw = "[00:12.40]Hello <00:12.85>world"
+        val parsed = LrcParser.parse(LyricsProviderId.SIMPMUSIC, raw) as LyricsDocument.Synced
+        val words = parsed.lines.single().words
+        assertEquals(2, words.size)
+        assertEquals(12_400L, words[0].startTimeMs)
+        assertEquals("Hello ", words[0].text)
+        assertEquals(12_850L, words[1].startTimeMs)
+        assertEquals("world", words[1].text)
+        assertEquals("Hello world", parsed.lines.single().text)
+    }
+
+    @Test
+    fun repairWordBoundaries_preservesJapaneseAndCjkWordSyncedTokensWithoutInsertingSpaces() {
+        val raw =
+            "[00:01.00]<00:01.00>夜<00:01.20>に<00:01.40>駆<00:01.60>け<00:01.80>る\n" +
+                "[00:04.00]<00:04.00>散<00:04.20>々<00:04.40>な<00:04.60>思<00:04.80>い<00:05.00>出<00:05.20>は"
+        val parsed = LrcParser.parse(LyricsProviderId.SIMPMUSIC, raw) as LyricsDocument.Synced
+        assertFalse(LrcParser.isSyllableFragmented(parsed))
+        assertFalse(LrcParser.needsWordBoundaryRepair(parsed))
+
+        val repaired = LrcParser.repairWordBoundaries(parsed, listOf("夜に駆ける", "散々な思い出は"))
+        assertEquals("夜に駆ける", repaired.lines[0].text)
+        assertEquals(listOf("夜", "に", "駆", "け", "る"), repaired.lines[0].words.map { it.text })
+        assertEquals("散々な思い出は", repaired.lines[1].text)
+        assertEquals(7, repaired.lines[1].words.size)
+    }
 }

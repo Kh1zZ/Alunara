@@ -28,7 +28,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.abs
 
 @OptIn(ExperimentalSerializationApi::class)
-private val client =
+private val client by lazy {
     HttpClient {
         expectSuccess = true
 
@@ -55,6 +55,7 @@ private val client =
             socketTimeoutMillis = 15000
         }
     }
+}
 
 private const val PAGE_SIZE = 8
 private const val HEAD_CUT_LIMIT = 30
@@ -219,8 +220,8 @@ object KuGou {
                 val filteredLines = lines.drop(headCutLine)
 
                 var tailCutLine = 0
-                for (i in min(lines.size - HEAD_CUT_LIMIT, lines.lastIndex) downTo 0) {
-                    if (lines[lines.lastIndex - i].matches(BANNED_REGEX)) {
+                for (i in min(HEAD_CUT_LIMIT, filteredLines.lastIndex) downTo 0) {
+                    if (filteredLines[filteredLines.lastIndex - i].matches(BANNED_REGEX)) {
                         tailCutLine = i + 1
                         break
                     }

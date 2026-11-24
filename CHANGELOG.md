@@ -2,6 +2,20 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.1.8] - 2026-11-24
+
+### Lyrics & Localization
+
+- Add a calm **Vocal Sweep & Center Glide** animation suite for synced lyrics: fix center-anchored scroll distance tracking with `animateScrollBy`, add a minimalist left accent bar on the active row, replace bouncy per-word jumps with continuous left-to-right GPU vocal sweep fill (`clipRect` in `drawWithContent`) on the singing token, and display a gentle three-dot instrumental intro cue on long track intros.
+- Capture leading Enhanced LRC words before the first inline `<mm:ss.xx>` timestamp, protect Japanese/CJK/Hangul word-synced tokens from space injection in `LrcParser.repairWordBoundaries`, avoid redundant reference fetches for clean word-synced tracks, fix KuGou's tail credit stripping index and lazy HTTP initialization, and preserve coroutine cancellation in `SimpMusicLyrics`.
+- Contextualize Japanese and Korean word-level romanization in a single pass per line (eliminating compound Kanji/liaison mismatches and ~85% of Kuromoji tokenization work) and switch Kuromoji's tokenizer cache to `WeakReference` for 1 GB RAM TVs.
+
+### Playback, Memory & TV UI
+
+- Stop previous audio immediately on track switches, guard `playerListener` and position syncing with the active prepared track ID to eliminate ghost audio and `STATE_ENDED` races during slow stream resolution, and reuse `ProgressiveMediaSource.Factory` across tracks sharing the same User-Agent.
+- Reset `AppContainer`'s playback service tracking flag in `AlunaraPlaybackService.onDestroy()`, trim Coil's bitmap memory cache on `TRIM_MEMORY_RUNNING_LOW`/`CRITICAL`, optimize `TvBackdropBlurTransformation` to 240px and row thumbnails to 160px, and quantize `SeekableProgressBar` accessibility updates to 1 Hz.
+- Restrict `TvIconButton` `AnimatedContent` transitions strictly to dynamic icons (Play/Pause and Favorite), and scale `CatalogDetailScreen` typography with `AlunaraTypography` accessibility preferences.
+
 ## [0.1.7] - 2026-11-24
 
 ### TV Interface

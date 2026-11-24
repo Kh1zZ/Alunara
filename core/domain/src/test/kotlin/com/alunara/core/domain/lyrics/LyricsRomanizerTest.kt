@@ -107,4 +107,47 @@ class LyricsRomanizerTest {
         assertEquals("namae wa ", synced.lines[2].words[1].romanizedText)
         assertEquals("arifureta", synced.lines[2].words[2].romanizedText)
     }
+
+    @Test
+    fun attachRomanization_preservesContextualReadingAcrossSplitJapaneseAndKoreanWordTokens() {
+        val doc =
+            LyricsDocument.Synced(
+                provider = LyricsProviderId.SIMPMUSIC,
+                lines =
+                    listOf(
+                        SyncedLyricLine(
+                            startTimeMs = 1_000L,
+                            text = "今日行って",
+                            words =
+                                listOf(
+                                    SyncedLyricWord(1_000L, "今"),
+                                    SyncedLyricWord(1_200L, "日"),
+                                    SyncedLyricWord(1_500L, "行"),
+                                    SyncedLyricWord(1_700L, "っ"),
+                                    SyncedLyricWord(1_900L, "て"),
+                                ),
+                        ),
+                        SyncedLyricLine(
+                            startTimeMs = 4_000L,
+                            text = "음악",
+                            words =
+                                listOf(
+                                    SyncedLyricWord(4_000L, "음"),
+                                    SyncedLyricWord(4_300L, "악"),
+                                ),
+                        ),
+                    ),
+            )
+
+        val summary = LyricsRomanizer.attachRomanization(doc)
+        val synced = summary.document as LyricsDocument.Synced
+
+        val jaJoined = synced.lines[0].words.joinToString("") { it.romanizedText.orEmpty() }
+        assertTrue(synced.lines[0].romanizedText!!.startsWith("kyou "))
+        assertEquals(synced.lines[0].romanizedText, jaJoined)
+
+        val krJoined = synced.lines[1].words.joinToString("") { it.romanizedText.orEmpty() }
+        assertEquals("eumak", synced.lines[1].romanizedText)
+        assertEquals("eumak", krJoined)
+    }
 }

@@ -171,6 +171,7 @@ class AlunaraPlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         isBootstrapForegroundStarted = false
+        (application as? AlunaraApplication)?.container?.onPlaybackServiceDestroyed()
         mediaSession?.let {
             removeSession(it)
             it.release()

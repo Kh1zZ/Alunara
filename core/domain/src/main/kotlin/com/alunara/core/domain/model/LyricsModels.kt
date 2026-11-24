@@ -27,10 +27,8 @@ sealed interface LyricsDocument {
     data class Synced(
         val provider: LyricsProviderId,
         val lines: List<SyncedLyricLine>,
-    ) : LyricsDocument {
-        val isWordSynced: Boolean
-            get() = lines.any { it.hasWordSync }
-    }
+        val isWordSynced: Boolean = lines.any { it.hasWordSync },
+    ) : LyricsDocument
 
     data class Plain(
         val provider: LyricsProviderId,

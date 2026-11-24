@@ -1,11 +1,19 @@
 package com.alunara.app.ui.screens
 
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -19,6 +27,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -70,6 +79,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,6 +89,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -89,13 +101,13 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -148,8 +160,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.onStart
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 private const val IDLE_DIM_TIMEOUT_MS = 10_000L
 
@@ -270,6 +284,12 @@ fun NowPlayingScreen(
                 .onPreviewKeyEvent { event ->
                     interactionEvents.tryEmit(Unit)
                     val keyCode = event.nativeKeyEvent.keyCode
+                    if (!isIdleDimmedState.value &&
+                        event.type == KeyEventType.KeyDown &&
+                        event.nativeKeyEvent.repeatCount == 0
+                    ) {
+                        wakeKeyCode = -1
+                    }
                     if (keyCode == wakeKeyCode) {
                         if (event.type == KeyEventType.KeyUp) wakeKeyCode = -1
                         true
@@ -525,6 +545,7 @@ fun NowPlayingScreen(
                         size = 56.dp,
                         iconSize = 30.dp,
                         highlighted = true,
+                        animateIconChange = true,
                         onClick = onTogglePlayPause,
                         modifier =
                             Modifier
@@ -565,6 +586,7 @@ fun NowPlayingScreen(
                             size = AlunaraDimens.ControlHeight,
                             iconSize = 22.dp,
                             highlighted = sessionState.isCurrentTrackFavorite,
+                            animateIconChange = true,
                             onClick = onToggleFavorite,
                             modifier =
                                 Modifier
@@ -713,6 +735,7 @@ fun NowPlayingScreen(
                                 PersistentReadOnlyLyricsPanel(
                                     lyrics = sessionState.lyrics,
                                     isLoading = sessionState.lyricsLoading,
+                                    isPlaying = sessionState.status == PlaybackStatus.PLAYING,
                                     selectedProvider = sessionState.selectedLyricsProvider,
                                     fallbackActiveLineIndex = sessionState.activeLyricIndex,
                                     activeLyricIndexFlow = activeLyricIndexFlow,
@@ -1035,6 +1058,13 @@ private fun SeekableProgressBar(
     val thumbColor = if (focused) colors.focusOutline else colors.primaryAccent
     val durationLabel = remember(durationMs) { formatDurationMs(durationMs) }
     val seekBarLabel = stringResource(R.string.seek_bar_label)
+    val quantizedPosMs by
+        remember(positionMsState, fallbackPositionMs, durationMs) {
+            derivedStateOf {
+                val raw = (positionMsState?.value ?: fallbackPositionMs).coerceIn(0L, durationMs.coerceAtLeast(0L))
+                (raw / 1_000L) * 1_000L
+            }
+        }
 
     Column(
         modifier =
@@ -1044,8 +1074,7 @@ private fun SeekableProgressBar(
                 .semantics {
                     contentDescription = seekBarLabel
                     if (durationMs > 0) {
-                        val posMs = (positionMsState?.value ?: fallbackPositionMs).coerceIn(0L, durationMs)
-                        progressBarRangeInfo = ProgressBarRangeInfo(posMs.toFloat(), 0f..durationMs.toFloat())
+                        progressBarRangeInfo = ProgressBarRangeInfo(quantizedPosMs.toFloat(), 0f..durationMs.toFloat())
                         setProgress { requestedMs ->
                             onSeekTo(requestedMs.toLong().coerceIn(0L, durationMs))
                             true
@@ -1169,6 +1198,7 @@ private fun ElapsedTimeLabel(
 private fun PersistentReadOnlyLyricsPanel(
     lyrics: LyricsDocument,
     isLoading: Boolean,
+    isPlaying: Boolean,
     selectedProvider: LyricsProviderId?,
     fallbackActiveLineIndex: Int,
     activeLyricIndexFlow: StateFlow<Int>?,
@@ -1297,6 +1327,7 @@ private fun PersistentReadOnlyLyricsPanel(
                 lyrics is LyricsDocument.Synced -> {
                     SyncedLyricsViewport(
                         lyrics = lyrics,
+                        isPlaying = isPlaying,
                         fallbackActiveLineIndex = fallbackActiveLineIndex,
                         activeLyricIndexFlow = activeLyricIndexFlow,
                         positionMsFlow = positionMsFlow,
@@ -1409,6 +1440,7 @@ private fun providerDisplayName(provider: LyricsProviderId): String =
 @Composable
 private fun SyncedLyricsViewport(
     lyrics: LyricsDocument.Synced,
+    isPlaying: Boolean,
     fallbackActiveLineIndex: Int,
     activeLyricIndexFlow: StateFlow<Int>?,
     positionMsFlow: StateFlow<Long>?,
@@ -1428,13 +1460,9 @@ private fun SyncedLyricsViewport(
         }
     val stableLines = remember(lyrics) { lyrics.lines.map(::StableSyncedLyricLine) }
     val listState = rememberLazyListState()
-    var viewportHeightPx by remember { mutableIntStateOf(0) }
     var hasInitialCentered by remember(lyrics) { mutableStateOf(false) }
+    var previousAnchorIndex by remember(lyrics) { mutableIntStateOf(-1) }
 
-    val halfViewportDp =
-        with(density) {
-            if (viewportHeightPx > 0) (viewportHeightPx / 2f).toDp() else 180.dp
-        }
     val anchorLineIndex =
         if (stableLines.isEmpty()) {
             -1
@@ -1449,28 +1477,42 @@ private fun SyncedLyricsViewport(
                 .toPx()
                 .roundToInt()
         }
+    val firstLineStartMs = stableLines.firstOrNull()?.value?.startTimeMs ?: 0L
+    val showIntroCue = firstLineStartMs >= 3_500L && activeLineIndex < 0
 
-    LaunchedEffect(lyrics, anchorLineIndex, viewportHeightPx, reduceMotion, showRomanizedLyrics, textScale) {
-        if (anchorLineIndex < 0 || viewportHeightPx <= 0) return@LaunchedEffect
-        withFrameNanos { }
-        val measuredSize = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == anchorLineIndex }?.size
-        val targetOffset = ((measuredSize ?: estimatedItemPx) / 2).coerceAtLeast(0)
-        val jumpDistance = abs(anchorLineIndex - listState.firstVisibleItemIndex)
-        val snapDirectly = !hasInitialCentered || reduceMotion || jumpDistance > 3
-        if (snapDirectly) {
-            listState.scrollToItem(anchorLineIndex, targetOffset)
-            hasInitialCentered = true
-        } else {
-            listState.animateScrollToItem(anchorLineIndex, targetOffset)
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val viewportHeightPx = constraints.maxHeight
+        val halfViewportDp = maxHeight / 2f
+
+        LaunchedEffect(lyrics, anchorLineIndex, viewportHeightPx, reduceMotion, showRomanizedLyrics, textScale) {
+            if (anchorLineIndex < 0 || viewportHeightPx <= 0) return@LaunchedEffect
+            val lineStep = if (previousAnchorIndex < 0) Int.MAX_VALUE else abs(anchorLineIndex - previousAnchorIndex)
+            previousAnchorIndex = anchorLineIndex
+            if (!hasInitialCentered || reduceMotion || lineStep > 3) {
+                withFrameNanos { }
+                val measuredSize = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == anchorLineIndex }?.size
+                val targetOffset = ((measuredSize ?: estimatedItemPx) / 2).coerceAtLeast(0)
+                listState.scrollToItem(anchorLineIndex, targetOffset)
+                hasInitialCentered = true
+            } else {
+                val visibleTarget = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == anchorLineIndex }
+                if (visibleTarget != null) {
+                    val layoutInfo = listState.layoutInfo
+                    val viewportCenterOffset = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2f
+                    val itemCenterOffset = visibleTarget.offset + (visibleTarget.size / 2f)
+                    val deltaPx = itemCenterOffset - viewportCenterOffset
+                    if (abs(deltaPx) > 1f) {
+                        listState.animateScrollBy(
+                            value = deltaPx,
+                            animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+                        )
+                    }
+                } else {
+                    listState.animateScrollToItem(anchorLineIndex, (estimatedItemPx / 2).coerceAtLeast(0))
+                }
+            }
         }
-    }
 
-    Box(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .onSizeChanged { viewportHeightPx = it.height },
-    ) {
         LazyColumn(
             state = listState,
             userScrollEnabled = true,
@@ -1499,6 +1541,7 @@ private fun SyncedLyricsViewport(
                     nextLineStartMs = nextLineStartMs,
                     distanceFromActive = distanceTier,
                     isActive = isActive,
+                    isPlaying = isPlaying,
                     showRomanized = showRomanizedLyrics,
                     positionMsFlow = if (isActive && line.value.hasWordSync) positionMsFlow else null,
                     fallbackPositionMs = fallbackPositionMs,
@@ -1509,6 +1552,70 @@ private fun SyncedLyricsViewport(
                 )
             }
         }
+
+        AnimatedVisibility(
+            visible = showIntroCue,
+            enter = if (reduceMotion) EnterTransition.None else fadeIn(tween(durationMillis = 250)),
+            exit = if (reduceMotion) ExitTransition.None else fadeOut(tween(durationMillis = 220)),
+            modifier =
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 6.dp, start = 12.dp)
+                    .focusProperties { canFocus = false },
+        ) {
+            InstrumentalIntroCue(
+                isPlaying = isPlaying,
+                reduceMotion = reduceMotion,
+                accentColor = colors.primaryAccent,
+            )
+        }
+    }
+}
+
+@Composable
+private fun InstrumentalIntroCue(
+    isPlaying: Boolean,
+    reduceMotion: Boolean,
+    accentColor: Color,
+) {
+    val phaseState =
+        if (isPlaying && !reduceMotion) {
+            val transition = rememberInfiniteTransition(label = "lyric_intro_cue")
+            transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = tween(durationMillis = 1500, easing = LinearEasing),
+                        repeatMode = RepeatMode.Restart,
+                    ),
+                label = "lyric_intro_phase",
+            )
+        } else {
+            null
+        }
+    Canvas(modifier = Modifier.size(width = 30.dp, height = 10.dp)) {
+        val phase = phaseState?.value ?: 0f
+        val dotCount = 3
+        val stepX = size.width / dotCount
+        val centerY = size.height / 2f
+        val baseRadius = 2.6.dp.toPx()
+        for (i in 0 until dotCount) {
+            val wave =
+                if (phaseState != null) {
+                    val angle = ((phase - i * 0.2f) * 2.0 * PI).toFloat()
+                    (sin(angle) + 1f) * 0.5f
+                } else {
+                    0.3f
+                }
+            val dotAlpha = 0.28f + 0.58f * wave
+            val dotRadius = baseRadius * (0.90f + 0.24f * wave)
+            drawCircle(
+                color = accentColor.copy(alpha = dotAlpha),
+                radius = dotRadius,
+                center = Offset(stepX * i + stepX * 0.5f, centerY),
+            )
+        }
     }
 }
 
@@ -1518,6 +1625,7 @@ private fun SyncedLyricRowItem(
     nextLineStartMs: Long,
     distanceFromActive: Int,
     isActive: Boolean,
+    isPlaying: Boolean,
     showRomanized: Boolean,
     positionMsFlow: StateFlow<Long>?,
     fallbackPositionMs: Long,
@@ -1538,7 +1646,13 @@ private fun SyncedLyricRowItem(
             else -> 0.04f
         }.let { if (highContrast) it.coerceAtLeast(0.68f) else it }
 
-    // Animate only active state transitions (2 rows per line change) with spring bounce & ModulateAlpha
+    val rowAlphaState =
+        animateFloatAsState(
+            targetValue = if (isActive) 1.0f else baseInactiveAlpha,
+            animationSpec = if (reduceMotion) snap() else tween(durationMillis = 300, easing = FastOutSlowInEasing),
+            label = "lyric_row_alpha",
+        )
+    // Calm no-overshoot settle + GPU left accent pill on active line
     val activeProgressState =
         animateFloatAsState(
             targetValue = if (isActive) 1f else 0f,
@@ -1546,7 +1660,7 @@ private fun SyncedLyricRowItem(
                 if (reduceMotion) {
                     snap()
                 } else {
-                    spring(dampingRatio = 0.62f, stiffness = 340f)
+                    spring(dampingRatio = 0.86f, stiffness = 260f)
                 },
             label = "lyric_row_active",
         )
@@ -1557,16 +1671,30 @@ private fun SyncedLyricRowItem(
     val rowModifier =
         Modifier
             .fillMaxWidth()
-            .padding(end = 18.dp)
+            .drawBehind {
+                val p = activeProgressState.value.coerceIn(0f, 1f)
+                if (p > 0.02f) {
+                    val barWidth = 3.dp.toPx()
+                    val barHeight = size.height * (0.35f + 0.45f * p)
+                    val topOffset = (size.height - barHeight) / 2f
+                    val radius = barWidth / 2f
+                    drawRoundRect(
+                        color = colors.primaryAccent.copy(alpha = p),
+                        topLeft = Offset(0f, topOffset),
+                        size = Size(barWidth, barHeight),
+                        cornerRadius = CornerRadius(radius, radius),
+                    )
+                }
+            }
+            .padding(start = 12.dp, end = 18.dp)
             .graphicsLayer {
-                val p = activeProgressState.value
-                val clampedP = p.coerceIn(0f, 1f)
-                val scale = if (reduceMotion) 1f else 1f + 0.045f * p
-                val liftDp = if (reduceMotion) 0f else -3f * p
-                alpha = baseInactiveAlpha + (1.0f - baseInactiveAlpha) * clampedP
+                val p = activeProgressState.value.coerceIn(0f, 1f)
+                val scale = if (reduceMotion) 1f else 1f + 0.028f * p
+                val slideDp = if (reduceMotion) 0f else 4f * p
+                alpha = rowAlphaState.value
                 scaleX = scale
                 scaleY = scale
-                translationY = liftDp * density.density
+                translationX = slideDp * density.density
                 transformOrigin = TransformOrigin(0f, 0.5f)
                 compositingStrategy = CompositingStrategy.ModulateAlpha
             }
@@ -1590,6 +1718,7 @@ private fun SyncedLyricRowItem(
                 ActiveWordSyncedLyricText(
                     line = line,
                     nextLineStartMs = nextLineStartMs,
+                    isPlaying = isPlaying,
                     positionMsFlow = positionMsFlow,
                     fallbackPositionMs = fallbackPositionMs,
                     lyricsSyncOffsetMs = lyricsSyncOffsetMs,
@@ -1621,6 +1750,7 @@ private fun SyncedLyricRowItem(
         ActiveWordSyncedLyricText(
             line = line,
             nextLineStartMs = nextLineStartMs,
+            isPlaying = isPlaying,
             positionMsFlow = positionMsFlow,
             fallbackPositionMs = fallbackPositionMs,
             lyricsSyncOffsetMs = lyricsSyncOffsetMs,
@@ -1670,6 +1800,7 @@ private fun String.isTrailingPunctuationToken(): Boolean {
 private fun ActiveWordSyncedLyricText(
     line: StableSyncedLyricLine,
     nextLineStartMs: Long,
+    isPlaying: Boolean,
     positionMsFlow: StateFlow<Long>?,
     fallbackPositionMs: Long,
     lyricsSyncOffsetMs: Long,
@@ -1751,6 +1882,45 @@ private fun ActiveWordSyncedLyricText(
     val passedCount = wordStateIdx / 2
     val singingWordIdx = if (wordStateIdx % 2 == 1) wordStateIdx / 2 else -1
 
+    // Single float state updated strictly inside GPU drawWithContent on the 1 active word (0 recompositions)
+    val singingWordFillState = remember(line, singingWordIdx) { mutableFloatStateOf(0f) }
+    val activeWordStartMs = if (singingWordIdx in words.indices) words[singingWordIdx].startTimeMs else 0L
+    val activeWordEndMs =
+        if (singingWordIdx in words.indices) {
+            val activeWord = words[singingWordIdx]
+            (activeWord.endTimeMs
+                ?: words.getOrNull(singingWordIdx + 1)?.startTimeMs
+                ?: minOf(nextLineStartMs, activeWord.startTimeMs + 900L))
+                .coerceAtLeast(activeWord.startTimeMs + 80L)
+        } else {
+            1L
+        }
+    val activeWordDurationMs = (activeWordEndMs - activeWordStartMs).coerceAtLeast(80L)
+    if (singingWordIdx < 0 || !isPlaying) {
+        val rawPos = ((positionMsState?.value ?: fallbackPositionMs) + lyricsSyncOffsetMs).coerceAtLeast(0L)
+        singingWordFillState.floatValue =
+            if (singingWordIdx < 0) 0f else ((rawPos - activeWordStartMs).toFloat() / activeWordDurationMs.toFloat()).coerceIn(0f, 1f)
+    }
+    LaunchedEffect(line, singingWordIdx, isPlaying, lyricsSyncOffsetMs, nextLineStartMs) {
+        if (singingWordIdx !in words.indices || !isPlaying) return@LaunchedEffect
+        var anchorPosMs = ((positionMsState?.value ?: fallbackPositionMs) + lyricsSyncOffsetMs).coerceAtLeast(0L)
+        var anchorWallMs = SystemClock.elapsedRealtime()
+        while (true) {
+            withFrameNanos {
+                val livePosMs = ((positionMsState?.value ?: fallbackPositionMs) + lyricsSyncOffsetMs).coerceAtLeast(0L)
+                val nowWallMs = SystemClock.elapsedRealtime()
+                val predictedPosMs = anchorPosMs + (nowWallMs - anchorWallMs)
+                if (abs(livePosMs - predictedPosMs) > 120L) {
+                    anchorPosMs = livePosMs
+                    anchorWallMs = nowWallMs
+                }
+                val effectivePosMs = anchorPosMs + (nowWallMs - anchorWallMs)
+                singingWordFillState.floatValue =
+                    ((effectivePosMs - activeWordStartMs).toFloat() / activeWordDurationMs.toFloat()).coerceIn(0f, 1f)
+            }
+        }
+    }
+
     FlowRow(
         modifier = modifier,
         horizontalArrangement = Arrangement.Start,
@@ -1764,6 +1934,7 @@ private fun ActiveWordSyncedLyricText(
                     isPassed = wIdx < passedCount,
                     isSinging = wIdx == singingWordIdx,
                     animateTransition = wIdx == singingWordIdx || wIdx == passedCount - 1,
+                    fillProgressState = if (wIdx == singingWordIdx) singingWordFillState else null,
                     baseFontSize = baseFontSize,
                     lineHeight = lineHeight,
                     colors = colors,
@@ -1777,6 +1948,7 @@ private fun ActiveWordSyncedLyricText(
                             isPassed = wIdx < passedCount,
                             isSinging = wIdx == singingWordIdx,
                             animateTransition = wIdx == singingWordIdx || wIdx == passedCount - 1,
+                            fillProgressState = if (wIdx == singingWordIdx) singingWordFillState else null,
                             baseFontSize = baseFontSize,
                             lineHeight = lineHeight,
                             colors = colors,
@@ -1807,59 +1979,86 @@ private fun SyncedWordToken(
     isPassed: Boolean,
     isSinging: Boolean,
     animateTransition: Boolean,
+    fillProgressState: State<Float>?,
     baseFontSize: TextUnit,
     lineHeight: TextUnit,
     colors: AlunaraColorTokens,
     inactiveWordColor: Color,
 ) {
     val density = LocalDensity.current
-    val bounce =
+    val calmLift =
         if (animateTransition) {
             animateFloatAsState(
                 targetValue = if (isSinging) 1f else 0f,
-                animationSpec = spring(dampingRatio = 0.55f, stiffness = 420f),
-                label = "word_bounce",
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = 320f),
+                label = "word_calm_lift",
             )
         } else {
             null
         }
-    val targetColor =
-        when {
-            isPassed -> colors.primaryText
-            isSinging -> colors.focusOutline
-            else -> inactiveWordColor
-        }
-    val tokenColor =
-        if (animateTransition) {
-            animateColorAsState(
-                targetValue = targetColor,
-                animationSpec = tween(durationMillis = 110),
-                label = "word_color",
-            ).value
+    val motionModifier =
+        if (calmLift != null) {
+            Modifier.graphicsLayer {
+                val progress = calmLift.value
+                translationY = (-1.5f * progress) * density.density
+                val scale = 1f + 0.02f * progress
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = TransformOrigin(0.5f, 0.85f)
+            }
         } else {
-            targetColor
+            Modifier
         }
 
-    Text(
-        text = text,
-        color = tokenColor,
-        fontSize = baseFontSize,
-        fontWeight = FontWeight.Bold,
-        lineHeight = lineHeight,
-        modifier =
-            if (bounce != null) {
-                Modifier.graphicsLayer {
-                    val progress = bounce.value
-                    translationY = (-3f * progress) * density.density
-                    val scale = 1f + 0.045f * progress
-                    scaleX = scale
-                    scaleY = scale
-                    transformOrigin = TransformOrigin(0.5f, 0.85f)
-                }
+    if (isSinging && fillProgressState != null) {
+        Box(modifier = motionModifier) {
+            Text(
+                text = text,
+                color = inactiveWordColor,
+                fontSize = baseFontSize,
+                fontWeight = FontWeight.Bold,
+                lineHeight = lineHeight,
+            )
+            Text(
+                text = text,
+                color = colors.focusOutline,
+                fontSize = baseFontSize,
+                fontWeight = FontWeight.Bold,
+                lineHeight = lineHeight,
+                modifier =
+                    Modifier
+                        .matchParentSize()
+                        .drawWithContent {
+                            val sweepWidth = size.width * fillProgressState.value.coerceIn(0f, 1f)
+                            if (sweepWidth > 0f) {
+                                clipRect(right = sweepWidth) {
+                                    this@drawWithContent.drawContent()
+                                }
+                            }
+                        },
+            )
+        }
+    } else {
+        val targetColor = if (isPassed) colors.primaryText else inactiveWordColor
+        val tokenColor =
+            if (animateTransition) {
+                animateColorAsState(
+                    targetValue = targetColor,
+                    animationSpec = tween(durationMillis = 140),
+                    label = "word_color_settle",
+                ).value
             } else {
-                Modifier
-            },
-    )
+                targetColor
+            }
+        Text(
+            text = text,
+            color = tokenColor,
+            fontSize = baseFontSize,
+            fontWeight = FontWeight.Bold,
+            lineHeight = lineHeight,
+            modifier = motionModifier,
+        )
+    }
 }
 
 @Composable

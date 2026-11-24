@@ -35,7 +35,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.alunara.app.R
 import com.alunara.app.ui.components.TvArtwork
@@ -44,7 +43,9 @@ import com.alunara.app.ui.components.TvMediaCard
 import com.alunara.app.ui.components.TvSongListSkeleton
 import com.alunara.app.ui.components.TvSongRow
 import com.alunara.app.ui.theme.AlunaraDimens
+import com.alunara.app.ui.theme.AlunaraTypography
 import com.alunara.app.ui.theme.LocalAlunaraColors
+import com.alunara.app.ui.theme.LocalAlunaraDisplayPrefs
 import com.alunara.core.domain.contract.MusicEngine
 import com.alunara.core.domain.model.AlbumDetail
 import com.alunara.core.domain.model.AlbumRef
@@ -238,6 +239,7 @@ internal fun CatalogDetailScreen(
 
             is CatalogDetailUiState.Error -> {
                 val colors = LocalAlunaraColors.current
+                val prefs = LocalAlunaraDisplayPrefs.current
                 Column(
                     modifier =
                         Modifier
@@ -249,7 +251,7 @@ internal fun CatalogDetailScreen(
                     Text(
                         text = "${stringResource(R.string.catalog_error)} (${state.message})",
                         color = colors.errorText,
-                        fontSize = 14.sp,
+                        fontSize = AlunaraTypography.body(prefs.textScale),
                     )
                     TvFocusableButton(
                         text = stringResource(R.string.retry),
@@ -314,6 +316,7 @@ private fun CatalogActionHeader(
     onEnqueueAll: () -> Unit,
 ) {
     val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
     Row(
         modifier =
             Modifier
@@ -336,13 +339,13 @@ private fun CatalogActionHeader(
             Text(
                 text = badgeLabel,
                 color = colors.primaryAccent,
-                fontSize = 12.sp,
+                fontSize = AlunaraTypography.caption(prefs.textScale),
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
                 text = title,
                 color = colors.primaryText,
-                fontSize = 22.sp,
+                fontSize = AlunaraTypography.title(prefs.textScale),
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -351,7 +354,7 @@ private fun CatalogActionHeader(
                 Text(
                     text = subtitle,
                     color = colors.mutedText,
-                    fontSize = 13.sp,
+                    fontSize = AlunaraTypography.label(prefs.textScale),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -399,6 +402,7 @@ private fun CatalogTrackList(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
     if (tracks.isEmpty()) {
         Box(
             modifier = modifier.fillMaxWidth().padding(vertical = 12.dp),
@@ -406,7 +410,7 @@ private fun CatalogTrackList(
             Text(
                 text = stringResource(R.string.catalog_empty),
                 color = colors.mutedText,
-                fontSize = 15.sp,
+                fontSize = AlunaraTypography.rowTitle(prefs.textScale),
             )
         }
         return
@@ -445,12 +449,13 @@ private fun ArtistDetailContent(
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
+    val prefs = LocalAlunaraDisplayPrefs.current
     if (detail.topSongs.isEmpty() && detail.albums.isEmpty() && detail.playlists.isEmpty()) {
         Box(modifier = modifier.fillMaxWidth().padding(vertical = 12.dp)) {
             Text(
                 text = stringResource(R.string.catalog_empty),
                 color = colors.mutedText,
-                fontSize = 15.sp,
+                fontSize = AlunaraTypography.rowTitle(prefs.textScale),
             )
         }
         return
@@ -466,7 +471,7 @@ private fun ArtistDetailContent(
                 Text(
                     text = stringResource(R.string.catalog_top_songs),
                     color = colors.primaryAccent,
-                    fontSize = 15.sp,
+                    fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                     fontWeight = FontWeight.SemiBold,
                 )
             }
@@ -492,7 +497,7 @@ private fun ArtistDetailContent(
                 Text(
                     text = stringResource(R.string.section_albums),
                     color = colors.primaryAccent,
-                    fontSize = 15.sp,
+                    fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 6.dp),
                 )
@@ -520,7 +525,7 @@ private fun ArtistDetailContent(
                 Text(
                     text = stringResource(R.string.section_playlists),
                     color = colors.primaryAccent,
-                    fontSize = 15.sp,
+                    fontSize = AlunaraTypography.rowTitle(prefs.textScale),
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 6.dp),
                 )

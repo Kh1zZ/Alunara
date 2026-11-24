@@ -267,4 +267,27 @@ class ArchiveTuneLyricsAdapterTest {
             assertEquals(LyricsProviderId.LRCLIB, doc.provider)
             assertEquals("Accurate track lyrics", doc.lines.single().text)
         }
+
+    @Test
+    fun fetchLyrics_withPreferredCleanWordSyncDoesNotQueryReferenceProviderOrModifyCjkTokens() =
+        runTest {
+            val active = AtomicInteger(0)
+            val maxObserved = AtomicInteger(0)
+            val adapter =
+                ArchiveTuneLyricsAdapter(
+                    providers =
+                        listOf(
+                            FakeProvider(LyricsProviderId.SIMPMUSIC, 0L, active, maxObserved) {
+                                Result.success("[00:01.00]<00:01.00>夜<00:01.20>に<00:01.40>駆<00:01.60>け<00:01.80>る")
+                            },
+                            FakeProvider(LyricsProviderId.LRCLIB, 0L, active, maxObserved) {
+                                error("LRCLIB should not be queried for already-clean preferred word-sync")
+                            },
+                        ),
+                )
+
+            val doc = adapter.fetchLyrics(sampleTrack, preferredProvider = LyricsProviderId.SIMPMUSIC) as LyricsDocument.Synced
+            assertEquals("夜に駆ける", doc.lines.single().text)
+            assertEquals(listOf("夜", "に", "駆", "け", "る"), doc.lines.single().words.map { it.text })
+        }
 }

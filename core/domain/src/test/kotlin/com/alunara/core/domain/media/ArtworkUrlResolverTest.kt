@@ -15,7 +15,7 @@ class ArtworkUrlResolverTest {
     fun resolve_upgradesGoogleUserContentDimensionsPerTierAndPreservesCrop() {
         val songThumb = "https://lh3.googleusercontent.com/abc123=w120-h120-l90-rj"
         assertEquals(
-            "https://lh3.googleusercontent.com/abc123=w256-h256-l90-rj",
+            "https://lh3.googleusercontent.com/abc123=w160-h160-l90-rj",
             ArtworkUrlResolver.resolve(songThumb, ArtworkTier.THUMBNAIL),
         )
         assertEquals(

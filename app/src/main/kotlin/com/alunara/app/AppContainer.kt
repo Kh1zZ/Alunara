@@ -135,6 +135,10 @@ class AppContainer(
     @Volatile
     private var isPlaybackServiceRunning: Boolean = false
 
+    fun onPlaybackServiceDestroyed() {
+        isPlaybackServiceRunning = false
+    }
+
     private fun syncPlaybackServiceState(shouldRunService: Boolean) {
         val intent = Intent(appContext, AlunaraPlaybackService::class.java)
         runCatching {

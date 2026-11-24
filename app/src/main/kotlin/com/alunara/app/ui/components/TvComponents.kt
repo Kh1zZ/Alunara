@@ -129,11 +129,11 @@ object TvArtworkContentScale : ContentScale {
  * recognizable across Android 9–11 TV (API 28+) with zero per-frame GPU blur cost.
  */
 object TvBackdropBlurTransformation : Transformation() {
-    private const val TARGET_MAX_PX = 360
-    private const val BLUR_RADIUS = 3
+    private const val TARGET_MAX_PX = 240
+    private const val BLUR_RADIUS = 2
     private const val PASSES = 2
 
-    override val cacheKey: String = "alunara_tv_backdrop_blur_r3_p2_v3_baked"
+    override val cacheKey: String = "alunara_tv_backdrop_blur_r2_p2_v4_baked"
 
     override suspend fun transform(
         input: Bitmap,
@@ -458,6 +458,7 @@ fun TvIconButton(
     iconSize: Dp = 22.dp,
     highlighted: Boolean = false,
     enabled: Boolean = true,
+    animateIconChange: Boolean = false,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
@@ -503,20 +504,25 @@ fun TvIconButton(
                 .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        AnimatedContent(
-            targetState = icon,
-            transitionSpec = {
-                if (prefs.reduceMotion) {
-                    EnterTransition.None togetherWith ExitTransition.None
-                } else {
+        if (animateIconChange && !prefs.reduceMotion) {
+            AnimatedContent(
+                targetState = icon,
+                transitionSpec = {
                     (fadeIn(tween(130)) + scaleIn(animationSpec = tween(130), initialScale = 0.82f)) togetherWith
                         (fadeOut(tween(100)) + scaleOut(animationSpec = tween(100), targetScale = 0.82f))
-                }
-            },
-            label = "tv_icon_morph",
-        ) { currentIcon ->
+                },
+                label = "tv_icon_morph",
+            ) { currentIcon ->
+                Icon(
+                    imageVector = currentIcon,
+                    contentDescription = contentDescription,
+                    tint = tintColor,
+                    modifier = Modifier.size(iconSize),
+                )
+            }
+        } else {
             Icon(
-                imageVector = currentIcon,
+                imageVector = icon,
                 contentDescription = contentDescription,
                 tint = tintColor,
                 modifier = Modifier.size(iconSize),
@@ -945,6 +951,7 @@ private fun DockedMiniPlayerContent(
                         stringResource(R.string.action_play)
                     },
                 highlighted = true,
+                animateIconChange = true,
                 onClick = onTogglePlayPause,
                 modifier =
                     Modifier

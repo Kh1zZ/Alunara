@@ -61,7 +61,10 @@ object LrcParser {
             }
 
             val bodyRaw = TIMESTAMP_REGEX.replace(trimmed, "")
-            val words = parseWordSegments(bodyRaw)
+            val lineStartTimes = lineMatches.mapNotNull(::parseTimestampMs)
+            if (lineStartTimes.isEmpty()) return@forEach
+            val firstLineTimeMs = lineStartTimes.first()
+            val words = parseWordSegments(bodyRaw, fallbackStartTimeMs = firstLineTimeMs)
             val text =
                 if (words.isNotEmpty()) {
                     words.joinToString(separator = "") { it.text }.trim()
@@ -70,9 +73,23 @@ object LrcParser {
                 }
             if (text.isEmpty()) return@forEach
 
-            lineMatches.forEach { match ->
-                val timeMs = parseTimestampMs(match) ?: return@forEach
-                syncedLines += SyncedLyricLine(startTimeMs = timeMs, text = text, words = words)
+            val hasLeadingPrefixWord = words.isNotEmpty() && words.first().startTimeMs == firstLineTimeMs &&
+                WORD_TIMESTAMP_REGEX.find(bodyRaw)?.range?.first?.let { it > 0 } == true &&
+                bodyRaw.substring(0, WORD_TIMESTAMP_REGEX.find(bodyRaw)!!.range.first).isNotBlank()
+
+            lineStartTimes.forEach { timeMs ->
+                val wordsForLine =
+                    if (hasLeadingPrefixWord && timeMs != firstLineTimeMs) {
+                        val delta = timeMs - firstLineTimeMs
+                        words.map { w ->
+                            val shiftedStart = (w.startTimeMs + delta).coerceAtLeast(0L)
+                            val shiftedEnd = w.endTimeMs?.let { (it + delta).coerceAtLeast(shiftedStart + 1L) }
+                            w.copy(startTimeMs = shiftedStart, endTimeMs = shiftedEnd)
+                        }
+                    } else {
+                        words
+                    }
+                syncedLines += SyncedLyricLine(startTimeMs = timeMs, text = text, words = wordsForLine)
             }
         }
 
@@ -113,13 +130,14 @@ object LrcParser {
     }
 
     /**
-     * Detects syllable-fragmented lyrics where words were broken into 1–3 char tokens
+     * Detects syllable-fragmented lyrics where non-CJK words were broken into 1-3 char space-separated tokens
      * (e.g., "Ha ri- ha ri ber u lang" -> average token length < 3.4).
      */
     fun isSyllableFragmented(doc: LyricsDocument.Synced): Boolean {
         var totalChars = 0
         var totalTokens = 0
         doc.lines.forEach { line ->
+            if (line.text.containsCjkKanaHangul()) return@forEach
             val tokens = line.text.trim().split(WHITESPACE_REGEX).filter { it.isNotEmpty() }
             if (tokens.size >= 4) {
                 totalTokens += tokens.size
@@ -131,21 +149,47 @@ object LrcParser {
     }
 
     /**
+     * Returns true when a synced document needs word-boundary repair — either because lines are
+     * space-fragmented syllables or because non-CJK ELRC lines split single words across timed tokens.
+     */
+    fun needsWordBoundaryRepair(doc: LyricsDocument.Synced): Boolean {
+        if (isSyllableFragmented(doc)) return true
+        return doc.lines.any { line ->
+            if (!line.hasWordSync || line.text.containsCjkKanaHangul()) {
+                false
+            } else {
+                val words = line.words
+                (0 until words.lastIndex).any { idx ->
+                    val current = words[idx].text
+                    val next = words[idx + 1].text
+                    current.isNotEmpty() &&
+                        next.isNotEmpty() &&
+                        !current.last().isWhitespace() &&
+                        !next.first().isWhitespace()
+                }
+            }
+        }
+    }
+
+    /**
      * Reconstructs whole words (preserving each merged word's earliest syllable timestamp)
      * by matching concatenated syllable runs against clean reference lyrics vocabulary.
+     * Leaves CJK/Kana/Hangul lines and already-clean word-synced documents untouched.
      */
     fun repairWordBoundaries(
         doc: LyricsDocument.Synced,
         referenceTexts: List<String>,
     ): LyricsDocument.Synced {
-        if (referenceTexts.isEmpty()) return doc
+        if (referenceTexts.isEmpty() || !needsWordBoundaryRepair(doc)) return doc
         val refVocab = buildReferenceVocabulary(referenceTexts)
         if (refVocab.isEmpty()) return doc
 
         val docIsFragmented = isSyllableFragmented(doc)
         val repairedLines =
             doc.lines.map { line ->
-                if (line.hasWordSync) {
+                if (line.text.containsCjkKanaHangul()) {
+                    line
+                } else if (line.hasWordSync) {
                     val trimmedWords =
                         line.words
                             .mapNotNull { w ->
@@ -176,6 +220,15 @@ object LrcParser {
 
         return doc.copy(lines = repairedLines)
     }
+
+    private fun String.containsCjkKanaHangul(): Boolean =
+        any { ch ->
+            ch.code in 0x3040..0x30FF ||
+                ch.code in 0x31F0..0x31FF ||
+                ch.code in 0x3400..0x4DBF ||
+                ch.code in 0x4E00..0x9FFF ||
+                ch.code in 0xAC00..0xD7A3
+        }
 
     private fun buildReferenceVocabulary(referenceTexts: List<String>): Set<String> {
         val vocab = HashSet<String>()
@@ -234,11 +287,24 @@ object LrcParser {
             }
         }
 
-    private fun parseWordSegments(body: String): List<SyncedLyricWord> {
+    private fun parseWordSegments(
+        body: String,
+        fallbackStartTimeMs: Long? = null,
+    ): List<SyncedLyricWord> {
         val matches = WORD_TIMESTAMP_REGEX.findAll(body).toList()
         if (matches.isEmpty()) return emptyList()
 
         val rawWords = mutableListOf<SyncedLyricWord>()
+        val firstMatchStart = matches.first().range.first
+        if (firstMatchStart > 0) {
+            val prefixRaw = decodeHtmlEntities(body.substring(0, firstMatchStart))
+            if (prefixRaw.isNotBlank()) {
+                val startMs = fallbackStartTimeMs ?: parseTimestampMs(matches.first())
+                if (startMs != null) {
+                    rawWords += SyncedLyricWord(startTimeMs = startMs, text = prefixRaw.trimStart())
+                }
+            }
+        }
         for (i in matches.indices) {
             val current = matches[i]
             val startMs = parseTimestampMs(current) ?: continue
