@@ -1877,10 +1877,16 @@ object YouTube {
         videoId: String,
         like: Boolean,
     ) = runCatching {
-        if (like) {
-            innerTube.likeVideo(WEB_REMIX, videoId)
-        } else {
-            innerTube.unlikeVideo(WEB_REMIX, videoId)
+        withPlaylistMutationAuthRecovery {
+            val response =
+                if (like) {
+                    innerTube.likeVideo(WEB_REMIX, videoId)
+                } else {
+                    innerTube.unlikeVideo(WEB_REMIX, videoId)
+                }
+            if (response.status.value !in 200..299) {
+                throw IllegalStateException("InnerTube likeVideo HTTP ${response.status.value}")
+            }
         }
     }
 
@@ -1888,10 +1894,16 @@ object YouTube {
         playlistId: String,
         like: Boolean,
     ) = runCatching {
-        if (like) {
-            innerTube.likePlaylist(WEB_REMIX, playlistId)
-        } else {
-            innerTube.unlikePlaylist(WEB_REMIX, playlistId)
+        withPlaylistMutationAuthRecovery {
+            val response =
+                if (like) {
+                    innerTube.likePlaylist(WEB_REMIX, playlistId)
+                } else {
+                    innerTube.unlikePlaylist(WEB_REMIX, playlistId)
+                }
+            if (response.status.value !in 200..299) {
+                throw IllegalStateException("InnerTube likePlaylist HTTP ${response.status.value}")
+            }
         }
     }
 
@@ -1899,10 +1911,16 @@ object YouTube {
         channelId: String,
         subscribe: Boolean,
     ) = runCatching {
-        if (subscribe) {
-            innerTube.subscribeChannel(WEB_REMIX, channelId)
-        } else {
-            innerTube.unsubscribeChannel(WEB_REMIX, channelId)
+        withPlaylistMutationAuthRecovery {
+            val response =
+                if (subscribe) {
+                    innerTube.subscribeChannel(WEB_REMIX, channelId)
+                } else {
+                    innerTube.unsubscribeChannel(WEB_REMIX, channelId)
+                }
+            if (response.status.value !in 200..299) {
+                throw IllegalStateException("InnerTube subscribeChannel HTTP ${response.status.value}")
+            }
         }
     }
 

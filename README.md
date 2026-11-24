@@ -44,7 +44,7 @@ Television living rooms deserve a calmer music experience than a stretched phone
 | **Audio Pipeline** | Audio-only AAC/MP4A and Opus streams ranked by URL availability and the selected bitrate preset |
 | **Lyrics & Scripts** | `100 ms` decoupled **Calm Vocal Sweep & Center Glide** karaoke sync (`[offset:±ms]`, `endTimeMs`, CJK normalization) + single-pass offline **Romaji / Hangul / Cyrillic** |
 | **App Updates** | Built-in **GitHub Releases** updater with automatic ABI selection (`arm64-v8a` / `armeabi-v7a`) and direct Android TV `PackageInstaller` handoff |
-| **Sign-In Experience** | **Smart Phone QR Login Wizard** over local LAN HTTP — zero on-screen remote typing |
+| **Sign-In Experience** | **Smart Phone QR & Pairing Code Wizard** via [`kh1zz.github.io/Alunara/login`](https://kh1zz.github.io/Alunara/login) and local LAN HTTP — zero on-screen remote typing |
 | **Privacy & Licensing** | **Zero ads, zero telemetry**, guest mode out of the box, 100% open source under **GNU GPL v3.0** |
 
 ---
@@ -95,9 +95,9 @@ Rather than shifting colors aggressively with every album cover, Alunara locks i
 - Bounded multi-provider engine (**SimpMusic**, **LRCLIB**, **KuGou**) with adaptive provider reliability scoring and Room caching (`LRC_V2`).
 - **Built-in single-pass offline romanization** for **Japanese (Kuromoji)**, **Korean Hangul**, and **Cyrillic** scripts directly on the TV.
 
-### 4. Zero-Typing Smart Phone QR Login
-- Start sign-in on your TV, scan the on-screen QR code with your phone on the same Wi-Fi network, and follow the live synchronized TV ↔ phone wizard served by Alunara's temporary local LAN HTTP server.
-- Syncs your YouTube Music playlists, liked songs, library, and listening history while keeping signed-in and guest caches strictly separated via `accountScope`.
+### 4. Zero-Typing Smart Phone QR & Pairing Portal
+- Start sign-in on your TV, scan the on-screen QR code, or open [`https://kh1zz.github.io/Alunara/login`](https://kh1zz.github.io/Alunara/login) on your phone and enter the compact **TV Pairing Code** — no typing raw local IP/port URLs. Your phone displays a live **"Sign-In Complete"** confirmation popup as soon as the TV authenticates.
+- Bi-directional **YouTube Music Account Sync**: create and add/remove tracks in playlists, save/unsave external playlists, subscribe/unsubscribe artists, sync likes with optimistic rollback on failure, and report playback to your listening history while keeping signed-in and guest caches strictly isolated via `accountScope`.
 - Credentials are sealed at rest using hardware-backed Android Keystore (**AES-256-GCM**).
 
 ### 5. Private, Lightweight & Ready Without an Account
@@ -185,9 +185,9 @@ Official signed builds are published **exclusively on [GitHub Releases](https://
 2. Connect from your computer and install the APK matching your TV's ABI:
    ```bash
    adb connect <YOUR_TV_IP>:5555
-   adb install -r alunara-0.2.0.armv7a.apk
+   adb install -r alunara-0.2.1.armv7a.apk
    ```
-   *(Replace with `alunara-0.2.0.armv8a.apk` for 64-bit `arm64-v8a` devices. Once installed, future releases can be downloaded and installed directly inside **Settings → App Updates**.)*
+   *(Replace with `alunara-0.2.1.armv8a.apk` for 64-bit `arm64-v8a` devices. Once installed, future releases can be downloaded and installed directly inside **Settings → App Updates**.)*
 
 #### Option B — USB Flash Drive or TV Downloader App
 1. Download the matching APK directly from [GitHub Releases](https://github.com/Kh1zZ/Alunara/releases/latest).
@@ -210,7 +210,7 @@ Official signed builds are published **exclusively on [GitHub Releases](https://
 
 ### Common Gradle Tasks
 ```bash
-# Run all 112 JVM unit tests across 24 test suites
+# Run all 118 JVM unit tests across 24 test suites
 ./gradlew :core:domain:test :core:music:test :core:lyrics:test :core:data:testDebugUnitTest :app:testDebugUnitTest
 
 # Run Android Lint on debug sources (signed R8 split release APKs are built via GitHub Actions)

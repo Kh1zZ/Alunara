@@ -7,17 +7,30 @@ graphify-out/
 
 # Gradle & Build outputs
 .gradle/
+.kotlin/
+**/.kotlin/
 build/
 **/build/
+dist/
 local.properties
 captures/
+*.hprof
 
-# IntelliJ / Android Studio
+# IntelliJ / Android Studio / Editors
 *.iml
 .idea/
+.vscode/
+*.swp
+*~
 .navigation/
 .cxx/
 .externalNativeBuild/
+
+# Local AI / Tooling state
+.context-mode/
+.claude/
+.cursor/
+.agent/
 
 # Android binaries & intermediates
 *.apk

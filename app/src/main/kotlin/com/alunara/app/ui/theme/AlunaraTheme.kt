@@ -2,9 +2,17 @@ package com.alunara.app.ui.theme
 
 import android.content.Context
 import android.provider.Settings
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -216,12 +224,25 @@ class AlunaraDisplayPrefsStore(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AlunaraTheme(
     displayPrefs: AlunaraDisplayPrefs = AlunaraDisplayPrefs(),
     content: @Composable () -> Unit,
 ) {
     val tokens = if (displayPrefs.highContrast) AlunaraPalette.HighContrastTokens else AlunaraPalette.DefaultTokens
+    val tvBringIntoViewSpec =
+        remember(displayPrefs.reduceMotion) {
+            object : BringIntoViewSpec {
+                @Suppress("OVERRIDE_DEPRECATION")
+                override val scrollAnimationSpec: AnimationSpec<Float> =
+                    if (displayPrefs.reduceMotion) {
+                        snap()
+                    } else {
+                        tween(durationMillis = 165, easing = FastOutSlowInEasing)
+                    }
+            }
+        }
     val colorScheme =
         darkColorScheme(
             primary = tokens.primaryAccent,
@@ -239,6 +260,7 @@ fun AlunaraTheme(
     CompositionLocalProvider(
         LocalAlunaraDisplayPrefs provides displayPrefs,
         LocalAlunaraColors provides tokens,
+        LocalBringIntoViewSpec provides tvBringIntoViewSpec,
     ) {
         MaterialTheme(
             colorScheme = colorScheme,

@@ -866,4 +866,120 @@ class ArchiveTuneMusicAdapterTest {
         adapter.setContentLanguage("   ")
         assertEquals("ja", backend.locale.hl)
     }
+
+    @Test
+    fun accountSync_playlistAndArtistMutationsAndPlaybackReport_delegateCleanly() =
+        runTest {
+            var createdTitle: String? = null
+            var createdInitialIds: List<String> = emptyList()
+            var addedCall: Pair<String, String>? = null
+            var removedCall: Triple<String, String, String>? = null
+            var likedPlaylistCall: Pair<String, Boolean>? = null
+            var subscribedCall: Pair<String, Boolean>? = null
+            var playbackCall: Triple<String?, String, PlaybackAuthState>? = null
+            var historySyncCount = 0
+
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override fun hasLoginCookie(): Boolean = true
+
+                    override suspend fun createPlaylist(
+                        title: String,
+                        videoIds: List<String>,
+                    ): Result<String> {
+                        createdTitle = title
+                        createdInitialIds = videoIds
+                        return Result.success("PL_NEW")
+                    }
+
+                    override suspend fun addToPlaylist(
+                        playlistId: String,
+                        videoId: String,
+                    ): Result<String> {
+                        addedCall = playlistId to videoId
+                        return Result.success("SET_ID_1")
+                    }
+
+                    override suspend fun playlistEntrySetVideoIds(
+                        playlistId: String,
+                        videoId: String,
+                    ): Result<List<String>> = Result.success(listOf("RESOLVED_SET_ID"))
+
+                    override suspend fun removeFromPlaylist(
+                        playlistId: String,
+                        videoId: String,
+                        setVideoId: String,
+                    ): Result<Unit> {
+                        removedCall = Triple(playlistId, videoId, setVideoId)
+                        return Result.success(Unit)
+                    }
+
+                    override suspend fun likePlaylist(
+                        playlistId: String,
+                        like: Boolean,
+                    ): Result<Unit> {
+                        likedPlaylistCall = playlistId to like
+                        return Result.success(Unit)
+                    }
+
+                    override suspend fun getChannelId(browseId: String): String = "UC_RESOLVED_$browseId"
+
+                    override suspend fun subscribeChannel(
+                        channelId: String,
+                        subscribe: Boolean,
+                    ): Result<Unit> {
+                        subscribedCall = channelId to subscribe
+                        return Result.success(Unit)
+                    }
+
+                    override suspend fun registerPlayback(
+                        playlistId: String?,
+                        playbackTracking: String,
+                        authState: PlaybackAuthState,
+                    ): Result<Unit> {
+                        playbackCall = Triple(playlistId, playbackTracking, authState)
+                        return Result.success(Unit)
+                    }
+
+                    override fun notifyHistorySynced() {
+                        historySyncCount++
+                    }
+                }
+
+            val adapter = ArchiveTuneMusicAdapter(backend) {}
+
+            val created = adapter.createAccountPlaylist("  Roadtrip  ", listOf("v1", " "))
+            assertEquals(Result.success("PL_NEW"), created)
+            assertEquals("Roadtrip", createdTitle)
+            assertEquals(listOf("v1"), createdInitialIds)
+
+            val added = adapter.addTrackToAccountPlaylist("VLPL_NEW", "v2")
+            assertTrue(added.isSuccess)
+            assertEquals("PL_NEW" to "v2", addedCall)
+
+            // Fallback lookup when setVideoId is null
+            val removedWithLookup = adapter.removeTrackFromAccountPlaylist("VLPL_NEW", "v2", null)
+            assertTrue(removedWithLookup.isSuccess)
+            assertEquals(Triple("PL_NEW", "v2", "RESOLVED_SET_ID"), removedCall)
+
+            val saved = adapter.setRemotePlaylistSaved("VLPL_SAVE", true)
+            assertTrue(saved.isSuccess)
+            assertEquals("PL_SAVE" to true, likedPlaylistCall)
+
+            // Resolves non-UC browseId via getChannelId
+            val subscribed = adapter.setRemoteArtistSubscription("MPLA_ARTIST", null, true)
+            assertTrue(subscribed.isSuccess)
+            assertEquals("UC_RESOLVED_MPLA_ARTIST" to true, subscribedCall)
+
+            val reported =
+                adapter.reportPlaybackToAccount(
+                    trackId = "v2",
+                    playbackTrackingUrl = "https://music.youtube.com/api/stats/playback?docid=v2",
+                    playlistId = "VLPL_NEW",
+                )
+            assertTrue(reported.isSuccess)
+            assertEquals("PL_NEW", playbackCall?.first)
+            assertEquals("https://music.youtube.com/api/stats/playback?docid=v2", playbackCall?.second)
+            assertEquals(1, historySyncCount)
+        }
 }

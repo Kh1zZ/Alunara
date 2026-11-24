@@ -109,6 +109,7 @@ fun SettingsScreen(
     onOpenWebViewLogin: () -> Unit,
     onLogout: () -> Unit,
     modifier: Modifier = Modifier,
+    entryFocusRequester: FocusRequester = remember { FocusRequester() },
     audioQuality: AudioQualityPreset = AudioQualityPreset.AUTO,
     onSelectAudioQuality: (AudioQualityPreset) -> Unit = {},
     appLanguage: AppLanguage = AppLanguage.ENGLISH,
@@ -192,6 +193,7 @@ fun SettingsScreen(
                 icon = if (autoplayEnabled) Icons.Rounded.CheckCircle else Icons.Rounded.AutoAwesome,
                 highlighted = autoplayEnabled,
                 onClick = onToggleAutoplay,
+                buttonFocusRequester = entryFocusRequester,
             )
         }
 
@@ -1033,6 +1035,7 @@ private fun SettingsToggleRow(
     icon: ImageVector,
     highlighted: Boolean,
     onClick: () -> Unit,
+    buttonFocusRequester: FocusRequester? = null,
 ) {
     val colors = LocalAlunaraColors.current
     Row(
@@ -1050,6 +1053,7 @@ private fun SettingsToggleRow(
             icon = icon,
             highlighted = highlighted,
             onClick = onClick,
+            buttonFocusRequester = buttonFocusRequester,
         )
     }
 }
@@ -1061,6 +1065,7 @@ private fun SettingsInlineToggle(
     icon: ImageVector,
     highlighted: Boolean,
     onClick: () -> Unit,
+    buttonFocusRequester: FocusRequester? = null,
 ) {
     val colors = LocalAlunaraColors.current
     val activePrefs = LocalAlunaraDisplayPrefs.current
@@ -1084,6 +1089,7 @@ private fun SettingsInlineToggle(
             icon = icon,
             highlighted = highlighted,
             onClick = onClick,
+            modifier = if (buttonFocusRequester != null) Modifier.focusRequester(buttonFocusRequester) else Modifier,
         )
     }
 }

@@ -48,6 +48,24 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
+enum class SyncNoticeKind {
+    FAVORITE_SYNC_FAILED,
+    PLAYLIST_CREATED,
+    PLAYLIST_ADDED,
+    PLAYLIST_REMOVED,
+    PLAYLIST_SAVED,
+    PLAYLIST_UNSAVED,
+    ARTIST_SUBSCRIBED,
+    ARTIST_UNSUBSCRIBED,
+    SYNC_FAILED,
+}
+
+data class SyncNotice(
+    val id: Long,
+    val kind: SyncNoticeKind,
+    val detail: String? = null,
+)
+
 data class PlaybackSessionUiState(
     val queueState: QueueState = QueueState(),
     val status: PlaybackStatus = PlaybackStatus.IDLE,
@@ -65,9 +83,12 @@ data class PlaybackSessionUiState(
     val favoriteIds: Set<String> = emptySet(),
     val recentHistory: List<Track> = emptyList(),
     val accountPlaylists: List<PlaylistSummary> = emptyList(),
+    val savedPlaylistIds: Set<String> = emptySet(),
+    val subscribedArtistIds: Set<String> = emptySet(),
     val remoteFavorites: List<Track> = emptyList(),
     val remoteHistory: List<Track> = emptyList(),
     val librarySyncing: Boolean = false,
+    val syncNotice: SyncNotice? = null,
     val queueChips: List<QueueFilterChip> = emptyList(),
     val activeQueueChipLabel: String? = null,
     val radioLoading: Boolean = false,
@@ -316,6 +337,7 @@ class PlaybackSessionManager(
                     favoriteIds = mergedFavoriteIds,
                     recentHistory = history,
                     accountPlaylists = librarySnapshot.playlists,
+                    savedPlaylistIds = librarySnapshot.playlists.map { pl -> pl.id.removePrefix("VL") }.toSet(),
                     remoteFavorites = librarySnapshot.likedTracks,
                     remoteHistory = librarySnapshot.historyTracks,
                 )
@@ -343,6 +365,8 @@ class PlaybackSessionManager(
             mutableUiState.update { state ->
                 state.copy(
                     accountPlaylists = emptyList(),
+                    savedPlaylistIds = emptySet(),
+                    subscribedArtistIds = emptySet(),
                     remoteFavorites = emptyList(),
                     remoteHistory = emptyList(),
                     favoriteIds = state.favorites.map { it.id }.toSet(),
@@ -357,6 +381,7 @@ class PlaybackSessionManager(
             mutableUiState.update { state ->
                 state.copy(
                     accountPlaylists = snapshot.playlists,
+                    savedPlaylistIds = snapshot.playlists.map { pl -> pl.id.removePrefix("VL") }.toSet(),
                     remoteFavorites = snapshot.likedTracks,
                     remoteHistory = snapshot.historyTracks,
                     favoriteIds = (state.favorites.map { it.id } + snapshot.likedTracks.map { it.id }).toSet(),
@@ -600,6 +625,26 @@ class PlaybackSessionManager(
             }
     }
 
+    fun clearSyncNotice() {
+        mutableUiState.update { if (it.syncNotice == null) it else it.copy(syncNotice = null) }
+    }
+
+    private fun emitSyncNotice(
+        kind: SyncNoticeKind,
+        detail: String? = null,
+    ) {
+        mutableUiState.update {
+            it.copy(
+                syncNotice =
+                    SyncNotice(
+                        id = System.nanoTime(),
+                        kind = kind,
+                        detail = detail,
+                    ),
+            )
+        }
+    }
+
     fun toggleFavorite(track: Track? = mutableUiState.value.currentTrack) {
         val target = track ?: return
         val activeState = mutableUiState.value
@@ -607,6 +652,9 @@ class PlaybackSessionManager(
         val isAuthenticated = activeState.authSession is AuthSessionState.Authenticated
         val wasLikedAnywhere = target.id in activeState.favoriteIds
         val inLocalStore = activeState.favorites.any { it.id == target.id }
+        val prevFavorites = activeState.favorites
+        val prevRemoteFavorites = activeState.remoteFavorites
+        val prevFavoriteIds = activeState.favoriteIds
 
         scope.launch {
             val nowLiked =
@@ -639,10 +687,205 @@ class PlaybackSessionManager(
                 )
             }
             if (isAuthenticated) {
-                withContext(ioDispatcher) {
-                    runCatching { musicEngine.setRemoteTrackLike(target.id, nowLiked) }
+                val remoteResult =
+                    withContext(ioDispatcher) {
+                        runCatching { musicEngine.setRemoteTrackLike(target.id, nowLiked) }
+                            .getOrElse { Result.failure(it) }
+                    }
+                if (remoteResult.isFailure) {
+                    if (inLocalStore != nowLiked) {
+                        withContext(ioDispatcher) {
+                            runCatching { catalogStore.toggleFavorite(target, activeScope) }
+                        }
+                    }
+                    mutableUiState.update { state ->
+                        state.copy(
+                            favorites = prevFavorites,
+                            remoteFavorites = prevRemoteFavorites,
+                            favoriteIds = prevFavoriteIds,
+                        )
+                    }
+                    emitSyncNotice(SyncNoticeKind.FAVORITE_SYNC_FAILED, target.title)
                 }
             }
+        }
+    }
+
+    fun createAccountPlaylist(
+        title: String,
+        initialTrack: Track? = null,
+        onComplete: (String?) -> Unit = {},
+    ) {
+        val cleanTitle = title.trim()
+        val state = mutableUiState.value
+        if (cleanTitle.isEmpty() || state.authSession !is AuthSessionState.Authenticated) {
+            onComplete(null)
+            return
+        }
+        scope.launch {
+            val initialIds = listOfNotNull(initialTrack?.id)
+            val result =
+                withContext(ioDispatcher) {
+                    runCatching { musicEngine.createAccountPlaylist(cleanTitle, initialIds) }
+                        .getOrElse { Result.failure(it) }
+                }
+            result.fold(
+                onSuccess = { createdId ->
+                    emitSyncNotice(SyncNoticeKind.PLAYLIST_CREATED, cleanTitle)
+                    refreshAccountLibrary()
+                    onComplete(createdId)
+                },
+                onFailure = { err ->
+                    emitSyncNotice(SyncNoticeKind.SYNC_FAILED, err.message)
+                    onComplete(null)
+                },
+            )
+        }
+    }
+
+    fun addTrackToAccountPlaylist(
+        playlist: PlaylistSummary,
+        track: Track,
+        onComplete: (Boolean) -> Unit = {},
+    ) {
+        if (mutableUiState.value.authSession !is AuthSessionState.Authenticated) {
+            onComplete(false)
+            return
+        }
+        scope.launch {
+            val result =
+                withContext(ioDispatcher) {
+                    runCatching { musicEngine.addTrackToAccountPlaylist(playlist.id, track.id) }
+                        .getOrElse { Result.failure(it) }
+                }
+            result.fold(
+                onSuccess = {
+                    emitSyncNotice(SyncNoticeKind.PLAYLIST_ADDED, playlist.title)
+                    refreshAccountLibrary()
+                    onComplete(true)
+                },
+                onFailure = { err ->
+                    emitSyncNotice(SyncNoticeKind.SYNC_FAILED, err.message)
+                    onComplete(false)
+                },
+            )
+        }
+    }
+
+    fun removeTrackFromAccountPlaylist(
+        playlistId: String,
+        track: Track,
+        onComplete: (Boolean) -> Unit = {},
+    ) {
+        if (mutableUiState.value.authSession !is AuthSessionState.Authenticated) {
+            onComplete(false)
+            return
+        }
+        scope.launch {
+            val result =
+                withContext(ioDispatcher) {
+                    runCatching {
+                        musicEngine.removeTrackFromAccountPlaylist(
+                            playlistId = playlistId,
+                            trackId = track.id,
+                            setVideoId = track.setVideoId,
+                        )
+                    }.getOrElse { Result.failure(it) }
+                }
+            result.fold(
+                onSuccess = {
+                    emitSyncNotice(SyncNoticeKind.PLAYLIST_REMOVED, track.title)
+                    refreshAccountLibrary()
+                    onComplete(true)
+                },
+                onFailure = { err ->
+                    emitSyncNotice(SyncNoticeKind.SYNC_FAILED, err.message)
+                    onComplete(false)
+                },
+            )
+        }
+    }
+
+    fun toggleSavePlaylist(playlist: PlaylistSummary) {
+        val state = mutableUiState.value
+        if (state.authSession !is AuthSessionState.Authenticated) return
+        val cleanId = playlist.id.removePrefix("VL")
+        val wasSaved = cleanId in state.savedPlaylistIds
+        val targetSaved = !wasSaved
+        val prevSavedIds = state.savedPlaylistIds
+        val prevPlaylists = state.accountPlaylists
+
+        mutableUiState.update { current ->
+            val nextSavedIds = if (targetSaved) current.savedPlaylistIds + cleanId else current.savedPlaylistIds - cleanId
+            val nextPlaylists =
+                if (targetSaved) {
+                    (listOf(playlist) + current.accountPlaylists).distinctBy { it.id.removePrefix("VL") }
+                } else {
+                    current.accountPlaylists.filterNot { it.id.removePrefix("VL") == cleanId }
+                }
+            current.copy(savedPlaylistIds = nextSavedIds, accountPlaylists = nextPlaylists)
+        }
+
+        scope.launch {
+            val result =
+                withContext(ioDispatcher) {
+                    runCatching { musicEngine.setRemotePlaylistSaved(cleanId, targetSaved) }
+                        .getOrElse { Result.failure(it) }
+                }
+            result.fold(
+                onSuccess = {
+                    emitSyncNotice(
+                        if (targetSaved) SyncNoticeKind.PLAYLIST_SAVED else SyncNoticeKind.PLAYLIST_UNSAVED,
+                        playlist.title,
+                    )
+                    refreshAccountLibrary()
+                },
+                onFailure = { err ->
+                    mutableUiState.update { current ->
+                        current.copy(savedPlaylistIds = prevSavedIds, accountPlaylists = prevPlaylists)
+                    }
+                    emitSyncNotice(SyncNoticeKind.SYNC_FAILED, err.message)
+                },
+            )
+        }
+    }
+
+    fun toggleArtistSubscription(
+        artistId: String,
+        channelId: String?,
+        artistName: String? = null,
+    ) {
+        val state = mutableUiState.value
+        if (state.authSession !is AuthSessionState.Authenticated) return
+        val prevSubs = state.subscribedArtistIds
+        val targetSubscribed = artistId !in prevSubs
+        mutableUiState.update { current ->
+            val nextSubs = if (targetSubscribed) current.subscribedArtistIds + artistId else current.subscribedArtistIds - artistId
+            current.copy(subscribedArtistIds = nextSubs)
+        }
+        scope.launch {
+            val result =
+                withContext(ioDispatcher) {
+                    runCatching {
+                        musicEngine.setRemoteArtistSubscription(
+                            artistId = artistId,
+                            channelId = channelId,
+                            subscribed = targetSubscribed,
+                        )
+                    }.getOrElse { Result.failure(it) }
+                }
+            result.fold(
+                onSuccess = {
+                    emitSyncNotice(
+                        if (targetSubscribed) SyncNoticeKind.ARTIST_SUBSCRIBED else SyncNoticeKind.ARTIST_UNSUBSCRIBED,
+                        artistName,
+                    )
+                },
+                onFailure = { err ->
+                    mutableUiState.update { current -> current.copy(subscribedArtistIds = prevSubs) }
+                    emitSyncNotice(SyncNoticeKind.SYNC_FAILED, err.message)
+                },
+            )
         }
     }
 
@@ -687,6 +930,7 @@ class PlaybackSessionManager(
                         favoriteIds = (favorites.map { fav -> fav.id } + snapshot.likedTracks.map { fav -> fav.id }).toSet(),
                         recentHistory = history,
                         accountPlaylists = snapshot.playlists,
+                        savedPlaylistIds = snapshot.playlists.map { pl -> pl.id.removePrefix("VL") }.toSet(),
                         remoteFavorites = snapshot.likedTracks,
                         remoteHistory = snapshot.historyTracks,
                     )
@@ -725,6 +969,8 @@ class PlaybackSessionManager(
                     favoriteIds = guestFavorites.map { fav -> fav.id }.toSet(),
                     recentHistory = guestHistory,
                     accountPlaylists = emptyList(),
+                    savedPlaylistIds = emptySet(),
+                    subscribedArtistIds = emptySet(),
                     remoteFavorites = emptyList(),
                     remoteHistory = emptyList(),
                 )
@@ -1041,17 +1287,40 @@ class PlaybackSessionManager(
         if (lastRecordedQueueItemId == currentItem.queueItemId) return
         lastRecordedQueueItemId = currentItem.queueItemId
         val activeScope = state.authSession.scope
+        val isAuthenticated = state.authSession is AuthSessionState.Authenticated
+        val trackingUrl = cachedSource?.takeIf { it.trackId == currentItem.track.id }?.playbackTrackingUrl
 
         scope.launch {
             withContext(ioDispatcher) {
                 runCatching { catalogStore.recordHistory(currentItem.track, activeScope) }
+                if (isAuthenticated) {
+                    runCatching {
+                        musicEngine.reportPlaybackToAccount(
+                            trackId = currentItem.track.id,
+                            playbackTrackingUrl = trackingUrl,
+                        )
+                    }
+                }
             }
             val refreshed =
                 withContext(ioDispatcher) {
                     runCatching { catalogStore.getRecentHistory(activeScope) }.getOrDefault(emptyList())
                 }
-            mutableUiState.update { state ->
-                if (state.recentHistory == refreshed) state else state.copy(recentHistory = refreshed)
+            mutableUiState.update { current ->
+                val updatedRemoteHistory =
+                    if (isAuthenticated) {
+                        (listOf(currentItem.track) + current.remoteHistory).distinctBy { it.id }
+                    } else {
+                        current.remoteHistory
+                    }
+                if (current.recentHistory == refreshed && current.remoteHistory == updatedRemoteHistory) {
+                    current
+                } else {
+                    current.copy(
+                        recentHistory = refreshed,
+                        remoteHistory = updatedRemoteHistory,
+                    )
+                }
             }
         }
     }
@@ -1191,6 +1460,8 @@ class PlaybackSessionManager(
                         favoriteIds = guestFav.map { it.id }.toSet(),
                         recentHistory = guestHist,
                         accountPlaylists = emptyList(),
+                        savedPlaylistIds = emptySet(),
+                        subscribedArtistIds = emptySet(),
                         remoteFavorites = emptyList(),
                         remoteHistory = emptyList(),
                     )

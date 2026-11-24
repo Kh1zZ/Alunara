@@ -70,6 +70,39 @@ interface MusicEngine {
         liked: Boolean,
     ): Result<Unit> = Result.success(Unit)
 
+    suspend fun createAccountPlaylist(
+        title: String,
+        initialTrackIds: List<String> = emptyList(),
+    ): Result<String> = Result.failure(UnsupportedOperationException("Create playlist not supported"))
+
+    suspend fun addTrackToAccountPlaylist(
+        playlistId: String,
+        trackId: String,
+    ): Result<Unit> = Result.success(Unit)
+
+    suspend fun removeTrackFromAccountPlaylist(
+        playlistId: String,
+        trackId: String,
+        setVideoId: String? = null,
+    ): Result<Unit> = Result.success(Unit)
+
+    suspend fun setRemotePlaylistSaved(
+        playlistId: String,
+        saved: Boolean,
+    ): Result<Unit> = Result.success(Unit)
+
+    suspend fun setRemoteArtistSubscription(
+        artistId: String,
+        channelId: String? = null,
+        subscribed: Boolean,
+    ): Result<Unit> = Result.success(Unit)
+
+    suspend fun reportPlaybackToAccount(
+        trackId: String,
+        playbackTrackingUrl: String?,
+        playlistId: String? = null,
+    ): Result<Unit> = Result.success(Unit)
+
     fun setContentLanguage(languageTag: String) = Unit
 }
 

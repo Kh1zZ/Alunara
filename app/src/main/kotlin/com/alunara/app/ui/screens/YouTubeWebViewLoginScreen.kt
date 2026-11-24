@@ -102,6 +102,8 @@ fun YouTubeWebViewLoginScreen(
     onCancel: () -> Unit,
     onCredentialsCaptured: (AccountCredentials) -> Unit,
     modifier: Modifier = Modifier,
+    companionServer: LocalLoginCompanionServer? = null,
+    onRegisterCompanionInputHandler: ((suspend (CompanionInputPayload) -> Unit)?) -> Unit = {},
 ) {
     val colors = LocalAlunaraColors.current
     val appLanguage = LocalAppLanguage.current
@@ -110,8 +112,17 @@ fun YouTubeWebViewLoginScreen(
     val installStepWatcherJs = remember(appLanguage) { buildInstallStepWatcherJs(appLanguage) }
     val companionScope = rememberCoroutineScope()
     var currentHost by remember { mutableStateOf("accounts.google.com") }
-    var currentStep by remember { mutableStateOf(LocalLoginCompanionServer.STEP_EMAIL) }
-    var companionUrl by remember { mutableStateOf<String?>(null) }
+    var currentStep by remember {
+        mutableStateOf(
+            if (companionServer?.isCompletedOnTv == true) {
+                LocalLoginCompanionServer.STEP_DONE
+            } else {
+                LocalLoginCompanionServer.STEP_EMAIL
+            },
+        )
+    }
+    var companionUrl by remember { mutableStateOf(companionServer?.localLoginUrl) }
+    var pairingCode by remember { mutableStateOf(companionServer?.pairingCode) }
     var companionFeedbackResId by remember { mutableStateOf<Int?>(null) }
     var webViewFocused by remember { mutableStateOf(false) }
     var domFocusIndex by remember { mutableIntStateOf(0) }
@@ -155,7 +166,10 @@ fun YouTubeWebViewLoginScreen(
         )
     }
 
-    fun applyManualCookie(rawCookie: String) {
+    fun applyManualCookie(
+        rawCookie: String,
+        targetServer: LocalLoginCompanionServer?,
+    ) {
         val cookieManager = CookieManager.getInstance()
         cookieManager.setAcceptCookie(true)
         rawCookie
@@ -168,67 +182,115 @@ fun YouTubeWebViewLoginScreen(
             }
         cookieManager.flush()
         currentStep = LocalLoginCompanionServer.STEP_DONE
+        targetServer?.currentStep = LocalLoginCompanionServer.STEP_DONE
         companionFeedbackResId = R.string.login_feedback_cookie_applied
         webViewHolder.value?.loadUrl(YOUTUBE_MUSIC_ORIGIN)
     }
 
-    val companionServer =
-        remember(companionScope, appLanguage) {
-            LocalLoginCompanionServer(
-                scope = companionScope,
-                language = appLanguage,
-                onInput = { payload ->
-                    val webView = webViewHolder.value ?: return@LocalLoginCompanionServer
-                    when (payload.action) {
-                        CompanionAction.FILL_EMAIL -> {
-                            webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "email"), null)
-                            scheduleStepSyncChecks(webView)
-                            companionFeedbackResId = R.string.login_feedback_email_sent
+    val ownedServer =
+        remember(companionServer, companionScope, appLanguage) {
+            companionServer
+                ?: LocalLoginCompanionServer(
+                    scope = companionScope,
+                    language = appLanguage,
+                    onInput = { payload ->
+                        val webView = webViewHolder.value ?: return@LocalLoginCompanionServer
+                        when (payload.action) {
+                            CompanionAction.FILL_EMAIL -> {
+                                webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "email"), null)
+                                scheduleStepSyncChecks(webView)
+                                companionFeedbackResId = R.string.login_feedback_email_sent
+                            }
+                            CompanionAction.FILL_PASSWORD -> {
+                                webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "password"), null)
+                                scheduleStepSyncChecks(webView)
+                                companionFeedbackResId = R.string.login_feedback_password_sent
+                            }
+                            CompanionAction.FILL_TEXT -> {
+                                webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "text"), null)
+                                scheduleStepSyncChecks(webView)
+                                companionFeedbackResId = R.string.login_feedback_text_sent
+                            }
+                            CompanionAction.CLICK_NEXT -> {
+                                webView.evaluateJavascript(CLICK_NEXT_OR_ACTIVE_JS, null)
+                                scheduleStepSyncChecks(webView)
+                                companionFeedbackResId = R.string.login_feedback_next_clicked
+                            }
+                            CompanionAction.FOCUS_PREV -> {
+                                injectHighlightElement(-1)
+                                companionFeedbackResId = R.string.login_feedback_focus_up
+                            }
+                            CompanionAction.FOCUS_NEXT -> {
+                                injectHighlightElement(1)
+                                companionFeedbackResId = R.string.login_feedback_focus_down
+                            }
+                            CompanionAction.RELOAD_PAGE -> {
+                                webView.reload()
+                                companionFeedbackResId = R.string.login_feedback_reloaded
+                            }
+                            CompanionAction.SUBMIT_COOKIE -> {
+                                applyManualCookie(payload.value, null)
+                            }
                         }
-                        CompanionAction.FILL_PASSWORD -> {
-                            webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "password"), null)
-                            scheduleStepSyncChecks(webView)
-                            companionFeedbackResId = R.string.login_feedback_password_sent
-                        }
-                        CompanionAction.FILL_TEXT -> {
-                            webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "text"), null)
-                            scheduleStepSyncChecks(webView)
-                            companionFeedbackResId = R.string.login_feedback_text_sent
-                        }
-                        CompanionAction.CLICK_NEXT -> {
-                            webView.evaluateJavascript(CLICK_NEXT_OR_ACTIVE_JS, null)
-                            scheduleStepSyncChecks(webView)
-                            companionFeedbackResId = R.string.login_feedback_next_clicked
-                        }
-                        CompanionAction.FOCUS_PREV -> {
-                            injectHighlightElement(-1)
-                            companionFeedbackResId = R.string.login_feedback_focus_up
-                        }
-                        CompanionAction.FOCUS_NEXT -> {
-                            injectHighlightElement(1)
-                            companionFeedbackResId = R.string.login_feedback_focus_down
-                        }
-                        CompanionAction.RELOAD_PAGE -> {
-                            webView.reload()
-                            companionFeedbackResId = R.string.login_feedback_reloaded
-                        }
-                        CompanionAction.SUBMIT_COOKIE -> {
-                            applyManualCookie(payload.value)
-                        }
-                    }
-                },
-            )
+                    },
+                )
         }
 
-    LaunchedEffect(Unit) {
-        companionUrl = companionServer.start()
+    val activeServer = ownedServer
+
+    LaunchedEffect(activeServer) {
+        onRegisterCompanionInputHandler { payload ->
+            val webView = webViewHolder.value ?: return@onRegisterCompanionInputHandler
+            when (payload.action) {
+                CompanionAction.FILL_EMAIL -> {
+                    webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "email"), null)
+                    scheduleStepSyncChecks(webView)
+                    companionFeedbackResId = R.string.login_feedback_email_sent
+                }
+                CompanionAction.FILL_PASSWORD -> {
+                    webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "password"), null)
+                    scheduleStepSyncChecks(webView)
+                    companionFeedbackResId = R.string.login_feedback_password_sent
+                }
+                CompanionAction.FILL_TEXT -> {
+                    webView.evaluateJavascript(buildFillAndSubmitScript(payload.value, mode = "text"), null)
+                    scheduleStepSyncChecks(webView)
+                    companionFeedbackResId = R.string.login_feedback_text_sent
+                }
+                CompanionAction.CLICK_NEXT -> {
+                    webView.evaluateJavascript(CLICK_NEXT_OR_ACTIVE_JS, null)
+                    scheduleStepSyncChecks(webView)
+                    companionFeedbackResId = R.string.login_feedback_next_clicked
+                }
+                CompanionAction.FOCUS_PREV -> {
+                    injectHighlightElement(-1)
+                    companionFeedbackResId = R.string.login_feedback_focus_up
+                }
+                CompanionAction.FOCUS_NEXT -> {
+                    injectHighlightElement(1)
+                    companionFeedbackResId = R.string.login_feedback_focus_down
+                }
+                CompanionAction.RELOAD_PAGE -> {
+                    webView.reload()
+                    companionFeedbackResId = R.string.login_feedback_reloaded
+                }
+                CompanionAction.SUBMIT_COOKIE -> {
+                    applyManualCookie(payload.value, activeServer)
+                }
+            }
+        }
+        companionUrl = activeServer.start()
+        pairingCode = activeServer.pairingCode
         withFrameNanos { }
-        webViewRequester.safeRequestFocus()
+        cancelRequester.safeRequestFocus()
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(activeServer, companionServer) {
         onDispose {
-            companionServer.stop()
+            onRegisterCompanionInputHandler(null)
+            if (companionServer == null) {
+                activeServer.stop()
+            }
             webViewHolder.value?.apply {
                 stopLoading()
                 clearHistory()
@@ -314,275 +376,25 @@ fun YouTubeWebViewLoginScreen(
             )
         }
 
-        // 2-Column Body: Direct D-pad WebView (Left) + Smart QR Wizard & Helper Controls (Right)
+        // 2-Column Body: Focused QR + Domain Pairing Wizard (Left 66%) + Compact Live WebView Preview (Right 34%)
         Row(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Box(
-                modifier =
-                    Modifier
-                        .weight(0.62f)
-                        .fillMaxHeight()
-                        .border(BorderStroke(colors.focusBorderWidth, webBorderColor), RoundedCornerShape(AlunaraDimens.RadiusCard))
-                        .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusCard))
-                        .padding(4.dp)
-                        .focusRequester(webViewRequester)
-                        .focusProperties {
-                            up = cancelRequester
-                            right = helperFocusInputRequester
-                        }
-                        .onFocusChanged { webViewFocused = it.isFocused }
-                        .onPreviewKeyEvent { keyEvent ->
-                            if (keyEvent.type != KeyEventType.KeyDown) {
-                                return@onPreviewKeyEvent false
-                            }
-                            when (keyEvent.key) {
-                                Key.DirectionDown -> {
-                                    injectHighlightElement(1)
-                                    true
-                                }
-                                Key.DirectionUp -> {
-                                    if (domFocusIndex <= 0) {
-                                        cancelRequester.safeRequestFocus()
-                                    } else {
-                                        injectHighlightElement(-1)
-                                    }
-                                    true
-                                }
-                                Key.DirectionRight -> {
-                                    helperFocusInputRequester.safeRequestFocus()
-                                    true
-                                }
-                                Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                                    injectClickHighlighted()
-                                    true
-                                }
-                                Key.Back -> {
-                                    onCancel()
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                        .focusable(),
-            ) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = {
-                        WebView(hostActivityContext).apply {
-                            layoutParams =
-                                ViewGroup.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                )
-                            isFocusable = true
-                            isFocusableInTouchMode = true
-
-                            setOnKeyListener { _, keyCode, event ->
-                                if (event.action != AndroidKeyEvent.ACTION_DOWN) return@setOnKeyListener false
-                                when (keyCode) {
-                                    AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
-                                        injectHighlightElement(1)
-                                        true
-                                    }
-                                    AndroidKeyEvent.KEYCODE_DPAD_UP -> {
-                                        if (domFocusIndex <= 0) {
-                                            cancelRequester.safeRequestFocus()
-                                        } else {
-                                            injectHighlightElement(-1)
-                                        }
-                                        true
-                                    }
-                                    AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                        helperFocusInputRequester.safeRequestFocus()
-                                        true
-                                    }
-                                    AndroidKeyEvent.KEYCODE_DPAD_CENTER,
-                                    AndroidKeyEvent.KEYCODE_ENTER,
-                                    AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                                        injectClickHighlighted()
-                                        true
-                                    }
-                                    AndroidKeyEvent.KEYCODE_BACK -> {
-                                        onCancel()
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            }
-
-                            val cookieManager = CookieManager.getInstance()
-                            cookieManager.setAcceptCookie(true)
-                            cookieManager.setAcceptThirdPartyCookies(this, true)
-
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.userAgentString =
-                                settings.userAgentString
-                                    .replace("; wv", "")
-                                    .replace("Version/4.0 ", "")
-
-                            var latestCookie = ""
-                            fun captureMusicCookiesAndYtcfg(view: WebView) {
-                                cookieManager.flush()
-                                val cookie = cookieManager.getCookie(YOUTUBE_MUSIC_ORIGIN).orEmpty()
-                                if (LocalLoginCompanionServer.hasValidSapisidCookie(cookie)) {
-                                    latestCookie = cookie
-                                    currentStep = LocalLoginCompanionServer.STEP_DONE
-                                    companionServer.currentStep = LocalLoginCompanionServer.STEP_DONE
-                                    companionServer.lastStatusHint =
-                                        when (appLanguage) {
-                                            AppLanguage.INDONESIAN ->
-                                                "Berhasil masuk YouTube Music — memverifikasi akun…"
-                                            AppLanguage.JAPANESE ->
-                                                "YouTube Music にサインインしました — アカウントを確認中…"
-                                            else ->
-                                                "Signed in to YouTube Music — verifying account…"
-                                        }
-                                    view.evaluateJavascript(buildExtractYtcfgJs(0), null)
-                                }
-                            }
-
-                            fun syncUrlAndHost(url: String?) {
-                                val parsedHost = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
-                                if (!parsedHost.isNullOrBlank()) {
-                                    currentHost = parsedHost
-                                    companionServer.currentHost = parsedHost
-                                }
-                                if (!captured.get()) {
-                                    inferStepFromUrl(url, language = appLanguage)?.let { (step, hint) ->
-                                        currentStep = step
-                                        companionServer.currentStep = step
-                                        companionServer.lastStatusHint = hint
-                                    }
-                                }
-                            }
-
-                            val bridge =
-                                AlunaraAuthJsBridge(
-                                    onContext = { visitorData, dataSyncId, attempt ->
-                                        val view = webViewHolder.value ?: return@AlunaraAuthJsBridge
-                                        view.post {
-                                            if (captured.get()) return@post
-                                            val cookie = latestCookie
-                                            if (!LocalLoginCompanionServer.hasValidSapisidCookie(cookie)) return@post
-                                            val missingContext = visitorData.isNullOrBlank() || dataSyncId.isNullOrBlank()
-                                            if (missingContext && attempt < MAX_YTCFG_RETRY_ATTEMPTS) {
-                                                view.postDelayed(
-                                                    {
-                                                        if (!captured.get()) {
-                                                            view.evaluateJavascript(buildExtractYtcfgJs(attempt + 1), null)
-                                                        }
-                                                    },
-                                                    YTCFG_RETRY_DELAY_MS,
-                                                )
-                                                return@post
-                                            }
-                                            if (captured.compareAndSet(false, true)) {
-                                                companionServer.currentStep = LocalLoginCompanionServer.STEP_DONE
-                                                companionServer.stop()
-                                                onCredentialsCaptured(
-                                                    AccountCredentials(
-                                                        cookie = cookie,
-                                                        dataSyncId = dataSyncId,
-                                                        visitorData = visitorData,
-                                                    ),
-                                                )
-                                            }
-                                        }
-                                    },
-                                    onFocusIndex = { idx ->
-                                        webViewHolder.value?.post { domFocusIndex = idx }
-                                    },
-                                    onStepDetected = { step, hint ->
-                                        webViewHolder.value?.post {
-                                            if (!captured.get()) {
-                                                currentStep = step
-                                                companionServer.currentStep = step
-                                                if (hint.isNotBlank()) {
-                                                    companionServer.lastStatusHint = hint
-                                                }
-                                            }
-                                        }
-                                    },
-                                    onMusicHomeReached = {
-                                        val view = webViewHolder.value ?: return@AlunaraAuthJsBridge
-                                        view.post {
-                                            if (!captured.get()) {
-                                                captureMusicCookiesAndYtcfg(view)
-                                            }
-                                        }
-                                    },
-                                )
-                            addJavascriptInterface(bridge, "AlunaraAuth")
-
-                            webChromeClient = WebChromeClient()
-                            webViewClient =
-                                object : WebViewClient() {
-                                    override fun onPageStarted(
-                                        view: WebView?,
-                                        url: String?,
-                                        favicon: Bitmap?,
-                                    ) {
-                                        super.onPageStarted(view, url, favicon)
-                                        syncUrlAndHost(url)
-                                    }
-
-                                    override fun doUpdateVisitedHistory(
-                                        view: WebView?,
-                                        url: String?,
-                                        isReload: Boolean,
-                                    ) {
-                                        super.doUpdateVisitedHistory(view, url, isReload)
-                                        syncUrlAndHost(url)
-                                        if (view == null || captured.get()) return
-                                        if (url != null && url.startsWith(YOUTUBE_MUSIC_ORIGIN)) {
-                                            captureMusicCookiesAndYtcfg(view)
-                                        } else {
-                                            view.evaluateJavascript(installStepWatcherJs, null)
-                                            scheduleStepSyncChecks(view)
-                                        }
-                                    }
-
-                                    override fun onPageFinished(
-                                        view: WebView?,
-                                        url: String?,
-                                    ) {
-                                        super.onPageFinished(view, url)
-                                        syncUrlAndHost(url)
-                                        if (view == null || captured.get()) return
-                                        if (url != null && url.startsWith(YOUTUBE_MUSIC_ORIGIN)) {
-                                            captureMusicCookiesAndYtcfg(view)
-                                        } else {
-                                            view.evaluateJavascript(buildHighlightDomScript(0), null)
-                                            view.evaluateJavascript(installStepWatcherJs, null)
-                                            scheduleStepSyncChecks(view)
-                                        }
-                                    }
-                                }
-
-                            webViewHolder.value = this
-                            loadUrl(YOUTUBE_MUSIC_LOGIN_URL)
-                        }
-                    },
-                )
-            }
-
-            // Right Pane: Clear QR Wizard Tutorial + Quick Focusable Helpers (fits completely in 720p TV height)
+            // Left Hero Pane: Large QR Code + Option A Domain & TV Code Instructions
             Column(
                 modifier =
                     Modifier
-                        .weight(0.38f)
+                        .weight(0.66f)
                         .fillMaxHeight()
                         .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusCard))
                         .border(BorderStroke(1.dp, colors.secondarySurface), RoundedCornerShape(AlunaraDimens.RadiusCard))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                        .focusProperties { canFocus = false },
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().focusProperties { canFocus = false },
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -590,64 +402,385 @@ fun YouTubeWebViewLoginScreen(
                         imageVector = Icons.Rounded.QrCode2,
                         contentDescription = null,
                         tint = colors.primaryAccent,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(22.dp),
                     )
                     Text(
                         text = stringResource(R.string.qr_companion_title),
                         color = colors.primaryText,
-                        fontSize = 16.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
 
-                Text(
-                    text = stringResource(R.string.qr_companion_subtitle),
-                    color = colors.mutedText,
-                    fontSize = 11.5.sp,
-                    lineHeight = 15.sp,
-                    modifier = Modifier.fillMaxWidth().focusProperties { canFocus = false },
-                )
-
                 val activeUrl = companionUrl
+                val activeCode = pairingCode
                 if (activeUrl != null) {
-                    QrCodeCanvas(
-                        content = activeUrl,
-                        modifier = Modifier.size(124.dp).focusProperties { canFocus = false },
-                    )
+                    Row(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    ) {
+                        QrCodeCanvas(
+                            content = activeUrl,
+                            modifier = Modifier.size(204.dp),
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.qr_companion_scan_cta),
+                                color = colors.primaryText,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                lineHeight = 19.sp,
+                            )
+                            Text(
+                                text = stringResource(R.string.qr_companion_domain_instruction, LocalLoginCompanionServer.PAIRING_PORTAL_DISPLAY_URL),
+                                color = colors.mutedText,
+                                fontSize = 12.5.sp,
+                                lineHeight = 17.5.sp,
+                            )
+                            if (!activeCode.isNullOrBlank()) {
+                                Row(
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .background(colors.secondarySurface, RoundedCornerShape(12.dp))
+                                            .border(BorderStroke(1.dp, colors.primaryAccent.copy(alpha = 0.55f)), RoundedCornerShape(12.dp))
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.qr_companion_code_label),
+                                        color = colors.mutedText,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                    Text(
+                                        text = activeCode,
+                                        color = colors.focusOutline,
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 2.sp,
+                                    )
+                                }
+                            }
+                            Text(
+                                text = stringResource(R.string.qr_companion_hint_steps),
+                                color = colors.mutedText,
+                                fontSize = 11.5.sp,
+                                lineHeight = 16.sp,
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .background(colors.background.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
                     Text(
-                        text = activeUrl,
-                        color = colors.primaryAccent,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        text = stringResource(R.string.qr_companion_local_fallback, activeUrl),
+                        color = colors.dimmedLyrics,
+                        fontSize = 11.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.focusProperties { canFocus = false },
-                    )
-                    Text(
-                        text = stringResource(R.string.qr_companion_hint_steps),
-                        color = colors.primaryText,
-                        fontSize = 11.5.sp,
-                        lineHeight = 15.5.sp,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .background(colors.secondarySurface, RoundedCornerShape(10.dp))
-                                .padding(horizontal = 10.dp, vertical = 8.dp)
-                                .focusProperties { canFocus = false },
                     )
                 } else {
                     Text(
                         text = stringResource(R.string.qr_companion_unavailable),
                         color = colors.mutedText,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp,
-                        modifier = Modifier.weight(1f).focusProperties { canFocus = false },
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        modifier = Modifier.weight(1f),
                     )
                 }
+            }
 
-                Spacer(modifier = Modifier.weight(1f))
+            // Right Secondary Pane: Compact WebView Live Preview + Helper Remote Controls
+            Column(
+                modifier =
+                    Modifier
+                        .weight(0.34f)
+                        .fillMaxHeight()
+                        .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusCard))
+                        .border(BorderStroke(1.dp, colors.secondarySurface), RoundedCornerShape(AlunaraDimens.RadiusCard))
+                        .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.login_preview_label, currentHost),
+                    color = colors.mutedText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.focusProperties { canFocus = false },
+                )
+
+                Box(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .border(BorderStroke(colors.focusBorderWidth, webBorderColor), RoundedCornerShape(10.dp))
+                            .background(colors.background, RoundedCornerShape(10.dp))
+                            .padding(2.dp)
+                            .focusRequester(webViewRequester)
+                            .focusProperties {
+                                up = cancelRequester
+                                down = helperFocusInputRequester
+                                left = cancelRequester
+                            }
+                            .onFocusChanged { webViewFocused = it.isFocused }
+                            .onPreviewKeyEvent { keyEvent ->
+                                if (keyEvent.type != KeyEventType.KeyDown) {
+                                    return@onPreviewKeyEvent false
+                                }
+                                when (keyEvent.key) {
+                                    Key.DirectionDown -> {
+                                        injectHighlightElement(1)
+                                        true
+                                    }
+                                    Key.DirectionUp -> {
+                                        if (domFocusIndex <= 0) {
+                                            cancelRequester.safeRequestFocus()
+                                        } else {
+                                            injectHighlightElement(-1)
+                                        }
+                                        true
+                                    }
+                                    Key.DirectionLeft -> {
+                                        cancelRequester.safeRequestFocus()
+                                        true
+                                    }
+                                    Key.DirectionRight -> {
+                                        helperFocusInputRequester.safeRequestFocus()
+                                        true
+                                    }
+                                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                                        injectClickHighlighted()
+                                        true
+                                    }
+                                    Key.Back -> {
+                                        onCancel()
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            }
+                            .focusable(),
+                ) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = {
+                            WebView(hostActivityContext).apply {
+                                layoutParams =
+                                    ViewGroup.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                    )
+                                isFocusable = true
+                                isFocusableInTouchMode = true
+
+                                setOnKeyListener { _, keyCode, event ->
+                                    if (event.action != AndroidKeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                                    when (keyCode) {
+                                        AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
+                                            injectHighlightElement(1)
+                                            true
+                                        }
+                                        AndroidKeyEvent.KEYCODE_DPAD_UP -> {
+                                            if (domFocusIndex <= 0) {
+                                                cancelRequester.safeRequestFocus()
+                                            } else {
+                                                injectHighlightElement(-1)
+                                            }
+                                            true
+                                        }
+                                        AndroidKeyEvent.KEYCODE_DPAD_LEFT -> {
+                                            cancelRequester.safeRequestFocus()
+                                            true
+                                        }
+                                        AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                            helperFocusInputRequester.safeRequestFocus()
+                                            true
+                                        }
+                                        AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                                        AndroidKeyEvent.KEYCODE_ENTER,
+                                        AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                                            injectClickHighlighted()
+                                            true
+                                        }
+                                        AndroidKeyEvent.KEYCODE_BACK -> {
+                                            onCancel()
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                }
+
+                                val cookieManager = CookieManager.getInstance()
+                                cookieManager.setAcceptCookie(true)
+                                cookieManager.setAcceptThirdPartyCookies(this, true)
+
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.useWideViewPort = true
+                                settings.loadWithOverviewMode = true
+                                setInitialScale(70)
+                                settings.userAgentString =
+                                    settings.userAgentString
+                                        .replace("; wv", "")
+                                        .replace("Version/4.0 ", "")
+
+                                var latestCookie = ""
+                                fun captureMusicCookiesAndYtcfg(view: WebView) {
+                                    cookieManager.flush()
+                                    val cookie = cookieManager.getCookie(YOUTUBE_MUSIC_ORIGIN).orEmpty()
+                                    if (LocalLoginCompanionServer.hasValidSapisidCookie(cookie)) {
+                                        latestCookie = cookie
+                                        currentStep = LocalLoginCompanionServer.STEP_DONE
+                                        activeServer.currentStep = LocalLoginCompanionServer.STEP_DONE
+                                        activeServer.lastStatusHint =
+                                            when (appLanguage) {
+                                                AppLanguage.INDONESIAN ->
+                                                    "Berhasil masuk YouTube Music — memverifikasi akun…"
+                                                AppLanguage.JAPANESE ->
+                                                    "YouTube Music にサインインしました — アカウントを確認中…"
+                                                else ->
+                                                    "Signed in to YouTube Music — verifying account…"
+                                            }
+                                        view.evaluateJavascript(buildExtractYtcfgJs(0), null)
+                                    }
+                                }
+
+                                fun syncUrlAndHost(url: String?) {
+                                    val parsedHost = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
+                                    if (!parsedHost.isNullOrBlank()) {
+                                        currentHost = parsedHost
+                                        activeServer.currentHost = parsedHost
+                                    }
+                                    if (!captured.get()) {
+                                        inferStepFromUrl(url, language = appLanguage)?.let { (step, hint) ->
+                                            currentStep = step
+                                            activeServer.currentStep = step
+                                            activeServer.lastStatusHint = hint
+                                        }
+                                    }
+                                }
+
+                                val bridge =
+                                    AlunaraAuthJsBridge(
+                                        onContext = { visitorData, dataSyncId, attempt ->
+                                            val view = webViewHolder.value ?: return@AlunaraAuthJsBridge
+                                            view.post {
+                                                if (captured.get()) return@post
+                                                val cookie = latestCookie
+                                                if (!LocalLoginCompanionServer.hasValidSapisidCookie(cookie)) return@post
+                                                val missingContext = visitorData.isNullOrBlank() || dataSyncId.isNullOrBlank()
+                                                if (missingContext && attempt < MAX_YTCFG_RETRY_ATTEMPTS) {
+                                                    view.postDelayed(
+                                                        {
+                                                            if (!captured.get()) {
+                                                                view.evaluateJavascript(buildExtractYtcfgJs(attempt + 1), null)
+                                                            }
+                                                        },
+                                                        YTCFG_RETRY_DELAY_MS,
+                                                    )
+                                                    return@post
+                                                }
+                                                if (captured.compareAndSet(false, true)) {
+                                                    activeServer.currentStep = LocalLoginCompanionServer.STEP_DONE
+                                                    onCredentialsCaptured(
+                                                        AccountCredentials(
+                                                            cookie = cookie,
+                                                            dataSyncId = dataSyncId,
+                                                            visitorData = visitorData,
+                                                        ),
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onFocusIndex = { idx ->
+                                            webViewHolder.value?.post { domFocusIndex = idx }
+                                        },
+                                        onStepDetected = { step, hint ->
+                                            webViewHolder.value?.post {
+                                                if (!captured.get()) {
+                                                    currentStep = step
+                                                    activeServer.currentStep = step
+                                                    if (hint.isNotBlank()) {
+                                                        activeServer.lastStatusHint = hint
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        onMusicHomeReached = {
+                                            val view = webViewHolder.value ?: return@AlunaraAuthJsBridge
+                                            view.post {
+                                                if (!captured.get()) {
+                                                    captureMusicCookiesAndYtcfg(view)
+                                                }
+                                            }
+                                        },
+                                    )
+                                addJavascriptInterface(bridge, "AlunaraAuth")
+
+                                webChromeClient = WebChromeClient()
+                                webViewClient =
+                                    object : WebViewClient() {
+                                        override fun onPageStarted(
+                                            view: WebView?,
+                                            url: String?,
+                                            favicon: Bitmap?,
+                                        ) {
+                                            super.onPageStarted(view, url, favicon)
+                                            syncUrlAndHost(url)
+                                        }
+
+                                        override fun doUpdateVisitedHistory(
+                                            view: WebView?,
+                                            url: String?,
+                                            isReload: Boolean,
+                                        ) {
+                                            super.doUpdateVisitedHistory(view, url, isReload)
+                                            syncUrlAndHost(url)
+                                            if (view == null || captured.get()) return
+                                            if (url != null && url.startsWith(YOUTUBE_MUSIC_ORIGIN)) {
+                                                captureMusicCookiesAndYtcfg(view)
+                                            } else {
+                                                view.evaluateJavascript(installStepWatcherJs, null)
+                                                scheduleStepSyncChecks(view)
+                                            }
+                                        }
+
+                                        override fun onPageFinished(
+                                            view: WebView?,
+                                            url: String?,
+                                        ) {
+                                            super.onPageFinished(view, url)
+                                            syncUrlAndHost(url)
+                                            if (view == null || captured.get()) return
+                                            if (url != null && url.startsWith(YOUTUBE_MUSIC_ORIGIN)) {
+                                                captureMusicCookiesAndYtcfg(view)
+                                            } else {
+                                                view.evaluateJavascript(buildHighlightDomScript(0), null)
+                                                view.evaluateJavascript(installStepWatcherJs, null)
+                                                scheduleStepSyncChecks(view)
+                                            }
+                                        }
+                                    }
+
+                                webViewHolder.value = this
+                                loadUrl(YOUTUBE_MUSIC_LOGIN_URL)
+                            }
+                        },
+                    )
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -667,7 +800,7 @@ fun YouTubeWebViewLoginScreen(
                                 .focusProperties {
                                     left = webViewRequester
                                     right = helperClickNextRequester
-                                    up = cancelRequester
+                                    up = webViewRequester
                                 },
                     )
                     LoginHelperChipButton(
@@ -683,7 +816,7 @@ fun YouTubeWebViewLoginScreen(
                                 .focusProperties {
                                     left = helperFocusInputRequester
                                     right = helperReloadRequester
-                                    up = cancelRequester
+                                    up = webViewRequester
                                 },
                     )
                     LoginHelperChipButton(
@@ -695,7 +828,7 @@ fun YouTubeWebViewLoginScreen(
                                 .focusRequester(helperReloadRequester)
                                 .focusProperties {
                                     left = helperClickNextRequester
-                                    up = cancelRequester
+                                    up = webViewRequester
                                 },
                     )
                 }

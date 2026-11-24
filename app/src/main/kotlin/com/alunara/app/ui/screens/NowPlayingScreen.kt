@@ -50,6 +50,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DeleteSweep
@@ -190,6 +191,7 @@ fun NowPlayingScreen(
     onStartRadio: () -> Unit,
     onSwitchLyricsProvider: () -> Unit,
     modifier: Modifier = Modifier,
+    onAddToPlaylist: (() -> Unit)? = null,
     positionMsFlow: StateFlow<Long>? = null,
     activeLyricIndexFlow: StateFlow<Int>? = null,
     onAdjustLyricsSync: (Long) -> Unit = {},
@@ -226,6 +228,7 @@ fun NowPlayingScreen(
     val playButtonRequester = remember { FocusRequester() }
     val nextButtonRequester = remember { FocusRequester() }
     val favButtonRequester = remember { FocusRequester() }
+    val addToPlaylistButtonRequester = remember { FocusRequester() }
     val radioButtonRequester = remember { FocusRequester() }
     val lyricsTabRequester = remember { FocusRequester() }
     val queueTabRequester = remember { FocusRequester() }
@@ -594,9 +597,28 @@ fun NowPlayingScreen(
                                     .focusProperties {
                                         up = seekBarRequester
                                         left = if (nextEnabled) nextButtonRequester else playButtonRequester
-                                        right = radioButtonRequester
+                                        right = if (onAddToPlaylist != null) addToPlaylistButtonRequester else radioButtonRequester
                                     },
                         )
+                    }
+                    if (onAddToPlaylist != null) {
+                        IdleDimmableControl(isIdleDimmedState = isIdleDimmedState) {
+                            TvIconButton(
+                                icon = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                                contentDescription = stringResource(R.string.action_add_to_playlist),
+                                size = AlunaraDimens.ControlHeight,
+                                iconSize = 22.dp,
+                                onClick = onAddToPlaylist,
+                                modifier =
+                                    Modifier
+                                        .focusRequester(addToPlaylistButtonRequester)
+                                        .focusProperties {
+                                            up = seekBarRequester
+                                            left = favButtonRequester
+                                            right = radioButtonRequester
+                                        },
+                            )
+                        }
                     }
                     IdleDimmableControl(isIdleDimmedState = isIdleDimmedState) {
                         TvIconButton(
@@ -611,7 +633,7 @@ fun NowPlayingScreen(
                                     .focusRequester(radioButtonRequester)
                                     .focusProperties {
                                         up = seekBarRequester
-                                        left = favButtonRequester
+                                        left = if (onAddToPlaylist != null) addToPlaylistButtonRequester else favButtonRequester
                                         right = lyricsTabRequester
                                     },
                         )

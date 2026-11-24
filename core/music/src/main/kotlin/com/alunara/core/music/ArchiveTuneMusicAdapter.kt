@@ -257,6 +257,7 @@ class ArchiveTuneMusicAdapter internal constructor(
                 topSongs = topSongs.distinctBy { it.id },
                 albums = albums.distinctBy { it.id },
                 playlists = playlists.distinctBy { it.id },
+                channelId = page.artist.channelId,
             )
         }
     }
@@ -405,7 +406,123 @@ class ArchiveTuneMusicAdapter internal constructor(
             return Result.failure(IllegalStateException("Account login required"))
         }
         ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = true
         return backend.likeVideo(trackId.trim(), liked)
+    }
+
+    override suspend fun createAccountPlaylist(
+        title: String,
+        initialTrackIds: List<String>,
+    ): Result<String> {
+        if (!backend.hasLoginCookie()) {
+            return Result.failure(IllegalStateException("Account login required"))
+        }
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Playlist title must not be blank"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = true
+        return backend.createPlaylist(cleanTitle, initialTrackIds.map { it.trim() }.filter { it.isNotEmpty() })
+    }
+
+    override suspend fun addTrackToAccountPlaylist(
+        playlistId: String,
+        trackId: String,
+    ): Result<Unit> {
+        if (!backend.hasLoginCookie()) {
+            return Result.failure(IllegalStateException("Account login required"))
+        }
+        val cleanPlaylistId = playlistId.trim().removePrefix("VL")
+        val cleanTrackId = trackId.trim()
+        if (cleanPlaylistId.isEmpty() || cleanTrackId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Playlist and track id must not be blank"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = true
+        return backend.addToPlaylist(cleanPlaylistId, cleanTrackId).map { }
+    }
+
+    override suspend fun removeTrackFromAccountPlaylist(
+        playlistId: String,
+        trackId: String,
+        setVideoId: String?,
+    ): Result<Unit> {
+        if (!backend.hasLoginCookie()) {
+            return Result.failure(IllegalStateException("Account login required"))
+        }
+        val cleanPlaylistId = playlistId.trim().removePrefix("VL")
+        val cleanTrackId = trackId.trim()
+        if (cleanPlaylistId.isEmpty() || cleanTrackId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Playlist and track id must not be blank"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = true
+        val resolvedSetId =
+            setVideoId?.trim()?.takeIf { it.isNotEmpty() }
+                ?: backend.playlistEntrySetVideoIds(cleanPlaylistId, cleanTrackId).getOrNull()?.firstOrNull()
+                ?: return Result.failure(IllegalStateException("Playlist entry setVideoId not found for $cleanTrackId"))
+        return backend.removeFromPlaylist(cleanPlaylistId, cleanTrackId, resolvedSetId)
+    }
+
+    override suspend fun setRemotePlaylistSaved(
+        playlistId: String,
+        saved: Boolean,
+    ): Result<Unit> {
+        if (!backend.hasLoginCookie()) {
+            return Result.failure(IllegalStateException("Account login required"))
+        }
+        val cleanPlaylistId = playlistId.trim().removePrefix("VL")
+        if (cleanPlaylistId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("Playlist id must not be blank"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = true
+        return backend.likePlaylist(cleanPlaylistId, saved)
+    }
+
+    override suspend fun setRemoteArtistSubscription(
+        artistId: String,
+        channelId: String?,
+        subscribed: Boolean,
+    ): Result<Unit> {
+        if (!backend.hasLoginCookie()) {
+            return Result.failure(IllegalStateException("Account login required"))
+        }
+        val trimmedArtistId = artistId.trim()
+        val explicitChannel = channelId?.trim()?.takeIf { it.isNotEmpty() }
+        if (trimmedArtistId.isEmpty() && explicitChannel == null) {
+            return Result.failure(IllegalArgumentException("Artist id must not be blank"))
+        }
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = true
+        val resolvedChannelId =
+            explicitChannel?.takeIf { it.startsWith("UC") }
+                ?: trimmedArtistId.takeIf { it.startsWith("UC") }
+                ?: backend.getChannelId(trimmedArtistId).takeIf { it.isNotBlank() }
+                ?: explicitChannel
+                ?: return Result.failure(IllegalStateException("Artist channelId could not be resolved"))
+        return backend.subscribeChannel(resolvedChannelId, subscribed)
+    }
+
+    override suspend fun reportPlaybackToAccount(
+        trackId: String,
+        playbackTrackingUrl: String?,
+        playlistId: String?,
+    ): Result<Unit> {
+        if (!backend.hasLoginCookie()) {
+            return Result.failure(IllegalStateException("Account login required"))
+        }
+        val tracking = playbackTrackingUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return Result.success(Unit)
+        ensureGatekeeperUnlocked()
+        return backend
+            .registerPlayback(
+                playlistId = playlistId?.trim()?.removePrefix("VL")?.takeIf { it.isNotEmpty() },
+                playbackTracking = tracking,
+                authState = backend.currentPlaybackAuthState(),
+            ).onSuccess {
+                backend.notifyHistorySynced()
+            }
     }
 
     private companion object {
@@ -623,6 +740,7 @@ class ArchiveTuneMusicAdapter internal constructor(
                 bitrateBps = chosenFormat.averageBitrate ?: chosenFormat.bitrate,
                 expiresAtEpochMs = nowEpochMs() + (ttlSeconds * 1000L),
                 clientProfile = client.clientName,
+                playbackTrackingUrl = response.playbackTracking?.videostatsPlaybackUrl?.baseUrl,
             ),
         )
     }
@@ -639,6 +757,7 @@ class ArchiveTuneMusicAdapter internal constructor(
             durationSeconds = duration,
             thumbnailUrl = thumbnail,
             isExplicit = explicit,
+            setVideoId = setVideoId,
         )
 
     private fun AlbumItem.toDomainAlbum(): AlbumRef =

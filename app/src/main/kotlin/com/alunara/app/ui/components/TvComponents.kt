@@ -9,9 +9,9 @@ import android.graphics.Shader
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -307,20 +308,31 @@ fun TvArtwork(
     size: Dp,
     modifier: Modifier = Modifier,
     circular: Boolean = false,
+    fillWidthSquare: Boolean = false,
 ) {
     val colors = LocalAlunaraColors.current
     val context = LocalContext.current
-    val tier = if (size >= 110.dp) ArtworkTier.CARD else ArtworkTier.THUMBNAIL
+    val tier = if (fillWidthSquare || size >= 110.dp) ArtworkTier.CARD else ArtworkTier.THUMBNAIL
     val resolvedUrl = remember(url, tier) { ArtworkUrlResolver.resolve(url, tier) }
     var useFallbackOriginal by remember(url, tier) { mutableStateOf(false) }
     val activeUrl = if (useFallbackOriginal && !url.isNullOrBlank()) url else resolvedUrl
-    val pxSize = with(LocalDensity.current) { size.toPx().roundToInt().coerceIn(64, tier.maxPx) }
+    val pxSize =
+        if (fillWidthSquare) {
+            tier.maxPx
+        } else {
+            with(LocalDensity.current) { size.toPx().roundToInt().coerceIn(64, tier.maxPx) }
+        }
     val shape: Shape = if (circular) CircleShape else ArtworkCornerShape
+    val boxSizeModifier =
+        if (fillWidthSquare) {
+            modifier.fillMaxWidth().aspectRatio(1f)
+        } else {
+            modifier.size(size)
+        }
 
     Box(
         modifier =
-            modifier
-                .size(size)
+            boxSizeModifier
                 .clip(shape)
                 .background(colors.secondarySurface),
         contentAlignment = Alignment.Center,
@@ -369,7 +381,7 @@ private fun rememberFocusScale(
             if (reduceMotion) {
                 snap()
             } else {
-                spring(dampingRatio = 0.72f, stiffness = 520f)
+                tween(durationMillis = 120, easing = FastOutSlowInEasing)
             },
         label = "tv_focus_scale",
     ).value
@@ -386,7 +398,7 @@ fun TvFocusableButton(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
-    val focusScale = rememberFocusScale(focused = focused && enabled, targetScale = 1.03f, reduceMotion = prefs.reduceMotion)
+    val focusScale = rememberFocusScale(focused = focused && enabled, targetScale = 1.02f, reduceMotion = prefs.reduceMotion)
     val shape = ControlCornerShape
     val bgColor =
         when {
@@ -463,7 +475,7 @@ fun TvIconButton(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
-    val focusScale = rememberFocusScale(focused = focused && enabled, targetScale = 1.05f, reduceMotion = prefs.reduceMotion)
+    val focusScale = rememberFocusScale(focused = focused && enabled, targetScale = 1.04f, reduceMotion = prefs.reduceMotion)
     val bgColor =
         when {
             !enabled -> colors.surface.copy(alpha = 0.45f)
@@ -540,14 +552,19 @@ fun TvSongRow(
     secondaryActionLabel: String? = null,
     secondaryActionIcon: ImageVector? = null,
     onSecondaryClick: (() -> Unit)? = null,
+    tertiaryActionContentDescription: String? = null,
+    tertiaryActionIcon: ImageVector? = null,
+    onTertiaryClick: (() -> Unit)? = null,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var rowFocused by remember { mutableStateOf(false) }
-    val rowFocusScale = rememberFocusScale(focused = rowFocused, targetScale = 1.015f, reduceMotion = prefs.reduceMotion)
+    val rowFocusScale = rememberFocusScale(focused = rowFocused, targetScale = 1.01f, reduceMotion = prefs.reduceMotion)
     val hasSecondary = secondaryActionLabel != null && onSecondaryClick != null
+    val hasTertiary = tertiaryActionContentDescription != null && tertiaryActionIcon != null && onTertiaryClick != null
     val mainRowRequester = remember { FocusRequester() }
     val secondaryActionRequester = remember { FocusRequester() }
+    val tertiaryActionRequester = remember { FocusRequester() }
     val activeBorderColor = remember(colors.primaryAccent) { colors.primaryAccent.copy(alpha = 0.55f) }
     val subtitle =
         remember(track.primaryArtistName, track.album?.title) {
@@ -655,7 +672,23 @@ fun TvSongRow(
                 modifier =
                     Modifier
                         .focusRequester(secondaryActionRequester)
-                        .focusProperties { left = mainRowRequester },
+                        .focusProperties {
+                            left = mainRowRequester
+                            if (hasTertiary) right = tertiaryActionRequester
+                        },
+            )
+        }
+        if (hasTertiary) {
+            TvIconButton(
+                icon = tertiaryActionIcon!!,
+                contentDescription = tertiaryActionContentDescription!!,
+                onClick = onTertiaryClick!!,
+                modifier =
+                    Modifier
+                        .focusRequester(tertiaryActionRequester)
+                        .focusProperties {
+                            left = if (hasSecondary) secondaryActionRequester else mainRowRequester
+                        },
             )
         }
     }
@@ -673,7 +706,7 @@ fun TvMediaCard(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     var focused by remember { mutableStateOf(false) }
-    val focusScale = rememberFocusScale(focused = focused, targetScale = 1.035f, reduceMotion = prefs.reduceMotion)
+    val focusScale = rememberFocusScale(focused = focused, targetScale = 1.025f, reduceMotion = prefs.reduceMotion)
 
     Column(
         modifier =
@@ -715,6 +748,7 @@ fun TvMediaCard(
             contentDescription = null,
             size = AlunaraDimens.CardArtworkSize,
             circular = circular,
+            fillWidthSquare = !circular,
         )
         Text(
             text = title,
@@ -853,6 +887,7 @@ fun DockedMiniPlayer(
     modifier: Modifier = Modifier,
     positionMsFlow: StateFlow<Long>? = null,
     playPauseFocusRequester: FocusRequester? = null,
+    upFocusRequester: FocusRequester? = null,
 ) {
     val track = sessionState.currentTrack ?: return
     DockedMiniPlayerContent(
@@ -865,6 +900,7 @@ fun DockedMiniPlayer(
         onTogglePlayPause = onTogglePlayPause,
         onOpenNowPlaying = onOpenNowPlaying,
         playPauseFocusRequester = playPauseFocusRequester,
+        upFocusRequester = upFocusRequester,
         modifier = modifier,
     )
 }
@@ -880,6 +916,7 @@ private fun DockedMiniPlayerContent(
     onTogglePlayPause: () -> Unit,
     onOpenNowPlaying: () -> Unit,
     playPauseFocusRequester: FocusRequester?,
+    upFocusRequester: FocusRequester?,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
@@ -956,7 +993,10 @@ private fun DockedMiniPlayerContent(
                 modifier =
                     Modifier
                         .focusRequester(playPauseRequester)
-                        .focusProperties { right = openNowPlayingRequester },
+                        .focusProperties {
+                            right = openNowPlayingRequester
+                            if (upFocusRequester != null) up = upFocusRequester
+                        },
             )
             TvFocusableButton(
                 text = stringResource(R.string.open_now_playing),
@@ -965,7 +1005,10 @@ private fun DockedMiniPlayerContent(
                 modifier =
                     Modifier
                         .focusRequester(openNowPlayingRequester)
-                        .focusProperties { left = playPauseRequester },
+                        .focusProperties {
+                            left = playPauseRequester
+                            if (upFocusRequester != null) up = upFocusRequester
+                        },
             )
         }
     }

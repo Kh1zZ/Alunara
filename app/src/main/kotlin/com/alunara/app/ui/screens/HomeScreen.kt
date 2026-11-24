@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
@@ -24,7 +25,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -67,11 +70,13 @@ fun HomeScreen(
     onPlaySongFromSection: (List<Track>, Int) -> Unit,
     onOpenAlbum: (AlbumRef) -> Unit,
     modifier: Modifier = Modifier,
+    entryFocusRequester: FocusRequester = remember { FocusRequester() },
     authSession: AuthSessionState = AuthSessionState.Guest,
     onOpenPlaylist: (PlaylistSummary) -> Unit = {},
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
+    val rowContentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -113,6 +118,7 @@ fun HomeScreen(
                 ContinueQueueCard(
                     track = resumeTrack,
                     onClick = onContinueQueue,
+                    modifier = Modifier.focusRequester(entryFocusRequester),
                 )
             }
         }
@@ -144,6 +150,7 @@ fun HomeScreen(
                             icon = Icons.Rounded.Refresh,
                             highlighted = true,
                             onClick = onRetry,
+                            modifier = if (resumeTrack == null) Modifier.focusRequester(entryFocusRequester) else Modifier,
                         )
                     }
                 }
@@ -161,17 +168,31 @@ fun HomeScreen(
                             text = stringResource(R.string.retry),
                             icon = Icons.Rounded.Refresh,
                             onClick = onRetry,
+                            modifier = if (resumeTrack == null) Modifier.focusRequester(entryFocusRequester) else Modifier,
                         )
                     }
                 }
             }
 
             else -> {
-                items(
+                val firstEntrySectionIdx =
+                    if (resumeTrack == null) {
+                        sections.indexOfFirst { it.playlists.isNotEmpty() || it.songs.isNotEmpty() || it.albums.isNotEmpty() }
+                    } else {
+                        -1
+                    }
+                itemsIndexed(
                     items = sections,
-                    key = { it.title },
-                    contentType = { "home-section" },
-                ) { section ->
+                    key = { _, sec -> sec.title },
+                    contentType = { _, _ -> "home-section" },
+                ) { sectionIndex, section ->
+                    val attachEntryInSection = sectionIndex == firstEntrySectionIdx
+                    val firstTargetBucket =
+                        when {
+                            section.playlists.isNotEmpty() -> 0
+                            section.songs.isNotEmpty() -> 1
+                            else -> 2
+                        }
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = section.title,
@@ -182,17 +203,24 @@ fun HomeScreen(
                         )
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = rowContentPadding,
                         ) {
-                            items(
+                            itemsIndexed(
                                 items = section.playlists,
-                                key = { pl -> "p-${section.title}-${pl.id}" },
-                                contentType = { "home-playlist-card" },
-                            ) { playlist ->
+                                key = { _, pl -> "p-${section.title}-${pl.id}" },
+                                contentType = { _, _ -> "home-playlist-card" },
+                            ) { idx, playlist ->
                                 TvMediaCard(
                                     title = playlist.title,
                                     subtitle = playlist.author ?: playlist.trackCountText.orEmpty(),
                                     thumbnailUrl = playlist.thumbnailUrl,
                                     onClick = { onOpenPlaylist(playlist) },
+                                    modifier =
+                                        if (attachEntryInSection && firstTargetBucket == 0 && idx == 0) {
+                                            Modifier.focusRequester(entryFocusRequester)
+                                        } else {
+                                            Modifier
+                                        },
                                 )
                             }
                             items(
@@ -206,19 +234,31 @@ fun HomeScreen(
                                     subtitle = song.primaryArtistName,
                                     thumbnailUrl = song.thumbnailUrl,
                                     onClick = { onPlaySongFromSection(section.songs, index) },
+                                    modifier =
+                                        if (attachEntryInSection && firstTargetBucket == 1 && index == 0) {
+                                            Modifier.focusRequester(entryFocusRequester)
+                                        } else {
+                                            Modifier
+                                        },
                                 )
                             }
-                            items(
+                            itemsIndexed(
                                 items = section.albums,
-                                key = { alb -> "a-${section.title}-${alb.id}" },
-                                contentType = { "home-album-card" },
-                            ) { album ->
+                                key = { _, alb -> "a-${section.title}-${alb.id}" },
+                                contentType = { _, _ -> "home-album-card" },
+                            ) { idx, album ->
                                 val artistLine = remember(album.artists) { album.artists.joinToString(", ") { it.name } }
                                 TvMediaCard(
                                     title = album.title,
                                     subtitle = artistLine,
                                     thumbnailUrl = album.thumbnailUrl,
                                     onClick = { onOpenAlbum(album) },
+                                    modifier =
+                                        if (attachEntryInSection && firstTargetBucket == 2 && idx == 0) {
+                                            Modifier.focusRequester(entryFocusRequester)
+                                        } else {
+                                            Modifier
+                                        },
                                 )
                             }
                         }
@@ -272,6 +312,7 @@ private fun HomeSongRail(
         )
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
         ) {
             items(
                 count = tracks.size,
@@ -296,6 +337,7 @@ private val ContinueCardShape = RoundedCornerShape(AlunaraDimens.RadiusControl)
 private fun ContinueQueueCard(
     track: Track,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
@@ -303,7 +345,7 @@ private fun ContinueQueueCard(
 
     Row(
         modifier =
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .clip(ContinueCardShape)
                 .drawBehind {

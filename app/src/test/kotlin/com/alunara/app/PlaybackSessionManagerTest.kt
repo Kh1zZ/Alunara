@@ -4,6 +4,7 @@ import androidx.media3.common.Player
 import com.alunara.app.playback.AudioPlayerControl
 import com.alunara.app.playback.InMemoryPlaybackPreferences
 import com.alunara.app.playback.PlaybackSessionManager
+import com.alunara.app.playback.SyncNoticeKind
 import com.alunara.core.domain.contract.AccountSessionStore
 import com.alunara.core.domain.contract.CatalogStore
 import com.alunara.core.domain.contract.LyricsEngine
@@ -183,6 +184,17 @@ class PlaybackSessionManagerTest {
         var radioFetchCalls = mutableListOf<String>()
         var accountClearedCount = 0
         var remoteLikes = mutableListOf<Pair<String, Boolean>>()
+        var remoteLikeResult: Result<Unit> = Result.success(Unit)
+        val accountPlaylistsState = mutableListOf(PlaylistSummary(id = "PL1", title = "Account Favorites"))
+        val createdPlaylists = mutableListOf<Pair<String, List<String>>>()
+        var createPlaylistResult: Result<String> = Result.success("PL_CREATED")
+        val addedToPlaylists = mutableListOf<Pair<String, String>>()
+        val removedFromPlaylists = mutableListOf<Triple<String, String, String?>>()
+        val savedPlaylists = mutableListOf<Pair<String, Boolean>>()
+        var savePlaylistResult: Result<Unit> = Result.success(Unit)
+        val subscribedArtists = mutableListOf<Triple<String, String?, Boolean>>()
+        var subscribeArtistResult: Result<Unit> = Result.success(Unit)
+        val reportedPlaybacks = mutableListOf<Triple<String, String?, String?>>()
         var resolvedQualities = mutableListOf<AudioQualityPreset>()
         val resolvedTrackIds = mutableListOf<String>()
         val invalidatedSources = mutableListOf<AudioStreamSource>()
@@ -220,6 +232,7 @@ class PlaybackSessionManagerTest {
                     bitrateBps = bps,
                     expiresAtEpochMs = Long.MAX_VALUE,
                     clientProfile = "VISIONOS",
+                    playbackTrackingUrl = "https://music.youtube.com/api/stats/playback?docid=$trackId",
                 ),
             )
         }
@@ -253,7 +266,7 @@ class PlaybackSessionManagerTest {
         }
 
         override suspend fun fetchAccountPlaylists(): Result<List<PlaylistSummary>> =
-            Result.success(listOf(PlaylistSummary(id = "PL1", title = "Account Favorites")))
+            Result.success(accountPlaylistsState.toList())
 
         override suspend fun fetchLikedMusicTracks(): Result<List<Track>> =
             Result.success(remoteLikesInitial)
@@ -266,6 +279,68 @@ class PlaybackSessionManagerTest {
             liked: Boolean,
         ): Result<Unit> {
             remoteLikes += trackId to liked
+            return remoteLikeResult
+        }
+
+        override suspend fun createAccountPlaylist(
+            title: String,
+            initialTrackIds: List<String>,
+        ): Result<String> {
+            createdPlaylists += title to initialTrackIds
+            createPlaylistResult.onSuccess { id ->
+                accountPlaylistsState += PlaylistSummary(id = id, title = title)
+            }
+            return createPlaylistResult
+        }
+
+        override suspend fun addTrackToAccountPlaylist(
+            playlistId: String,
+            trackId: String,
+        ): Result<Unit> {
+            addedToPlaylists += playlistId to trackId
+            return Result.success(Unit)
+        }
+
+        override suspend fun removeTrackFromAccountPlaylist(
+            playlistId: String,
+            trackId: String,
+            setVideoId: String?,
+        ): Result<Unit> {
+            removedFromPlaylists += Triple(playlistId, trackId, setVideoId)
+            return Result.success(Unit)
+        }
+
+        override suspend fun setRemotePlaylistSaved(
+            playlistId: String,
+            saved: Boolean,
+        ): Result<Unit> {
+            savedPlaylists += playlistId to saved
+            if (savePlaylistResult.isSuccess) {
+                val clean = playlistId.removePrefix("VL")
+                if (saved && accountPlaylistsState.none { it.id.removePrefix("VL") == clean }) {
+                    accountPlaylistsState += PlaylistSummary(id = playlistId, title = "Saved $clean")
+                } else if (!saved) {
+                    accountPlaylistsState.removeAll { it.id.removePrefix("VL") == clean }
+                }
+            }
+            return savePlaylistResult
+        }
+
+        override suspend fun setRemoteArtistSubscription(
+            artistId: String,
+            channelId: String?,
+            subscribed: Boolean,
+        ): Result<Unit> {
+            subscribedArtists += Triple(artistId, channelId, subscribed)
+            return subscribeArtistResult
+        }
+
+        override suspend fun reportPlaybackToAccount(
+            trackId: String,
+            playbackTrackingUrl: String?,
+            playlistId: String?,
+        ): Result<Unit> {
+            reportedPlaybacks += Triple(trackId, playbackTrackingUrl, playlistId)
             return Result.success(Unit)
         }
     }
@@ -863,6 +938,155 @@ class PlaybackSessionManagerTest {
 
             advanceUntilIdle()
             assertEquals(listOf("t1", "t2"), player.preparedTracks)
+            manager.clearQueue()
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun toggleFavorite_whenRemoteSyncFails_rollsBackLocalStateAndEmitsNotice() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val catalog = FakeCatalogStore()
+            val sessionStore = FakeAccountSessionStore()
+            val music =
+                FakeMusicEngine().apply {
+                    remoteLikeResult = Result.failure(IllegalStateException("401 Unauthorized"))
+                }
+            val player = FakePlayerControl()
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = music,
+                    lyricsEngine = emptyLyricsEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = player,
+                    catalogStore = catalog,
+                    accountSessionStore = sessionStore,
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+
+            assertTrue(manager.activateAccountSession(AccountCredentials(cookie = "SAPISID=xyz")).isSuccess)
+            advanceUntilIdle()
+
+            val track = Track(id = "fail-like-1", title = "Rollback Track")
+            manager.toggleFavorite(track)
+            advanceUntilIdle()
+
+            assertFalse(manager.uiState.value.favoriteIds.contains("fail-like-1"))
+            assertEquals(SyncNoticeKind.FAVORITE_SYNC_FAILED, manager.uiState.value.syncNotice?.kind)
+        }
+
+    @Test
+    fun accountSync_playlistAndArtistMutations_updateStateAndRollbackOnFailure() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val catalog = FakeCatalogStore()
+            val sessionStore = FakeAccountSessionStore()
+            val music = FakeMusicEngine()
+            val player = FakePlayerControl()
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = music,
+                    lyricsEngine = emptyLyricsEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = player,
+                    catalogStore = catalog,
+                    accountSessionStore = sessionStore,
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+
+            assertTrue(manager.activateAccountSession(AccountCredentials(cookie = "SAPISID=xyz")).isSuccess)
+            advanceUntilIdle()
+
+            val track = Track(id = "t-sync", title = "Sync Song", setVideoId = "SET_99")
+            var createdId: String? = null
+            manager.createAccountPlaylist("My Mix", initialTrack = track) { createdId = it }
+            advanceUntilIdle()
+            assertEquals("PL_CREATED", createdId)
+            assertEquals(listOf("My Mix" to listOf("t-sync")), music.createdPlaylists)
+            assertEquals(SyncNoticeKind.PLAYLIST_CREATED, manager.uiState.value.syncNotice?.kind)
+
+            val playlist = PlaylistSummary(id = "VLPL1", title = "Account Favorites")
+            var addedOk = false
+            manager.addTrackToAccountPlaylist(playlist, track) { addedOk = it }
+            advanceUntilIdle()
+            assertTrue(addedOk)
+            assertEquals(listOf("VLPL1" to "t-sync"), music.addedToPlaylists)
+            assertEquals(SyncNoticeKind.PLAYLIST_ADDED, manager.uiState.value.syncNotice?.kind)
+
+            var removedOk = false
+            manager.removeTrackFromAccountPlaylist("VLPL1", track) { removedOk = it }
+            advanceUntilIdle()
+            assertTrue(removedOk)
+            assertEquals(listOf(Triple("VLPL1", "t-sync", "SET_99")), music.removedFromPlaylists)
+            assertEquals(SyncNoticeKind.PLAYLIST_REMOVED, manager.uiState.value.syncNotice?.kind)
+
+            // Save playlist + rollback on failure
+            val extPlaylist = PlaylistSummary(id = "VLPL_EXT", title = "External Mix")
+            manager.toggleSavePlaylist(extPlaylist)
+            advanceUntilIdle()
+            assertTrue("PL_EXT" in manager.uiState.value.savedPlaylistIds)
+            assertEquals(SyncNoticeKind.PLAYLIST_SAVED, manager.uiState.value.syncNotice?.kind)
+
+            music.savePlaylistResult = Result.failure(IllegalStateException("Network error"))
+            manager.toggleSavePlaylist(extPlaylist)
+            advanceUntilIdle()
+            assertTrue("PL_EXT" in manager.uiState.value.savedPlaylistIds)
+            assertEquals(SyncNoticeKind.SYNC_FAILED, manager.uiState.value.syncNotice?.kind)
+
+            // Subscribe artist + rollback on failure
+            manager.toggleArtistSubscription("ART1", "UC_ART1", "Artist One")
+            advanceUntilIdle()
+            assertTrue("ART1" in manager.uiState.value.subscribedArtistIds)
+            assertEquals(SyncNoticeKind.ARTIST_SUBSCRIBED, manager.uiState.value.syncNotice?.kind)
+
+            music.subscribeArtistResult = Result.failure(IllegalStateException("Network error"))
+            manager.toggleArtistSubscription("ART1", "UC_ART1", "Artist One")
+            advanceUntilIdle()
+            assertTrue("ART1" in manager.uiState.value.subscribedArtistIds)
+            assertEquals(SyncNoticeKind.SYNC_FAILED, manager.uiState.value.syncNotice?.kind)
+        }
+
+    @Test
+    fun authenticatedPlayback_reportsPlaybackTrackingUrlToAccount() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            val catalog = FakeCatalogStore()
+            val sessionStore = FakeAccountSessionStore()
+            val music = FakeMusicEngine()
+            val player = FakePlayerControl()
+            val manager =
+                PlaybackSessionManager(
+                    musicEngine = music,
+                    lyricsEngine = emptyLyricsEngine,
+                    queueStore = memoryQueueStore,
+                    playerController = player,
+                    catalogStore = catalog,
+                    accountSessionStore = sessionStore,
+                    ioDispatcher = dispatcher,
+                    mainDispatcher = dispatcher,
+                )
+
+            assertTrue(manager.activateAccountSession(AccountCredentials(cookie = "SAPISID=xyz")).isSuccess)
+            advanceUntilIdle()
+
+            val track = Track(id = "rep-1", title = "Reported Track")
+            manager.playTracks(listOf(track), autoExpandRadio = false)
+            advanceUntilIdle()
+
+            manager.playerListener.onIsPlayingChanged(true)
+            runCurrent()
+
+            assertEquals(1, music.reportedPlaybacks.size)
+            assertEquals(
+                Triple(
+                    "rep-1",
+                    "https://music.youtube.com/api/stats/playback?docid=rep-1",
+                    null,
+                ),
+                music.reportedPlaybacks.first(),
+            )
             manager.clearQueue()
             advanceUntilIdle()
         }

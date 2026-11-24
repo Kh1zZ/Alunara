@@ -16,6 +16,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.BookmarkAdd
+import androidx.compose.material.icons.rounded.BookmarkAdded
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Refresh
@@ -50,6 +55,7 @@ import com.alunara.core.domain.contract.MusicEngine
 import com.alunara.core.domain.model.AlbumDetail
 import com.alunara.core.domain.model.AlbumRef
 import com.alunara.core.domain.model.ArtistDetail
+import com.alunara.core.domain.model.AuthSessionState
 import com.alunara.core.domain.model.PlaylistDetail
 import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.Track
@@ -112,12 +118,20 @@ internal fun CatalogDetailScreen(
     onOpenAlbum: (AlbumRef) -> Unit,
     onOpenPlaylist: (PlaylistSummary) -> Unit,
     modifier: Modifier = Modifier,
+    entryFocusRequester: FocusRequester = remember { FocusRequester() },
+    authSession: AuthSessionState = AuthSessionState.Guest,
+    savedPlaylistIds: Set<String> = emptySet(),
+    subscribedArtistIds: Set<String> = emptySet(),
+    onToggleSavePlaylist: (PlaylistSummary) -> Unit = {},
+    onToggleArtistSubscription: (String, String?, String?) -> Unit = { _, _, _ -> },
+    onAddTrackToPlaylist: ((Track) -> Unit)? = null,
+    onRemoveTrackFromPlaylist: ((String, Track, () -> Unit) -> Unit)? = null,
 ) {
     var uiState by remember(target, detailsCache) {
         mutableStateOf(detailsCache[target] ?: CatalogDetailUiState.Loading)
     }
     var reloadTrigger by remember(target) { mutableIntStateOf(0) }
-    val primaryFocusRequester = remember(target) { FocusRequester() }
+    val primaryFocusRequester = entryFocusRequester
 
     LaunchedEffect(target, reloadTrigger, detailsCache) {
         if (reloadTrigger == 0 && detailsCache.containsKey(target)) return@LaunchedEffect
@@ -204,6 +218,27 @@ internal fun CatalogDetailScreen(
                 }
         }
 
+    val isAuthenticated = authSession is AuthSessionState.Authenticated
+    val targetPlaylistSummary: PlaylistSummary? =
+        when (val state = uiState) {
+            is CatalogDetailUiState.LoadedPlaylist -> state.detail.playlist
+            is CatalogDetailUiState.LoadedAlbum ->
+                state.detail.album.playlistId?.takeIf { it.isNotBlank() }?.let { plId ->
+                    PlaylistSummary(
+                        id = plId,
+                        title = state.detail.album.title,
+                        author = state.detail.album.artists.joinToString(", ") { it.name }.takeIf { it.isNotBlank() },
+                        thumbnailUrl = state.detail.album.thumbnailUrl,
+                    )
+                }
+            else -> null
+        }
+    val cleanTargetPlaylistId = targetPlaylistSummary?.id?.removePrefix("VL")
+    val isPlaylistSaved = cleanTargetPlaylistId != null && cleanTargetPlaylistId in savedPlaylistIds
+    val loadedArtistDetail = (uiState as? CatalogDetailUiState.LoadedArtist)?.detail
+    val isArtistSubscribed =
+        loadedArtistDetail != null && loadedArtistDetail.artist.id in subscribedArtistIds
+
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -230,6 +265,25 @@ internal fun CatalogDetailScreen(
                     onEnqueueAll(primaryTracks)
                 }
             },
+            savePlaylistLabel =
+                if (isAuthenticated && targetPlaylistSummary != null) {
+                    if (isPlaylistSaved) stringResource(R.string.action_saved_to_library) else stringResource(R.string.action_save_to_library)
+                } else {
+                    null
+                },
+            savePlaylistHighlighted = isPlaylistSaved,
+            onToggleSavePlaylist = targetPlaylistSummary?.let { pl -> { onToggleSavePlaylist(pl) } },
+            subscribeArtistLabel =
+                if (isAuthenticated && loadedArtistDetail != null && !loadedArtistDetail.artist.id.isNullOrBlank()) {
+                    if (isArtistSubscribed) stringResource(R.string.action_subscribed) else stringResource(R.string.action_subscribe)
+                } else {
+                    null
+                },
+            subscribeArtistHighlighted = isArtistSubscribed,
+            onToggleSubscribeArtist =
+                loadedArtistDetail?.artist?.id?.takeIf { it.isNotBlank() }?.let { artId ->
+                    { onToggleArtistSubscription(artId, loadedArtistDetail.channelId, loadedArtistDetail.artist.name) }
+                },
         )
 
         when (val state = uiState) {
@@ -268,6 +322,7 @@ internal fun CatalogDetailScreen(
                     activeTrackId = activeTrackId,
                     onPlayAt = { idx -> onPlayTracks(state.detail.tracks, idx) },
                     onEnqueueTrack = onEnqueueTrack,
+                    onAddTrackToPlaylist = onAddTrackToPlaylist,
                     modifier = Modifier.weight(1f),
                 )
 
@@ -277,6 +332,18 @@ internal fun CatalogDetailScreen(
                     activeTrackId = activeTrackId,
                     onPlayAt = { idx -> onPlayTracks(state.detail.tracks, idx) },
                     onEnqueueTrack = onEnqueueTrack,
+                    onAddTrackToPlaylist = onAddTrackToPlaylist,
+                    onRemoveTrackFromPlaylist =
+                        if (isAuthenticated && isPlaylistSaved && onRemoveTrackFromPlaylist != null) {
+                            { track ->
+                                onRemoveTrackFromPlaylist(state.detail.playlist.id, track) {
+                                    detailsCache.remove(target)
+                                    reloadTrigger++
+                                }
+                            }
+                        } else {
+                            null
+                        },
                     modifier = Modifier.weight(1f),
                 )
 
@@ -286,6 +353,7 @@ internal fun CatalogDetailScreen(
                     activeTrackId = activeTrackId,
                     onPlaySong = { idx -> onPlayTracks(state.detail.topSongs, idx) },
                     onEnqueueTrack = onEnqueueTrack,
+                    onAddTrackToPlaylist = onAddTrackToPlaylist,
                     onOpenAlbum = onOpenAlbum,
                     onOpenPlaylist = onOpenPlaylist,
                     modifier = Modifier.weight(1f),
@@ -314,6 +382,12 @@ private fun CatalogActionHeader(
     onPlayAll: () -> Unit,
     onStartRadio: () -> Unit,
     onEnqueueAll: () -> Unit,
+    savePlaylistLabel: String? = null,
+    savePlaylistHighlighted: Boolean = false,
+    onToggleSavePlaylist: (() -> Unit)? = null,
+    subscribeArtistLabel: String? = null,
+    subscribeArtistHighlighted: Boolean = false,
+    onToggleSubscribeArtist: (() -> Unit)? = null,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
@@ -388,6 +462,22 @@ private fun CatalogActionHeader(
                     enabled = hasTracks,
                     onClick = onEnqueueAll,
                 )
+                if (savePlaylistLabel != null && onToggleSavePlaylist != null) {
+                    TvFocusableButton(
+                        text = savePlaylistLabel,
+                        icon = if (savePlaylistHighlighted) Icons.Rounded.BookmarkAdded else Icons.Rounded.BookmarkAdd,
+                        highlighted = savePlaylistHighlighted,
+                        onClick = onToggleSavePlaylist,
+                    )
+                }
+                if (subscribeArtistLabel != null && onToggleSubscribeArtist != null) {
+                    TvFocusableButton(
+                        text = subscribeArtistLabel,
+                        icon = if (subscribeArtistHighlighted) Icons.Rounded.NotificationsActive else Icons.Rounded.NotificationsNone,
+                        highlighted = subscribeArtistHighlighted,
+                        onClick = onToggleSubscribeArtist,
+                    )
+                }
             }
         }
     }
@@ -399,6 +489,8 @@ private fun CatalogTrackList(
     activeTrackId: String?,
     onPlayAt: (Int) -> Unit,
     onEnqueueTrack: (Track) -> Unit,
+    onAddTrackToPlaylist: ((Track) -> Unit)? = null,
+    onRemoveTrackFromPlaylist: ((Track) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
@@ -422,7 +514,7 @@ private fun CatalogTrackList(
     ) {
         items(
             count = tracks.size,
-            key = { idx -> "cat-trk-${tracks[idx].id}" },
+            key = { idx -> "cat-trk-${tracks[idx].setVideoId ?: idx}-${tracks[idx].id}" },
             contentType = { "catalog-song-row" },
         ) { index ->
             val track = tracks[index]
@@ -433,6 +525,24 @@ private fun CatalogTrackList(
                 secondaryActionLabel = stringResource(R.string.add_to_queue),
                 secondaryActionIcon = Icons.AutoMirrored.Rounded.PlaylistAdd,
                 onSecondaryClick = { onEnqueueTrack(track) },
+                tertiaryActionContentDescription =
+                    when {
+                        onRemoveTrackFromPlaylist != null -> stringResource(R.string.action_remove_from_playlist)
+                        onAddTrackToPlaylist != null -> stringResource(R.string.action_add_to_playlist)
+                        else -> null
+                    },
+                tertiaryActionIcon =
+                    when {
+                        onRemoveTrackFromPlaylist != null -> Icons.Rounded.DeleteOutline
+                        onAddTrackToPlaylist != null -> Icons.AutoMirrored.Rounded.PlaylistAdd
+                        else -> null
+                    },
+                onTertiaryClick =
+                    when {
+                        onRemoveTrackFromPlaylist != null -> { { onRemoveTrackFromPlaylist(track) } }
+                        onAddTrackToPlaylist != null -> { { onAddTrackToPlaylist(track) } }
+                        else -> null
+                    },
             )
         }
     }
@@ -444,6 +554,7 @@ private fun ArtistDetailContent(
     activeTrackId: String?,
     onPlaySong: (Int) -> Unit,
     onEnqueueTrack: (Track) -> Unit,
+    onAddTrackToPlaylist: ((Track) -> Unit)? = null,
     onOpenAlbum: (AlbumRef) -> Unit,
     onOpenPlaylist: (PlaylistSummary) -> Unit,
     modifier: Modifier = Modifier,
@@ -488,6 +599,9 @@ private fun ArtistDetailContent(
                     secondaryActionLabel = stringResource(R.string.add_to_queue),
                     secondaryActionIcon = Icons.AutoMirrored.Rounded.PlaylistAdd,
                     onSecondaryClick = { onEnqueueTrack(song) },
+                    tertiaryActionContentDescription = onAddTrackToPlaylist?.let { stringResource(R.string.action_add_to_playlist) },
+                    tertiaryActionIcon = onAddTrackToPlaylist?.let { Icons.AutoMirrored.Rounded.PlaylistAdd },
+                    onTertiaryClick = onAddTrackToPlaylist?.let { cb -> { cb(song) } },
                 )
             }
         }
@@ -503,7 +617,10 @@ private fun ArtistDetailContent(
                 )
             }
             item(key = "rail-albums", contentType = "catalog-rail") {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                ) {
                     items(
                         items = detail.albums,
                         key = { "art-alb-${it.id}" },
@@ -531,7 +648,10 @@ private fun ArtistDetailContent(
                 )
             }
             item(key = "rail-playlists", contentType = "catalog-rail") {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                ) {
                     items(
                         items = detail.playlists,
                         key = { "art-pl-${it.id}" },

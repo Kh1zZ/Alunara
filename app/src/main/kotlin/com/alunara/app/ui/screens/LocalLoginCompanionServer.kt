@@ -11,12 +11,21 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.net.Inet4Address
+import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
+
+internal data class DecodedPairingTarget(
+    val ip: String,
+    val port: Int,
+    val pin: Int,
+)
 
 enum class CompanionAction {
     FILL_EMAIL,
@@ -45,6 +54,27 @@ class LocalLoginCompanionServer(
     private val onInput: suspend (CompanionInputPayload) -> Unit,
 ) {
     val sessionToken: String = generateSessionToken()
+    private val basePairPin: Int = generatePairPin()
+    private val failedPairAttempts = AtomicInteger(0)
+
+    @Volatile
+    private var activePairPin: Int = basePairPin
+
+    @Volatile
+    var pairingCode: String? = null
+        private set
+
+    @Volatile
+    var localLoginUrl: String? = null
+        private set
+
+    @Volatile
+    var isCompletedOnTv: Boolean = false
+        private set
+
+    @Volatile
+    var completedAccountName: String = ""
+        private set
 
     @Volatile
     var currentStep: String = STEP_EMAIL
@@ -67,15 +97,45 @@ class LocalLoginCompanionServer(
     @Volatile
     private var acceptJob: Job? = null
 
+    fun markCompleted(accountName: String = "") {
+        isCompletedOnTv = true
+        currentStep = STEP_DONE
+        if (accountName.isNotBlank()) {
+            completedAccountName = accountName
+        }
+        lastStatusHint =
+            pickLocalized(
+                language = language,
+                id = "Login selesai! Akun YouTube Music sudah aktif di TV.",
+                ja = "ログイン完了！テレビで YouTube Music アカウントが有効になりました。",
+                en = "Sign-in complete! Your YouTube Music account is active on the TV.",
+            )
+    }
+
     fun start(): String? {
-        if (serverSocket != null) return buildLoginUrl(serverSocket!!.localPort)
+        if (serverSocket != null) return localLoginUrl ?: buildLoginUrl(serverSocket!!.localPort)
         val lanIp = detectLanIpv4Address() ?: return null
         val socket =
-            runCatching { ServerSocket(0) }
-                .getOrNull()
+            runCatching {
+                ServerSocket().apply {
+                    reuseAddress = true
+                    bind(InetSocketAddress(DEFAULT_PAIRING_PORT))
+                }
+            }.getOrNull()
+                ?: runCatching { ServerSocket(0) }.getOrNull()
                 ?: return null
         serverSocket = socket
-        val url = "http://$lanIp:${socket.localPort}/l?t=$sessionToken"
+        val resolvedPort = socket.localPort
+        val encoded = encodePairingCode(lanIp, resolvedPort, basePairPin)
+        activePairPin =
+            if (encoded != null && encoded.replace("-", "").length == 12) {
+                basePairPin and 0x3FF
+            } else {
+                basePairPin
+            }
+        pairingCode = encoded
+        val url = "http://$lanIp:$resolvedPort/l?t=$sessionToken"
+        localLoginUrl = url
 
         acceptJob =
             scope.launch(Dispatchers.IO) {
@@ -113,9 +173,11 @@ class LocalLoginCompanionServer(
     internal fun buildStatusJson(): String =
         buildString {
             append('{')
-            append("\"step\":").append(escapeJsonString(currentStep)).append(',')
+            append("\"step\":").append(escapeJsonString(if (isCompletedOnTv) STEP_DONE else currentStep)).append(',')
             append("\"host\":").append(escapeJsonString(currentHost)).append(',')
-            append("\"hint\":").append(escapeJsonString(lastStatusHint))
+            append("\"hint\":").append(escapeJsonString(lastStatusHint)).append(',')
+            append("\"completed\":").append(isCompletedOnTv).append(',')
+            append("\"accountName\":").append(escapeJsonString(completedAccountName))
             append('}')
         }
 
@@ -138,6 +200,35 @@ class LocalLoginCompanionServer(
             }
 
             val queryParams = parseQueryParams(request.query)
+            if (request.method == "GET" && request.path == "/p") {
+                if (failedPairAttempts.get() >= MAX_FAILED_PAIR_ATTEMPTS) {
+                    writeResponse(output, 403, "text/plain; charset=utf-8", "Too many attempts")
+                    return
+                }
+                val rawPin = queryParams["k"]?.trim().orEmpty()
+                val submittedPin = rawPin.toIntOrNull(16) ?: rawPin.toIntOrNull()
+                if (submittedPin == activePairPin) {
+                    writeResponse(
+                        output = output,
+                        status = 302,
+                        contentType = "text/plain; charset=utf-8",
+                        body = "Redirecting...",
+                        extraHeaders = mapOf("Location" to "/l?t=$sessionToken"),
+                    )
+                } else {
+                    failedPairAttempts.incrementAndGet()
+                    val msg =
+                        pickLocalized(
+                            language = language,
+                            id = "Kode TV tidak cocok atau sudah kedaluwarsa",
+                            ja = "TV コードが一致しないか、有効期限が切れています",
+                            en = "TV code does not match or has expired",
+                        )
+                    writeResponse(output, 403, "text/plain; charset=utf-8", msg)
+                }
+                return
+            }
+
             if (queryParams["t"] != sessionToken) {
                 val msg =
                     pickLocalized(
@@ -386,10 +477,12 @@ class LocalLoginCompanionServer(
         status: Int,
         contentType: String,
         body: String,
+        extraHeaders: Map<String, String> = emptyMap(),
     ) {
         val statusText =
             when (status) {
                 200 -> "OK"
+                302 -> "Found"
                 400 -> "Bad Request"
                 403 -> "Forbidden"
                 404 -> "Not Found"
@@ -402,6 +495,9 @@ class LocalLoginCompanionServer(
                 append("Content-Type: ").append(contentType).append("\r\n")
                 append("Content-Length: ").append(bodyBytes.size).append("\r\n")
                 append("Cache-Control: no-store, no-cache\r\n")
+                extraHeaders.forEach { (k, v) ->
+                    append(k).append(": ").append(v).append("\r\n")
+                }
                 append("Connection: close\r\n\r\n")
             }.toByteArray(StandardCharsets.US_ASCII)
         output.write(headers)
@@ -414,11 +510,15 @@ class LocalLoginCompanionServer(
         const val STEP_PASSWORD = "password"
         const val STEP_VERIFY = "verify"
         const val STEP_DONE = "done"
+        const val DEFAULT_PAIRING_PORT = 4580
+        const val PAIRING_PORTAL_DISPLAY_URL = "kh1zz.github.io/Alunara/login"
 
         private const val SOCKET_TIMEOUT_MS = 5000
         private const val MAX_HEADER_BYTES = 8192
         private const val MAX_BODY_BYTES = 16384
+        private const val MAX_FAILED_PAIR_ATTEMPTS = 8
         private const val TOKEN_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        private const val PAIR_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 
         fun generateSessionToken(): String {
             val rng = SecureRandom()
@@ -428,6 +528,120 @@ class LocalLoginCompanionServer(
                 }
             }
         }
+
+        private fun generatePairPin(): Int = SecureRandom().nextInt(4096)
+
+        internal fun encodePairingCode(
+            ip: String,
+            port: Int,
+            pin: Int,
+        ): String? {
+            if (port !in 1..65535) return null
+            val parts = ip.trim().split('.')
+            if (parts.size != 4) return null
+            val octets = parts.map { it.toIntOrNull() ?: return null }
+            if (octets.any { it !in 0..255 }) return null
+            val o0 = octets[0]
+            val o1 = octets[1]
+            val o2 = octets[2]
+            val o3 = octets[3]
+
+            return when {
+                port == DEFAULT_PAIRING_PORT && o0 == 192 && o1 == 168 -> {
+                    val packed =
+                        ((o2.toLong() and 0xFFL) shl 20) or
+                            ((o3.toLong() and 0xFFL) shl 12) or
+                            (pin.toLong() and 0xFFFL)
+                    val chars = encodeBase32(packed, 6)
+                    "${chars.substring(0, 4)}-${chars.substring(4)}"
+                }
+                port == DEFAULT_PAIRING_PORT && ((o0 == 10 && o1 in 0..15) || (o0 == 172 && o1 in 16..31)) -> {
+                    val kind = if (o0 == 10) 1L else 0L
+                    val sub = if (o0 == 10) o1.toLong() else (o1 - 16).toLong()
+                    val packed =
+                        (1L shl 33) or
+                            (kind shl 32) or
+                            ((sub and 0xFL) shl 28) or
+                            ((o2.toLong() and 0xFFL) shl 20) or
+                            ((o3.toLong() and 0xFFL) shl 12) or
+                            (pin.toLong() and 0xFFFL)
+                    val chars = encodeBase32(packed, 7)
+                    "${chars.substring(0, 4)}-${chars.substring(4)}"
+                }
+                else -> {
+                    val ip32 =
+                        ((o0.toLong() and 0xFFL) shl 24) or
+                            ((o1.toLong() and 0xFFL) shl 16) or
+                            ((o2.toLong() and 0xFFL) shl 8) or
+                            (o3.toLong() and 0xFFL)
+                    val packed =
+                        (2L shl 58) or
+                            (ip32 shl 26) or
+                            ((port.toLong() and 0xFFFFL) shl 10) or
+                            (pin.toLong() and 0x3FFL)
+                    val chars = encodeBase32(packed, 12)
+                    "${chars.substring(0, 4)}-${chars.substring(4, 8)}-${chars.substring(8)}"
+                }
+            }
+        }
+
+        internal fun decodePairingCode(code: String): DecodedPairingTarget? {
+            val clean = code.uppercase(Locale.ROOT).filter { it.isLetterOrDigit() }
+            if (clean.length != 6 && clean.length != 7 && clean.length != 12) return null
+            var packed = 0L
+            for (ch in clean) {
+                val idx = PAIR_ALPHABET.indexOf(ch)
+                if (idx < 0) return null
+                packed = (packed shl 5) or idx.toLong()
+            }
+            return when (clean.length) {
+                6 -> {
+                    val mode = (packed ushr 28) and 0x3L
+                    if (mode != 0L) return null
+                    val o2 = ((packed ushr 20) and 0xFFL).toInt()
+                    val o3 = ((packed ushr 12) and 0xFFL).toInt()
+                    val pin = (packed and 0xFFFL).toInt()
+                    DecodedPairingTarget("192.168.$o2.$o3", DEFAULT_PAIRING_PORT, pin)
+                }
+                7 -> {
+                    val mode = (packed ushr 33) and 0x3L
+                    if (mode != 1L) return null
+                    val kind = (packed ushr 32) and 1L
+                    val sub = ((packed ushr 28) and 0xFL).toInt()
+                    val o0 = if (kind == 1L) 10 else 172
+                    val o1 = if (kind == 1L) sub else (16 + sub)
+                    val o2 = ((packed ushr 20) and 0xFFL).toInt()
+                    val o3 = ((packed ushr 12) and 0xFFL).toInt()
+                    val pin = (packed and 0xFFFL).toInt()
+                    DecodedPairingTarget("$o0.$o1.$o2.$o3", DEFAULT_PAIRING_PORT, pin)
+                }
+                else -> {
+                    val mode = (packed ushr 58) and 0x3L
+                    if (mode != 2L) return null
+                    val ip32 = (packed ushr 26) and 0xFFFFFFFFL
+                    val port = ((packed ushr 10) and 0xFFFFL).toInt()
+                    val pin = (packed and 0x3FFL).toInt()
+                    if (port <= 0) return null
+                    val a0 = ((ip32 ushr 24) and 0xFFL).toInt()
+                    val a1 = ((ip32 ushr 16) and 0xFFL).toInt()
+                    val a2 = ((ip32 ushr 8) and 0xFFL).toInt()
+                    val a3 = (ip32 and 0xFFL).toInt()
+                    DecodedPairingTarget("$a0.$a1.$a2.$a3", port, pin)
+                }
+            }
+        }
+
+        private fun encodeBase32(
+            packed: Long,
+            length: Int,
+        ): String =
+            buildString(length) {
+                for (i in 0 until length) {
+                    val shift = (length - 1 - i) * 5
+                    val idx = ((packed ushr shift) and 0x1FL).toInt()
+                    append(PAIR_ALPHABET[idx])
+                }
+            }
 
         fun hasValidSapisidCookie(cookie: String): Boolean =
             cookie.contains("SAPISID=") ||
@@ -500,11 +714,11 @@ class LocalLoginCompanionServer(
                 statusJson
                     ?: when (language) {
                         AppLanguage.INDONESIAN ->
-                            """{"step":"email","host":"accounts.google.com","hint":"Langkah 1: Masukkan Email Google Anda"}"""
+                            """{"step":"email","host":"accounts.google.com","hint":"Langkah 1: Masukkan Email Google Anda","completed":false,"accountName":""}"""
                         AppLanguage.JAPANESE ->
-                            """{"step":"email","host":"accounts.google.com","hint":"ステップ 1：Google メールアドレスを入力してください"}"""
+                            """{"step":"email","host":"accounts.google.com","hint":"ステップ 1：Google メールアドレスを入力してください","completed":false,"accountName":""}"""
                         else ->
-                            """{"step":"email","host":"accounts.google.com","hint":"Step 1: Enter your Google Email"}"""
+                            """{"step":"email","host":"accounts.google.com","hint":"Step 1: Enter your Google Email","completed":false,"accountName":""}"""
                     }
             val bannerHtml =
                 if (!statusMessage.isNullOrBlank()) {
@@ -625,6 +839,16 @@ class LocalLoginCompanionServer(
                 )
             val cookieSubmit = t(id = "Masuk dengan Cookie", ja = "Cookie でログイン", en = "Sign In with Cookie")
 
+            val doneModalTitle = t(id = "Login Berhasil ✓", ja = "ログイン完了 ✓", en = "Sign-In Complete ✓")
+            val doneModalDesc =
+                t(
+                    id = "Akun YouTube Music Anda sudah terhubung di Alunara TV. Anda sekarang dapat menutup halaman ini di HP.",
+                    ja = "YouTube Music アカウントが Alunara TV に連携されました。スマホのこのページは閉じて構いません。",
+                    en = "Your YouTube Music account is now active on Alunara TV. You may close this page on your phone.",
+                )
+            val doneModalClose = t(id = "Tutup Tampilan", ja = "閉じる", en = "Dismiss")
+            val jsDoneAccountPrefix = escapeJsonString(t(id = "Akun terhubung: ", ja = "接続済みアカウント：", en = "Connected account: "))
+
             val jsBadgeDone = escapeJsonString(t(id = "Selesai ✓", ja = "完了 ✓", en = "Done ✓"))
             val jsBadgeActive = escapeJsonString(t(id = "Aktif di TV", ja = "テレビで表示中", en = "Active on TV"))
             val jsStepPrefix = escapeJsonString(t(id = "Langkah ", ja = "ステップ ", en = "Step "))
@@ -677,6 +901,13 @@ class LocalLoginCompanionServer(
                     button.secondary { background:#26382D; color:#E3EEE5; border:1px solid #3D5B49; }
                     .remoteGrid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
                     details summary { cursor:pointer; font-size:13px; font-weight:600; color:#85BDA0; }
+                    .modalOverlay { position:fixed; inset:0; background:rgba(10,16,12,0.86); display:none; align-items:center; justify-content:center; padding:18px; z-index:999; }
+                    .modalOverlay.open { display:flex; }
+                    .modalCard { width:100%; max-width:400px; background:#1D2B22; border:2px solid #B5E6CC; border-radius:18px; padding:24px 20px; text-align:center; box-shadow:0 24px 56px rgba(0,0,0,0.55); }
+                    .modalIcon { width:56px; height:56px; margin:0 auto 12px; border-radius:999px; background:#163826; border:2px solid #85BDA0; color:#C8F0DA; font-size:28px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+                    .modalAccount { display:none; margin:0 0 12px; padding:8px 12px; border-radius:10px; background:#142119; border:1px solid #2C4637; color:#B5E6CC; font-size:13px; font-weight:600; }
+                    .modalCard h2 { font-size:20px; color:#C8F0DA; margin:0 0 8px; }
+                    .modalCard p { font-size:13.5px; color:#B2C4B7; line-height:1.5; margin:0 0 16px; }
                   </style>
                 </head>
                 <body>
@@ -767,17 +998,46 @@ class LocalLoginCompanionServer(
                       </form>
                     </details>
                   </div>
+                  <div id="doneModal" class="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="doneModalTitle">
+                    <div class="modalCard">
+                      <div class="modalIcon">✓</div>
+                      <h2 id="doneModalTitle">$doneModalTitle</h2>
+                      <div id="doneModalAccount" class="modalAccount"></div>
+                      <p>$doneModalDesc</p>
+                      <button type="button" onclick="dismissDoneModal()">$doneModalClose</button>
+                    </div>
+                  </div>
                 </div>
 
                 <script>
                   var token = ${escapeJsonString(token)};
                   var stepOrder = ['email', 'password', 'verify', 'done'];
                   var lastSyncedStep = null;
+                  var doneModalShown = false;
+                  var pollTimer = null;
                   var lblDone = $jsBadgeDone;
                   var lblActive = $jsBadgeActive;
                   var lblStepPrefix = $jsStepPrefix;
                   var lblSent = $jsSentFallback;
                   var lblNetErr = $jsNetworkError;
+                  var lblDoneAccPrefix = $jsDoneAccountPrefix;
+                  function showDoneModal(accountName) {
+                    var modal = document.getElementById('doneModal');
+                    var accEl = document.getElementById('doneModalAccount');
+                    if (accEl) {
+                      if (accountName) {
+                        accEl.textContent = lblDoneAccPrefix + accountName;
+                        accEl.style.display = 'block';
+                      } else {
+                        accEl.style.display = 'none';
+                      }
+                    }
+                    if (modal) modal.classList.add('open');
+                  }
+                  function dismissDoneModal() {
+                    var modal = document.getElementById('doneModal');
+                    if (modal) modal.classList.remove('open');
+                  }
                   function applyTvState(st) {
                     if (!st || !st.step) return;
                     var hintEl = document.getElementById('tvStepHint');
@@ -806,6 +1066,14 @@ class LocalLoginCompanionServer(
                         else badge.textContent = lblStepPrefix + (i + 1);
                       }
                     });
+                    if (st.completed === true || st.step === 'done') {
+                      showDoneModal(st.accountName || '');
+                      doneModalShown = true;
+                      if (pollTimer !== null) {
+                        clearInterval(pollTimer);
+                        pollTimer = null;
+                      }
+                    }
                     if (lastSyncedStep !== st.step) {
                       var isTransition = lastSyncedStep !== null;
                       lastSyncedStep = st.step;
@@ -877,7 +1145,9 @@ class LocalLoginCompanionServer(
                       .catch(function() {});
                   }
                   applyTvState($resolvedStatusJson);
-                  setInterval(pollStatus, 750);
+                  if (!doneModalShown) {
+                    pollTimer = setInterval(pollStatus, 750);
+                  }
                 </script>
                 </body>
                 </html>

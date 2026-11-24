@@ -86,15 +86,17 @@ fun SearchScreen(
     onOpenArtist: (ArtistRef) -> Unit,
     onOpenPlaylist: (PlaylistSummary) -> Unit,
     modifier: Modifier = Modifier,
+    entryFocusRequester: FocusRequester = remember { FocusRequester() },
     requestInputFocus: Boolean = false,
     onInputFocusHandled: () -> Unit = {},
     onRetrySearch: () -> Unit = onSubmitSearch,
+    onAddToPlaylist: ((Track) -> Unit)? = null,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    val searchFieldRequester = remember { FocusRequester() }
+    val searchFieldRequester = entryFocusRequester
     var fieldFocused by remember { mutableStateOf(false) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue(query, TextRange(query.length))) }
     LaunchedEffect(query) {
@@ -294,6 +296,9 @@ fun SearchScreen(
                                 secondaryActionLabel = stringResource(R.string.add_to_queue),
                                 secondaryActionIcon = Icons.AutoMirrored.Rounded.PlaylistAdd,
                                 onSecondaryClick = { onEnqueueSong(song) },
+                                tertiaryActionContentDescription = onAddToPlaylist?.let { stringResource(R.string.action_add_to_playlist) },
+                                tertiaryActionIcon = onAddToPlaylist?.let { Icons.AutoMirrored.Rounded.PlaylistAdd },
+                                onTertiaryClick = onAddToPlaylist?.let { cb -> { cb(song) } },
                             )
                         }
                     }
@@ -309,7 +314,10 @@ fun SearchScreen(
                             )
                         }
                         item(key = "rail-albums", contentType = "search-rail") {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                            ) {
                                 items(
                                     items = results.albums,
                                     key = { "alb-${it.id}" },
@@ -337,7 +345,10 @@ fun SearchScreen(
                             )
                         }
                         item(key = "rail-playlists", contentType = "search-rail") {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                            ) {
                                 items(
                                     items = results.playlists,
                                     key = { "pl-${it.id}" },
@@ -365,7 +376,10 @@ fun SearchScreen(
                             )
                         }
                         item(key = "rail-artists", contentType = "search-rail") {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                            ) {
                                 items(
                                     items = results.artists,
                                     key = { "art-${it.id ?: it.name}" },

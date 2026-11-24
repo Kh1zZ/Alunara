@@ -2,6 +2,25 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.2.1] - 2026-11-24
+
+### Added
+- **Full YouTube Music Account Sync**:
+  - Playlist management directly from the TV UI: create account playlists, add tracks from Now Playing / Search / Detail views via `AddToPlaylistDialog`, and remove tracks from owned playlists (`removeTrackFromAccountPlaylist` with `setVideoId` fallback resolution).
+  - Save and unsave external playlists/albums (`setRemotePlaylistSaved`), subscribe and unsubscribe artists (`setRemoteArtistSubscription` with channel ID lookup), and report authenticated playback to YouTube Music history via `videostatsPlaybackUrl` (`reportPlaybackToAccount`).
+  - Real-time `SyncNoticePill` feedback banner + automatic optimistic UI rollback on failed like, save, or subscribe mutations.
+- **GitHub Pages QR Pairing Portal (Option A) & Phone Completion Modal**:
+  - Added static pairing portal (`docs/login/index.html`) hosted at `https://kh1zz.github.io/Alunara/login` so users can type a compact 6/7/12-character Base32 **TV Pairing Code** (or scan the QR) instead of manually typing a raw local IP/port URL.
+  - Added fixed preferred companion server port `4580` with `GET /p?k=` short-link redirect and a celebratory **"Sign-In Complete"** popup modal (`#doneModal`) on the phone companion page triggered immediately once the TV confirms authentication (kept alive for a 25-second grace period after TV login completes).
+
+### Changed
+- **TV Focus Stability & Navigation Flow**:
+  - Replaced bouncy spring focus scaling with crisp `tween(120ms)` transitions, tuned `LocalBringIntoViewSpec` scroll easing (`165ms`), and added a `90ms` debounce on left-rail tab switching to eliminate D-pad focus jitter.
+  - Fixed D-pad **Right** navigation from the left sidebar so focus deterministically enters the active screen's primary content (`entryFocusRequester`) instead of jumping into the header search bar or bottom mini player.
+- **Library Cover Geometry**: Updated `TvMediaCard` / `TvArtwork` (`fillWidthSquare`) and `LibraryScreen` (`GridCells.Adaptive(AlunaraDimens.CardWidth)` with outer focus-scale padding) so square playlist covers render cleanly without clipping.
+- **Redesigned Sign-In Screen**: Expanded the QR + TV Pairing Code card into a 66% hero panel and compacted the live WebView into a 34% secondary preview pane.
+- **Repository Hygiene**: Expanded `.gitignore` to ignore `.kotlin/`, `**/.kotlin/`, `dist/`, `*.hprof`, editor swap/workspace files, and local AI assistant state directories.
+
 ## [0.2.0] - 2026-11-24
 
 ### Lyrics & Romaji

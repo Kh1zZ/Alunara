@@ -23,6 +23,7 @@ data class Track(
     val durationSeconds: Int? = null,
     val thumbnailUrl: String? = null,
     val isExplicit: Boolean = false,
+    val setVideoId: String? = null,
 ) {
     val primaryArtistName: String
         get() = artists.joinToString(", ") { it.name }.ifBlank { "" }
@@ -60,6 +61,7 @@ data class ArtistDetail(
     val topSongs: List<Track> = emptyList(),
     val albums: List<AlbumRef> = emptyList(),
     val playlists: List<PlaylistSummary> = emptyList(),
+    val channelId: String? = null,
 )
 
 data class AccountCredentials(
@@ -128,6 +130,7 @@ data class AudioStreamSource(
     val bitrateBps: Int,
     val expiresAtEpochMs: Long,
     val clientProfile: String,
+    val playbackTrackingUrl: String? = null,
 )
 
 enum class PlaybackStatus {

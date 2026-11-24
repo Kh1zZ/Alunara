@@ -5,7 +5,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -129,6 +131,72 @@ class LocalLoginCompanionServerTest {
 
             val jaServer = LocalLoginCompanionServer(scope = scope, language = AppLanguage.JAPANESE) {}
             assertTrue(jaServer.lastStatusHint.contains("ステップ 1"))
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun encodePairingCode_and_decodePairingCode_roundTripCompactAndFullFormats() {
+        // 6-char compact code for 192.168.x.y on DEFAULT_PAIRING_PORT (4580), formatted XXXX-XX
+        val homeCode = LocalLoginCompanionServer.encodePairingCode("192.168.1.42", 4580, 1234)
+        assertNotNull(homeCode)
+        assertEquals(6, homeCode!!.replace("-", "").length)
+        val homeDecoded = LocalLoginCompanionServer.decodePairingCode(homeCode)
+        assertEquals(
+            DecodedPairingTarget("192.168.1.42", 4580, 1234),
+            homeDecoded,
+        )
+
+        // 7-char compact code for 10.0..15.x.y and 172.16..31.x.y on port 4580, formatted XXXX-XXX
+        val tenCode = LocalLoginCompanionServer.encodePairingCode("10.4.12.99", 4580, 77)
+        assertNotNull(tenCode)
+        assertEquals(7, tenCode!!.replace("-", "").length)
+        assertEquals(
+            DecodedPairingTarget("10.4.12.99", 4580, 77),
+            LocalLoginCompanionServer.decodePairingCode(tenCode.lowercase()),
+        )
+
+        val vpnCode = LocalLoginCompanionServer.encodePairingCode("172.20.8.5", 4580, 4095)
+        assertNotNull(vpnCode)
+        assertEquals(7, vpnCode!!.replace("-", "").length)
+        assertEquals(
+            DecodedPairingTarget("172.20.8.5", 4580, 4095),
+            LocalLoginCompanionServer.decodePairingCode(vpnCode),
+        )
+
+        // 12-char full code for arbitrary IPv4 or non-default port, formatted XXXX-XXXX-XXXX
+        val customCode = LocalLoginCompanionServer.encodePairingCode("192.168.1.42", 52123, 987)
+        assertNotNull(customCode)
+        assertEquals(12, customCode!!.replace("-", "").length)
+        assertEquals(
+            DecodedPairingTarget("192.168.1.42", 52123, 987),
+            LocalLoginCompanionServer.decodePairingCode(customCode),
+        )
+    }
+
+    @Test
+    fun markCompleted_updatesStatusJsonAndMobileHtmlContainsDoneModal() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            val server = LocalLoginCompanionServer(scope = scope, language = AppLanguage.ENGLISH) {}
+            assertFalse(server.isCompletedOnTv)
+
+            server.markCompleted("""Alunara "TV"""")
+            val json = server.buildStatusJson()
+            assertTrue(server.isCompletedOnTv)
+            assertTrue(json.contains(""""completed":true"""))
+            assertTrue(json.contains(""""accountName":"Alunara \"TV\"""""))
+
+            val html =
+                LocalLoginCompanionServer.buildMobileHtml(
+                    token = "PAIR01",
+                    statusJson = json,
+                    language = AppLanguage.ENGLISH,
+                )
+            assertTrue(html.contains("""id="doneModal""""))
+            assertTrue(html.contains("showDoneModal("))
+            assertTrue(html.contains("clearInterval(pollTimer)"))
         } finally {
             scope.cancel()
         }

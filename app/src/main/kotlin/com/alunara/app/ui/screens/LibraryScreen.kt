@@ -12,11 +12,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Favorite
@@ -81,6 +82,8 @@ fun LibraryScreen(
     onNavigateToSearch: () -> Unit,
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    entryFocusRequester: FocusRequester = remember { FocusRequester() },
+    onCreatePlaylistClick: () -> Unit = {},
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
@@ -88,11 +91,19 @@ fun LibraryScreen(
     var confirmingClearHistory by remember { mutableStateOf(false) }
     val cancelClearHistoryRequester = remember { FocusRequester() }
     val topRightActionRequester = remember { FocusRequester() }
+    val createPlaylistRequester = remember { FocusRequester() }
     val tabPlaylistsRequester = remember { FocusRequester() }
     val tabFavoritesRequester = remember { FocusRequester() }
     val tabHistoryRequester = remember { FocusRequester() }
+    val firstContentItemRequester = remember { FocusRequester() }
     var restoreHistoryAction by remember { mutableStateOf(false) }
 
+    val hasContentDownTarget =
+        when (selectedTab) {
+            LibraryTab.PLAYLISTS -> authSession !is AuthSessionState.Authenticated || accountPlaylists.isNotEmpty()
+            LibraryTab.FAVORITES -> favorites.isNotEmpty()
+            LibraryTab.HISTORY -> recentHistory.isNotEmpty()
+        }
     val hasTopRightAction =
         (authSession is AuthSessionState.Authenticated && selectedTab != LibraryTab.HISTORY) ||
             (selectedTab == LibraryTab.HISTORY && localHistoryCount > 0 && !confirmingClearHistory)
@@ -137,18 +148,39 @@ fun LibraryScreen(
             )
             when {
                 authSession is AuthSessionState.Authenticated && selectedTab != LibraryTab.HISTORY -> {
-                    TvFocusableButton(
-                        text = stringResource(R.string.action_sync_library),
-                        icon = Icons.Rounded.Refresh,
-                        onClick = onRefreshLibrary,
-                        modifier =
-                            Modifier
-                                .focusRequester(topRightActionRequester)
-                                .focusProperties {
-                                    left = tabHistoryRequester
-                                    down = tabPlaylistsRequester
-                                },
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (selectedTab == LibraryTab.PLAYLISTS) {
+                            TvFocusableButton(
+                                text = stringResource(R.string.playlist_create_short),
+                                icon = Icons.Rounded.Add,
+                                highlighted = true,
+                                onClick = onCreatePlaylistClick,
+                                modifier =
+                                    Modifier
+                                        .focusRequester(createPlaylistRequester)
+                                        .focusProperties {
+                                            left = tabHistoryRequester
+                                            right = topRightActionRequester
+                                            down = tabPlaylistsRequester
+                                        },
+                            )
+                        }
+                        TvFocusableButton(
+                            text = stringResource(R.string.action_sync_library),
+                            icon = Icons.Rounded.Refresh,
+                            onClick = onRefreshLibrary,
+                            modifier =
+                                Modifier
+                                    .focusRequester(topRightActionRequester)
+                                    .focusProperties {
+                                        left = if (selectedTab == LibraryTab.PLAYLISTS) createPlaylistRequester else tabHistoryRequester
+                                        down = tabPlaylistsRequester
+                                    },
+                        )
+                    }
                 }
 
                 selectedTab == LibraryTab.HISTORY && localHistoryCount > 0 && !confirmingClearHistory -> {
@@ -185,9 +217,13 @@ fun LibraryScreen(
                 modifier =
                     Modifier
                         .focusRequester(tabPlaylistsRequester)
+                        .then(if (selectedTab == LibraryTab.PLAYLISTS) Modifier.focusRequester(entryFocusRequester) else Modifier)
                         .focusProperties {
                             right = tabFavoritesRequester
-                            if (hasTopRightAction) up = topRightActionRequester
+                            if (hasTopRightAction) {
+                                up = if (authSession is AuthSessionState.Authenticated) createPlaylistRequester else topRightActionRequester
+                            }
+                            if (hasContentDownTarget) down = firstContentItemRequester
                         },
             )
             TvFocusableButton(
@@ -201,10 +237,12 @@ fun LibraryScreen(
                 modifier =
                     Modifier
                         .focusRequester(tabFavoritesRequester)
+                        .then(if (selectedTab == LibraryTab.FAVORITES) Modifier.focusRequester(entryFocusRequester) else Modifier)
                         .focusProperties {
                             left = tabPlaylistsRequester
                             right = tabHistoryRequester
                             if (hasTopRightAction) up = topRightActionRequester
+                            if (hasContentDownTarget) down = firstContentItemRequester
                         },
             )
             TvFocusableButton(
@@ -215,12 +253,18 @@ fun LibraryScreen(
                 modifier =
                     Modifier
                         .focusRequester(tabHistoryRequester)
+                        .then(if (selectedTab == LibraryTab.HISTORY) Modifier.focusRequester(entryFocusRequester) else Modifier)
                         .focusProperties {
                             left = tabFavoritesRequester
                             if (hasTopRightAction) {
-                                right = topRightActionRequester
+                                right = if (authSession is AuthSessionState.Authenticated && selectedTab == LibraryTab.PLAYLISTS) {
+                                    createPlaylistRequester
+                                } else {
+                                    topRightActionRequester
+                                }
                                 up = topRightActionRequester
                             }
+                            if (hasContentDownTarget) down = firstContentItemRequester
                         },
             )
         }
@@ -300,6 +344,7 @@ fun LibraryScreen(
                                 icon = Icons.AutoMirrored.Rounded.Login,
                                 highlighted = true,
                                 onClick = onOpenWebViewLogin,
+                                modifier = Modifier.focusRequester(firstContentItemRequester),
                             )
                             TvFocusableButton(
                                 text = stringResource(R.string.open_search),
@@ -324,22 +369,23 @@ fun LibraryScreen(
                     )
                 } else {
                     LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 188.dp),
+                        columns = GridCells.Adaptive(minSize = AlunaraDimens.CardWidth),
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        contentPadding = PaddingValues(bottom = 16.dp),
+                        contentPadding = PaddingValues(start = 6.dp, top = 6.dp, end = 6.dp, bottom = 16.dp),
                     ) {
-                        items(
+                        itemsIndexed(
                             items = accountPlaylists,
-                            key = { "acc-pl-${it.id}" },
-                            contentType = { "library-playlist-card" },
-                        ) { playlist ->
+                            key = { _, pl -> "acc-pl-${pl.id}" },
+                            contentType = { _, _ -> "library-playlist-card" },
+                        ) { idx, playlist ->
                             TvMediaCard(
                                 title = playlist.title,
                                 subtitle = playlist.author ?: playlist.trackCountText ?: stringResource(R.string.badge_youtube_synced),
                                 thumbnailUrl = playlist.thumbnailUrl,
                                 onClick = { onOpenPlaylist(playlist) },
+                                modifier = if (idx == 0) Modifier.focusRequester(firstContentItemRequester) else Modifier,
                             )
                         }
                     }
@@ -372,6 +418,7 @@ fun LibraryScreen(
                                 secondaryActionLabel = stringResource(R.string.remove_favorite),
                                 secondaryActionIcon = Icons.Rounded.DeleteOutline,
                                 onSecondaryClick = { onToggleFavorite(track) },
+                                modifier = if (index == 0) Modifier.focusRequester(firstContentItemRequester) else Modifier,
                             )
                         }
                     }
@@ -404,6 +451,7 @@ fun LibraryScreen(
                                 secondaryActionLabel = stringResource(R.string.add_to_queue),
                                 secondaryActionIcon = Icons.AutoMirrored.Rounded.PlaylistAdd,
                                 onSecondaryClick = { onEnqueueTrack(track) },
+                                modifier = if (index == 0) Modifier.focusRequester(firstContentItemRequester) else Modifier,
                             )
                         }
                     }
