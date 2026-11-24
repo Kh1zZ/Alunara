@@ -203,4 +203,6 @@
     <string name="update_dialog_ready_desc">更新パッケージのダウンロードが完了しました。Android のシステム画面でインストールを確定してください。</string>
     <string name="update_dialog_install_now">今すぐインストール</string>
     <string name="update_dialog_close">閉じる</string>
+    <string name="update_dialog_installer_launch_failed">Android のインストーラーを開けませんでした。「今すぐインストール」で再試行してください。</string>
+    <string name="update_dialog_permission_launch_failed">Android のインストール許可設定を開けませんでした。「インストールを許可」で再試行してください。</string>
 </resources>

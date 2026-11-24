@@ -2,6 +2,15 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.1.7] - 2026-11-24
+
+### TV Interface
+
+- Keep the displayed screen and Back navigation in sync, consume Now Playing notification requests once, and prevent older searches from replacing newer results.
+- Restore focus on return to content and after dismissing confirmations. Show retry instructions when Android cannot open the update installer or its permission settings.
+- Adapt Now Playing controls to compact displays, expose seek actions to accessibility services, and keep the first remote input after idle from moving the playhead.
+- Reduce karaoke text allocations and background lyric work, improve high-contrast lyrics, and allow zoom in the phone sign-in page.
+
 ## [0.1.6] - 2026-11-23
 
 ### App Updates

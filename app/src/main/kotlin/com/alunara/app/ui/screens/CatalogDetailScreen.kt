@@ -26,7 +26,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -44,7 +43,6 @@ import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvMediaCard
 import com.alunara.app.ui.components.TvSongListSkeleton
 import com.alunara.app.ui.components.TvSongRow
-import com.alunara.app.ui.components.safeRequestFocus
 import com.alunara.app.ui.theme.AlunaraDimens
 import com.alunara.app.ui.theme.LocalAlunaraColors
 import com.alunara.core.domain.contract.MusicEngine
@@ -79,7 +77,7 @@ sealed interface CatalogTarget {
     ) : CatalogTarget
 }
 
-private sealed interface CatalogDetailUiState {
+internal sealed interface CatalogDetailUiState {
     data object Loading : CatalogDetailUiState
 
     data class Error(
@@ -100,9 +98,10 @@ private sealed interface CatalogDetailUiState {
 }
 
 @Composable
-fun CatalogDetailScreen(
+internal fun CatalogDetailScreen(
     target: CatalogTarget,
     musicEngine: MusicEngine,
+    detailsCache: MutableMap<CatalogTarget, CatalogDetailUiState>,
     activeTrackId: String?,
     onBack: () -> Unit,
     onPlayTracks: (List<Track>, Int) -> Unit,
@@ -113,11 +112,14 @@ fun CatalogDetailScreen(
     onOpenPlaylist: (PlaylistSummary) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var uiState by remember(target) { mutableStateOf<CatalogDetailUiState>(CatalogDetailUiState.Loading) }
+    var uiState by remember(target, detailsCache) {
+        mutableStateOf(detailsCache[target] ?: CatalogDetailUiState.Loading)
+    }
     var reloadTrigger by remember(target) { mutableIntStateOf(0) }
     val primaryFocusRequester = remember(target) { FocusRequester() }
 
-    LaunchedEffect(target, reloadTrigger) {
+    LaunchedEffect(target, reloadTrigger, detailsCache) {
+        if (reloadTrigger == 0 && detailsCache.containsKey(target)) return@LaunchedEffect
         uiState = CatalogDetailUiState.Loading
         val result: CatalogDetailUiState =
             withContext(Dispatchers.IO) {
@@ -142,11 +144,10 @@ fun CatalogDetailScreen(
                 }
             }
         uiState = result
-    }
-
-    LaunchedEffect(target) {
-        withFrameNanos { }
-        primaryFocusRequester.safeRequestFocus()
+        if (result !is CatalogDetailUiState.Error) {
+            detailsCache[target] = result
+            if (detailsCache.size > 8) detailsCache.remove(detailsCache.keys.first())
+        }
     }
 
     val badgeLabel =

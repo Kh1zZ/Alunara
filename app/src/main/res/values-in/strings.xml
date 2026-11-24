@@ -203,4 +203,6 @@
     <string name="update_dialog_ready_desc">Berkas pembaruan sudah selesai diunduh. Konfirmasi pemasangan pada dialog sistem Android untuk menyelesaikan pembaruan.</string>
     <string name="update_dialog_install_now">Pasang Sekarang</string>
     <string name="update_dialog_close">Tutup</string>
+    <string name="update_dialog_installer_launch_failed">Android tidak dapat membuka penginstal. Pilih Instal Sekarang untuk mencoba lagi.</string>
+    <string name="update_dialog_permission_launch_failed">Android tidak dapat membuka pengaturan izin instalasi. Pilih Izinkan Instalasi untuk mencoba lagi.</string>
 </resources>

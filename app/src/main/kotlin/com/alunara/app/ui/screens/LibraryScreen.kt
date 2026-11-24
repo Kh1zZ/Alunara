@@ -1,5 +1,6 @@
 package com.alunara.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -90,6 +91,7 @@ fun LibraryScreen(
     val tabPlaylistsRequester = remember { FocusRequester() }
     val tabFavoritesRequester = remember { FocusRequester() }
     val tabHistoryRequester = remember { FocusRequester() }
+    var restoreHistoryAction by remember { mutableStateOf(false) }
 
     val hasTopRightAction =
         (authSession is AuthSessionState.Authenticated && selectedTab != LibraryTab.HISTORY) ||
@@ -97,9 +99,19 @@ fun LibraryScreen(
 
     LaunchedEffect(confirmingClearHistory) {
         if (confirmingClearHistory) {
+            restoreHistoryAction = true
             withFrameNanos { }
             cancelClearHistoryRequester.safeRequestFocus()
+        } else if (restoreHistoryAction) {
+            restoreHistoryAction = false
+            withFrameNanos { }
+            if (localHistoryCount <= 0 || !topRightActionRequester.safeRequestFocus()) {
+                tabHistoryRequester.safeRequestFocus()
+            }
         }
+    }
+    BackHandler(enabled = confirmingClearHistory) {
+        confirmingClearHistory = false
     }
     LaunchedEffect(localHistoryCount) {
         if (localHistoryCount <= 0) {

@@ -643,7 +643,7 @@ class LocalLoginCompanionServer(
                 <html lang="$htmlLang">
                 <head>
                   <meta charset="utf-8">
-                  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+                  <meta name="viewport" content="width=device-width,initial-scale=1">
                   <title>$pageTitle</title>
                   <style>
                     :root { color-scheme: dark; }
@@ -661,6 +661,7 @@ class LocalLoginCompanionServer(
                     .banner { padding:12px 14px; border-radius:12px; border:1px solid #355442; background:#163826; color:#E3EEE5; font-size:13.5px; font-weight:600; margin-bottom:14px; }
                     .banner.err { background:#3E2224; border-color:#F4B8BC; color:#F4B8BC; }
                     .card { background:#1D2B22; border:1px solid #26382D; border-radius:16px; padding:16px; margin-bottom:12px; transition:border-color 0.2s, opacity 0.2s; }
+                    @media (prefers-reduced-motion: reduce) { .card { transition:none; } }
                     .card.current { border-color:#B5E6CC; box-shadow:0 0 0 1px rgba(181,230,204,0.35); opacity:1; }
                     .card.completed { opacity:0.68; border-color:#2C4637; }
                     .cardHead { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; gap:8px; }
@@ -693,7 +694,7 @@ class LocalLoginCompanionServer(
                       <div id="pill-verify" class="step">$pillVerify</div>
                       <div id="pill-done" class="step">$pillDone</div>
                     </div>
-                    <div id="tvStepHint" class="hintLine">$connectingHint</div>
+                    <div id="tvStepHint" class="hintLine" role="status" aria-live="polite">$connectingHint</div>
                   </div>
 
                   $bannerHtml
@@ -780,7 +781,8 @@ class LocalLoginCompanionServer(
                   function applyTvState(st) {
                     if (!st || !st.step) return;
                     var hintEl = document.getElementById('tvStepHint');
-                    if (hintEl) hintEl.textContent = (st.hint || '') + (st.host ? ' · ' + st.host : '');
+                    var hint = (st.hint || '') + (st.host ? ' · ' + st.host : '');
+                    if (hintEl && hintEl.textContent !== hint) hintEl.textContent = hint;
                     var activeIdx = stepOrder.indexOf(st.step);
                     if (activeIdx < 0) activeIdx = 0;
                     stepOrder.forEach(function(name, i) {
@@ -789,6 +791,8 @@ class LocalLoginCompanionServer(
                         pill.classList.remove('active', 'done');
                         if (i < activeIdx) pill.classList.add('done');
                         else if (i === activeIdx) pill.classList.add('active');
+                        if (i === activeIdx) pill.setAttribute('aria-current', 'step');
+                        else pill.removeAttribute('aria-current');
                       }
                       var card = document.getElementById('card-' + name);
                       if (card) {
@@ -807,7 +811,8 @@ class LocalLoginCompanionServer(
                       lastSyncedStep = st.step;
                       var activeCard = document.getElementById('card-' + st.step);
                       if (activeCard && isTransition) {
-                        try { activeCard.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+                        var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                        try { activeCard.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' }); } catch (_) {}
                         var inputId = st.step === 'password' ? 'passwordInput' : (st.step === 'verify' ? 'otpInput' : 'emailInput');
                         var targetInput = document.getElementById(inputId);
                         if (targetInput && (st.step === 'password' || (st.step === 'verify' && (st.hint || '').toLowerCase().indexOf('otp') >= 0))) {

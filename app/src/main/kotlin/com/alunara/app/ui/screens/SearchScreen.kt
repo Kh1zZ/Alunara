@@ -70,7 +70,6 @@ import com.alunara.core.domain.model.ArtistRef
 import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
-import kotlinx.coroutines.delay
 
 @Composable
 fun SearchScreen(
@@ -87,7 +86,9 @@ fun SearchScreen(
     onOpenArtist: (ArtistRef) -> Unit,
     onOpenPlaylist: (PlaylistSummary) -> Unit,
     modifier: Modifier = Modifier,
-    requestInputFocusTick: Int = 0,
+    requestInputFocus: Boolean = false,
+    onInputFocusHandled: () -> Unit = {},
+    onRetrySearch: () -> Unit = onSubmitSearch,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
@@ -101,13 +102,13 @@ fun SearchScreen(
             textFieldValue = TextFieldValue(query, TextRange(query.length))
         }
     }
-    LaunchedEffect(requestInputFocusTick) {
-        if (requestInputFocusTick > 0) {
+    LaunchedEffect(requestInputFocus) {
+        if (requestInputFocus) {
             withFrameNanos { }
-            withFrameNanos { }
-            delay(60L)
-            searchFieldRequester.safeRequestFocus()
-            keyboardController?.show()
+            if (searchFieldRequester.safeRequestFocus()) {
+                keyboardController?.show()
+            }
+            onInputFocusHandled()
         }
     }
 
@@ -244,7 +245,7 @@ fun SearchScreen(
                     TvFocusableButton(
                         text = stringResource(R.string.retry),
                         icon = Icons.Rounded.Refresh,
-                        onClick = onSubmitSearch,
+                        onClick = onRetrySearch,
                     )
                 }
             }

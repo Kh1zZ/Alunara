@@ -60,11 +60,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -109,6 +111,8 @@ import com.alunara.app.ui.i18n.LocalAppLanguage
 import com.alunara.app.update.AppUpdateManager
 import com.alunara.app.update.AppUpdateUiState
 import com.alunara.app.ui.screens.CatalogDetailScreen
+import com.alunara.app.ui.screens.CatalogDetailUiState
+import com.alunara.app.ui.screens.LatestSearch
 import com.alunara.app.ui.screens.CatalogTarget
 import com.alunara.app.ui.screens.HomeScreen
 import com.alunara.app.ui.screens.LibraryScreen
@@ -130,7 +134,6 @@ import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.QueueFilterChip
-import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
 import com.alunara.core.domain.policy.AudioQualityPreset
 import kotlinx.coroutines.Dispatchers
@@ -156,7 +159,7 @@ private val RailDestinations =
     )
 
 class MainActivity : ComponentActivity() {
-    private val openNowPlayingSignal = mutableIntStateOf(0)
+    private var pendingNowPlaying by mutableStateOf(false)
 
     override fun attachBaseContext(newBase: Context) {
         val savedLanguage = AlunaraLanguageStore(newBase).load()
@@ -165,9 +168,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (intent?.getBooleanExtra(EXTRA_OPEN_NOW_PLAYING, false) == true) {
-            openNowPlayingSignal.intValue++
-        }
+        pendingNowPlaying = savedInstanceState?.getBoolean(STATE_PENDING_NOW_PLAYING) == true
+        acceptPlaybackIntent(intent)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
@@ -200,7 +202,8 @@ class MainActivity : ComponentActivity() {
                         appUpdateManager = container.appUpdateManager,
                         displayPrefs = displayPrefs,
                         appLanguage = appLanguage,
-                        openNowPlayingSignal = openNowPlayingSignal.intValue,
+                        pendingNowPlaying = pendingNowPlaying,
+                        onNowPlayingRequestHandled = { pendingNowPlaying = false },
                         onUpdateDisplayPrefs = { updated ->
                             displayPrefs = updated
                             prefsStore.save(updated)
@@ -226,16 +229,28 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra(EXTRA_OPEN_NOW_PLAYING, false)) {
-            openNowPlayingSignal.intValue++
+        acceptPlaybackIntent(intent)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_PENDING_NOW_PLAYING, pendingNowPlaying)
+    }
+
+    private fun acceptPlaybackIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_NOW_PLAYING, false) == true) {
+            pendingNowPlaying = true
+            intent.removeExtra(EXTRA_OPEN_NOW_PLAYING)
         }
     }
 
     companion object {
         const val EXTRA_OPEN_NOW_PLAYING = "com.alunara.app.EXTRA_OPEN_NOW_PLAYING"
+        private const val STATE_PENDING_NOW_PLAYING = "pendingNowPlaying"
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun AlunaraTvApp(
     musicEngine: MusicEngine,
@@ -243,7 +258,8 @@ private fun AlunaraTvApp(
     appUpdateManager: AppUpdateManager,
     displayPrefs: AlunaraDisplayPrefs,
     appLanguage: AppLanguage,
-    openNowPlayingSignal: Int,
+    pendingNowPlaying: Boolean,
+    onNowPlayingRequestHandled: () -> Unit,
     onUpdateDisplayPrefs: (AlunaraDisplayPrefs) -> Unit,
     onSelectAppLanguage: (AppLanguage) -> Unit,
 ) {
@@ -252,15 +268,17 @@ private fun AlunaraTvApp(
     val sessionState by sessionManager.uiState.collectAsStateWithLifecycle()
     val updateUiState by appUpdateManager.uiState.collectAsStateWithLifecycle()
     val updateDialogVisible by appUpdateManager.dialogVisible.collectAsStateWithLifecycle()
+    var updateLaunchError by remember { mutableStateOf<Int?>(null) }
     val autoUpdateEnabled by appUpdateManager.autoUpdateEnabled.collectAsStateWithLifecycle()
     val hostActivityContext = LocalView.current.context
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
 
     var currentDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
-    var lastBrowseDestination by rememberSaveable { mutableStateOf(TvDestination.HOME) }
+    var returnDestBeforeNowPlaying by rememberSaveable { mutableStateOf(TvDestination.HOME) }
     var returnDestBeforeSearch by rememberSaveable { mutableStateOf(TvDestination.HOME) }
     var catalogStack by remember { mutableStateOf<List<CatalogTarget>>(emptyList()) }
+    var returnCatalogBeforeSearch by remember { mutableStateOf<List<CatalogTarget>>(emptyList()) }
     var showWebViewLogin by rememberSaveable { mutableStateOf(false) }
     val railHomeFocusRequester = remember { FocusRequester() }
     val browsePaneFocusRequester = remember { FocusRequester() }
@@ -268,7 +286,7 @@ private fun AlunaraTvApp(
     val miniPlayerPlayPauseRequester = remember { FocusRequester() }
     val saveableStateHolder = rememberSaveableStateHolder()
     var focusRestoreTick by remember { mutableIntStateOf(0) }
-    var searchFocusTick by remember { mutableIntStateOf(0) }
+    var searchFocusRequested by remember { mutableStateOf(false) }
 
     // Home feed state (auto-refreshes when auth scope transitions Guest <-> Authenticated)
     var homeSections by remember { mutableStateOf<List<HomeSection>>(emptyList()) }
@@ -279,6 +297,7 @@ private fun AlunaraTvApp(
     var lastLoadedAuthScopeKey by remember { mutableStateOf<String?>(null) }
     var lastAppliedLanguage by remember { mutableStateOf<AppLanguage?>(null) }
     val authScopeKey = sessionState.authSession.scope.storageKey
+    val catalogDetails = remember(authScopeKey, appLanguage) { linkedMapOf<CatalogTarget, CatalogDetailUiState>() }
 
     val mergedFavorites =
         remember(sessionState.favorites, sessionState.remoteFavorites) {
@@ -291,9 +310,13 @@ private fun AlunaraTvApp(
 
     // Search state
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var searchResults by remember { mutableStateOf<SearchResults?>(null) }
-    var searchLoading by remember { mutableStateOf(false) }
-    var searchError by remember { mutableStateOf<String?>(null) }
+    val latestSearch =
+        remember(coroutineScope, musicEngine) {
+            LatestSearch(coroutineScope) { query ->
+                withContext(Dispatchers.IO) { musicEngine.searchGuest(query) }
+            }
+        }
+    val searchState = latestSearch.state
 
     fun loadHome(
         force: Boolean = false,
@@ -320,40 +343,29 @@ private fun AlunaraTvApp(
             }
     }
 
-    fun executeSearch() {
-        val q = searchQuery.trim()
-        if (q.isEmpty()) return
-        coroutineScope.launch {
-            searchLoading = true
-            searchError = null
-            val res = withContext(Dispatchers.IO) { musicEngine.searchGuest(q) }
-            res.fold(
-                onSuccess = { searchResults = it },
-                onFailure = { searchError = it.message ?: "Search failed" },
-            )
-            searchLoading = false
-        }
-    }
-
     fun openNowPlaying() {
         showWebViewLogin = false
         if (currentDestination != TvDestination.NOW_PLAYING) {
-            lastBrowseDestination = currentDestination
+            returnDestBeforeNowPlaying = currentDestination
             currentDestination = TvDestination.NOW_PLAYING
         }
     }
 
-    fun openHeaderSearch(fromDest: TvDestination) {
-        returnDestBeforeSearch =
-            if (fromDest == TvDestination.LIBRARY) {
-                TvDestination.LIBRARY
-            } else {
-                TvDestination.HOME
+    fun openHeaderSearch() {
+        if (currentDestination != TvDestination.SEARCH || catalogStack.isNotEmpty()) {
+            if (currentDestination != TvDestination.SEARCH) {
+                returnDestBeforeSearch = currentDestination
+                returnCatalogBeforeSearch = catalogStack
             }
-        catalogStack = emptyList()
-        lastBrowseDestination = TvDestination.SEARCH
-        currentDestination = TvDestination.SEARCH
-        searchFocusTick++
+            catalogStack = emptyList()
+            currentDestination = TvDestination.SEARCH
+        }
+        searchFocusRequested = true
+    }
+
+    fun popCatalog() {
+        catalogStack = catalogStack.dropLast(1)
+        focusRestoreTick++
     }
 
     fun openAlbumTarget(album: AlbumRef) {
@@ -365,6 +377,7 @@ private fun AlunaraTvApp(
                 initialSubtitle = album.artists.joinToString(", ") { it.name },
                 initialThumbnailUrl = album.thumbnailUrl,
             )
+        focusRestoreTick++
     }
 
     fun openPlaylistTarget(playlist: PlaylistSummary) {
@@ -376,6 +389,7 @@ private fun AlunaraTvApp(
                 initialSubtitle = playlist.author ?: playlist.trackCountText,
                 initialThumbnailUrl = playlist.thumbnailUrl,
             )
+        focusRestoreTick++
     }
 
     fun openArtistTarget(artist: ArtistRef) {
@@ -387,6 +401,7 @@ private fun AlunaraTvApp(
                 initialName = artist.name,
                 initialThumbnailUrl = artist.thumbnailUrl,
             )
+        focusRestoreTick++
     }
 
     // Hoisted stable callbacks so child screens stay 100% skippable across UI updates
@@ -394,6 +409,7 @@ private fun AlunaraTvApp(
     val onSkipPrevious = remember(sessionManager) { { sessionManager.skipPrevious() } }
     val onSkipNext = remember(sessionManager) { { sessionManager.skipNext() } }
     val onSeekBy = remember(sessionManager) { { delta: Long -> sessionManager.seekBy(delta) } }
+    val onSeekTo = remember(sessionManager) { sessionManager::seekTo }
     val onToggleFavoriteCurrent = remember(sessionManager) { { sessionManager.toggleFavorite() } }
     val onToggleFavoriteTrack = remember(sessionManager) { { track: Track -> sessionManager.toggleFavorite(track) } }
     val onStartRadioCurrent =
@@ -432,20 +448,20 @@ private fun AlunaraTvApp(
     val onOpenAlbumCb = remember { { album: AlbumRef -> openAlbumTarget(album) } }
     val onOpenPlaylistCb = remember { { playlist: PlaylistSummary -> openPlaylistTarget(playlist) } }
     val onOpenArtistCb = remember { { artist: ArtistRef -> openArtistTarget(artist) } }
-    val onCatalogBack = remember { { catalogStack = catalogStack.dropLast(1) } }
+    val onCatalogBack = remember { { popCatalog() } }
     val onOpenNowPlayingCb = remember { { openNowPlaying() } }
     val onRetryHome = remember { { loadHome(force = true) } }
     val onQueryChangeCb = remember { { q: String -> searchQuery = q } }
-    val onSubmitSearchCb = remember { { executeSearch() } }
+    val onSubmitSearchCb = remember(latestSearch) { { latestSearch.submit(searchQuery) } }
+    val onRetrySearchCb = remember(latestSearch) { { latestSearch.submit(latestSearch.state.query) } }
     val onClearHistoryCb = remember(sessionManager) { { sessionManager.clearHistory() } }
     val onRefreshLibraryCb = remember(sessionManager) { { sessionManager.refreshAccountLibrary() } }
     val onOpenWebViewLoginCb = remember { { showWebViewLogin = true } }
-    val onNavigateSearchFromLibrary = remember { { openHeaderSearch(TvDestination.LIBRARY) } }
+    val onNavigateSearchFromLibrary = remember { { openHeaderSearch() } }
     val onNavigateSettingsCb =
         remember {
             {
                 catalogStack = emptyList()
-                lastBrowseDestination = TvDestination.SETTINGS
                 currentDestination = TvDestination.SETTINGS
             }
         }
@@ -463,7 +479,11 @@ private fun AlunaraTvApp(
         remember {
             { dest: TvDestination ->
                 catalogStack = emptyList()
-                lastBrowseDestination = dest
+                if (dest == TvDestination.SEARCH && currentDestination != TvDestination.SEARCH) {
+                    returnDestBeforeSearch = currentDestination
+                    returnCatalogBeforeSearch = emptyList()
+                }
+                if (dest != TvDestination.SEARCH) searchFocusRequested = false
                 currentDestination = dest
             }
         }
@@ -495,8 +515,11 @@ private fun AlunaraTvApp(
 
     LaunchedEffect(updateUiState) {
         val readyState = updateUiState as? AppUpdateUiState.ReadyToInstall ?: return@LaunchedEffect
+        updateLaunchError = null
         runCatching {
             hostActivityContext.startActivity(appUpdateManager.buildInstallIntent(readyState.apkFile))
+        }.onFailure {
+            updateLaunchError = R.string.update_dialog_installer_launch_failed
         }
     }
 
@@ -505,6 +528,7 @@ private fun AlunaraTvApp(
             wasUpdateDialogOpen = true
         } else if (wasUpdateDialogOpen) {
             wasUpdateDialogOpen = false
+            updateLaunchError = null
             if (currentDestination != TvDestination.NOW_PLAYING && !showWebViewLogin) {
                 focusRestoreTick++
             }
@@ -541,10 +565,10 @@ private fun AlunaraTvApp(
         }
     }
 
-    LaunchedEffect(openNowPlayingSignal, sessionState.currentTrack?.id) {
-        if (openNowPlayingSignal > 0 && sessionState.currentTrack != null) {
-            showWebViewLogin = false
+    LaunchedEffect(pendingNowPlaying, sessionState.currentTrack?.id) {
+        if (pendingNowPlaying && sessionState.currentTrack != null) {
             openNowPlaying()
+            onNowPlayingRequestHandled()
         }
     }
 
@@ -560,18 +584,19 @@ private fun AlunaraTvApp(
             }
 
             currentDestination == TvDestination.NOW_PLAYING -> {
-                currentDestination = lastBrowseDestination
+                currentDestination = returnDestBeforeNowPlaying
                 focusRestoreTick++
             }
 
             catalogStack.isNotEmpty() -> {
-                catalogStack = catalogStack.dropLast(1)
-                focusRestoreTick++
+                popCatalog()
             }
 
             currentDestination == TvDestination.SEARCH -> {
-                lastBrowseDestination = returnDestBeforeSearch
                 currentDestination = returnDestBeforeSearch
+                catalogStack = returnCatalogBeforeSearch
+                returnCatalogBeforeSearch = emptyList()
+                searchFocusRequested = false
                 focusRestoreTick++
             }
 
@@ -648,6 +673,7 @@ private fun AlunaraTvApp(
                 onSkipPrevious = onSkipPrevious,
                 onSkipNext = onSkipNext,
                 onSeekBy = onSeekBy,
+                onSeekTo = onSeekTo,
                 onToggleFavorite = onToggleFavoriteCurrent,
                 onStartRadio = onStartRadioCurrent,
                 onSwitchLyricsProvider = onSwitchLyricsProvider,
@@ -666,13 +692,13 @@ private fun AlunaraTvApp(
                         .focusProperties { canFocus = !updateDialogVisible && !showWebViewLogin },
             )
         } else {
-            val browseDest = lastBrowseDestination
+            val browseDest = currentDestination
             val activeCatalogTarget = catalogStack.lastOrNull()
             val showHeaderSearchBar =
                 activeCatalogTarget != null ||
                     browseDest == TvDestination.HOME ||
                     browseDest == TvDestination.LIBRARY
-            val onHeaderSearchClick = remember { { openHeaderSearch(lastBrowseDestination) } }
+            val onHeaderSearchClick = remember { { openHeaderSearch() } }
             Box(
                 modifier =
                     Modifier
@@ -710,8 +736,6 @@ private fun AlunaraTvApp(
                                 .weight(1f)
                                 .fillMaxWidth()
                                 .background(colors.background)
-                                .focusRequester(browsePaneFocusRequester)
-                                .focusGroup()
                                 .padding(
                                     start = 28.dp,
                                     end = AlunaraDimens.OverscanHorizontal,
@@ -740,104 +764,124 @@ private fun AlunaraTvApp(
                             modifier = Modifier.fillMaxSize(),
                         ) { activePane ->
                             val activePaneKey =
-                                when (activePane) {
-                                    is CatalogTarget -> "catalog:${activePane}"
-                                    is TvDestination -> "dest:${activePane.name}"
-                                    else -> "other"
-                                }
-                            saveableStateHolder.SaveableStateProvider(key = activePaneKey) {
-                                when (activePane) {
-                                    is CatalogTarget ->
-                                        CatalogDetailScreen(
-                                            target = activePane,
-                                            musicEngine = musicEngine,
-                                            activeTrackId = sessionState.currentTrack?.id,
-                                            onBack = onCatalogBack,
-                                            onPlayTracks = onPlayTracksAndOpen,
-                                            onEnqueueTrack = onEnqueueTrack,
-                                            onEnqueueAll = onEnqueueAllTracks,
-                                            onStartRadio = onStartRadioSeedAndOpen,
-                                            onOpenAlbum = onOpenAlbumCb,
-                                            onOpenPlaylist = onOpenPlaylistCb,
-                                        )
+                                    when (activePane) {
+                                        is CatalogTarget -> "catalog:${activePane}"
+                                        is TvDestination -> "dest:${activePane.name}"
+                                        else -> "other"
+                                    }
+                                saveableStateHolder.SaveableStateProvider(key = activePaneKey) {
+                                    Box(
+                                        Modifier.fillMaxSize()
+                                            .then(
+                                                if (activePane != paneTarget || updateDialogVisible || showWebViewLogin) {
+                                                    Modifier.focusProperties {
+                                                        canFocus = false
+                                                        enter = { FocusRequester.Cancel }
+                                                    }.onPreviewKeyEvent { true }
+                                                } else {
+                                                    Modifier.focusRequester(browsePaneFocusRequester)
+                                                },
+                                            )
+                                            .focusRestorer()
+                                            .focusGroup(),
+                                    ) {
+                                    when (activePane) {
+                                        is CatalogTarget ->
+                                            CatalogDetailScreen(
+                                                target = activePane,
+                                                musicEngine = musicEngine,
+                                                detailsCache = catalogDetails,
+                                                activeTrackId = sessionState.currentTrack?.id,
+                                                onBack = onCatalogBack,
+                                                onPlayTracks = onPlayTracksAndOpen,
+                                                onEnqueueTrack = onEnqueueTrack,
+                                                onEnqueueAll = onEnqueueAllTracks,
+                                                onStartRadio = onStartRadioSeedAndOpen,
+                                                onOpenAlbum = onOpenAlbumCb,
+                                                onOpenPlaylist = onOpenPlaylistCb,
+                                            )
 
-                                    TvDestination.HOME ->
-                                        HomeScreen(
-                                            sections = homeSections,
-                                            isLoading = homeLoading,
-                                            errorMessage = homeError,
-                                            resumeTrack = sessionState.currentTrack,
-                                            recentHistory = mergedHistory,
-                                            favorites = mergedFavorites,
-                                            authSession = sessionState.authSession,
-                                            onRetry = onRetryHome,
-                                            onContinueQueue = onOpenNowPlayingCb,
-                                            onPlaySongFromSection = onPlayTracksAndOpen,
-                                            onOpenAlbum = onOpenAlbumCb,
-                                            onOpenPlaylist = onOpenPlaylistCb,
-                                        )
+                                        TvDestination.HOME ->
+                                            HomeScreen(
+                                                sections = homeSections,
+                                                isLoading = homeLoading,
+                                                errorMessage = homeError,
+                                                resumeTrack = sessionState.currentTrack,
+                                                recentHistory = mergedHistory,
+                                                favorites = mergedFavorites,
+                                                authSession = sessionState.authSession,
+                                                onRetry = onRetryHome,
+                                                onContinueQueue = onOpenNowPlayingCb,
+                                                onPlaySongFromSection = onPlayTracksAndOpen,
+                                                onOpenAlbum = onOpenAlbumCb,
+                                                onOpenPlaylist = onOpenPlaylistCb,
+                                            )
 
-                                    TvDestination.SEARCH ->
-                                        SearchScreen(
-                                            query = searchQuery,
-                                            results = searchResults,
-                                            isLoading = searchLoading,
-                                            errorMessage = searchError,
-                                            activeTrackId = sessionState.currentTrack?.id,
-                                            onQueryChange = onQueryChangeCb,
-                                            onSubmitSearch = onSubmitSearchCb,
-                                            onPlaySong = onPlayTracksAndOpen,
-                                            onEnqueueSong = onEnqueueTrack,
-                                            onOpenAlbum = onOpenAlbumCb,
-                                            onOpenArtist = onOpenArtistCb,
-                                            onOpenPlaylist = onOpenPlaylistCb,
-                                            requestInputFocusTick = searchFocusTick,
-                                        )
+                                        TvDestination.SEARCH ->
+                                            SearchScreen(
+                                                query = searchQuery,
+                                                results = searchState.results,
+                                                isLoading = searchState.loading,
+                                                errorMessage = searchState.error,
+                                                activeTrackId = sessionState.currentTrack?.id,
+                                                onQueryChange = onQueryChangeCb,
+                                                onSubmitSearch = onSubmitSearchCb,
+                                                onPlaySong = onPlayTracksAndOpen,
+                                                onEnqueueSong = onEnqueueTrack,
+                                                onOpenAlbum = onOpenAlbumCb,
+                                                onOpenArtist = onOpenArtistCb,
+                                                onOpenPlaylist = onOpenPlaylistCb,
+                                                requestInputFocus = searchFocusRequested && activePane == paneTarget &&
+                                                    !updateDialogVisible && !showWebViewLogin,
+                                                onInputFocusHandled = { searchFocusRequested = false },
+                                                onRetrySearch = onRetrySearchCb,
+                                            )
 
-                                    TvDestination.LIBRARY ->
-                                        LibraryScreen(
-                                            favorites = mergedFavorites,
-                                            recentHistory = mergedHistory,
-                                            localHistoryCount = sessionState.recentHistory.size,
-                                            accountPlaylists = sessionState.accountPlaylists,
-                                            authSession = sessionState.authSession,
-                                            librarySyncing = sessionState.librarySyncing,
-                                            activeTrackId = sessionState.currentTrack?.id,
-                                            onPlayTracks = onPlayTracksAndOpen,
-                                            onEnqueueTrack = onEnqueueTrack,
-                                            onToggleFavorite = onToggleFavoriteTrack,
-                                            onClearHistory = onClearHistoryCb,
-                                            onRefreshLibrary = onRefreshLibraryCb,
-                                            onOpenPlaylist = onOpenPlaylistCb,
-                                            onOpenWebViewLogin = onOpenWebViewLoginCb,
-                                            onNavigateToSearch = onNavigateSearchFromLibrary,
-                                            onNavigateToSettings = onNavigateSettingsCb,
-                                        )
+                                        TvDestination.LIBRARY ->
+                                            LibraryScreen(
+                                                favorites = mergedFavorites,
+                                                recentHistory = mergedHistory,
+                                                localHistoryCount = sessionState.recentHistory.size,
+                                                accountPlaylists = sessionState.accountPlaylists,
+                                                authSession = sessionState.authSession,
+                                                librarySyncing = sessionState.librarySyncing,
+                                                activeTrackId = sessionState.currentTrack?.id,
+                                                onPlayTracks = onPlayTracksAndOpen,
+                                                onEnqueueTrack = onEnqueueTrack,
+                                                onToggleFavorite = onToggleFavoriteTrack,
+                                                onClearHistory = onClearHistoryCb,
+                                                onRefreshLibrary = onRefreshLibraryCb,
+                                                onOpenPlaylist = onOpenPlaylistCb,
+                                                onOpenWebViewLogin = onOpenWebViewLoginCb,
+                                                onNavigateToSearch = onNavigateSearchFromLibrary,
+                                                onNavigateToSettings = onNavigateSettingsCb,
+                                            )
 
-                                    TvDestination.SETTINGS ->
-                                        SettingsScreen(
-                                            autoplayEnabled = sessionState.queueState.autoplayEnabled,
-                                            authSession = sessionState.authSession,
-                                            authLoading = sessionState.authLoading,
-                                            authErrorMessage = sessionState.authErrorMessage,
-                                            onToggleAutoplay = onToggleAutoplayCb,
-                                            onOpenWebViewLogin = onOpenWebViewLoginCb,
-                                            onLogout = onLogoutCb,
-                                            audioQuality = sessionState.audioQuality,
-                                            onSelectAudioQuality = onSelectAudioQualityCb,
-                                            appLanguage = appLanguage,
-                                            onSelectAppLanguage = onSelectAppLanguage,
-                                            displayPrefs = displayPrefs,
-                                            onUpdateDisplayPrefs = onUpdateDisplayPrefs,
-                                            currentVersionName = appUpdateManager.currentVersionName,
-                                            autoUpdateEnabled = autoUpdateEnabled,
-                                            updateUiState = updateUiState,
-                                            onToggleAutoUpdate = onToggleAutoUpdateCb,
-                                            onCheckForUpdates = onCheckForUpdatesCb,
-                                            onOpenUpdateDialog = onOpenUpdateDialogCb,
-                                        )
+                                        TvDestination.SETTINGS ->
+                                            SettingsScreen(
+                                                autoplayEnabled = sessionState.queueState.autoplayEnabled,
+                                                authSession = sessionState.authSession,
+                                                authLoading = sessionState.authLoading,
+                                                authErrorMessage = sessionState.authErrorMessage,
+                                                onToggleAutoplay = onToggleAutoplayCb,
+                                                onOpenWebViewLogin = onOpenWebViewLoginCb,
+                                                onLogout = onLogoutCb,
+                                                audioQuality = sessionState.audioQuality,
+                                                onSelectAudioQuality = onSelectAudioQualityCb,
+                                                appLanguage = appLanguage,
+                                                onSelectAppLanguage = onSelectAppLanguage,
+                                                displayPrefs = displayPrefs,
+                                                onUpdateDisplayPrefs = onUpdateDisplayPrefs,
+                                                currentVersionName = appUpdateManager.currentVersionName,
+                                                autoUpdateEnabled = autoUpdateEnabled,
+                                                updateUiState = updateUiState,
+                                                onToggleAutoUpdate = onToggleAutoUpdateCb,
+                                                onCheckForUpdates = onCheckForUpdatesCb,
+                                                onOpenUpdateDialog = onOpenUpdateDialogCb,
+                                            )
 
-                                    TvDestination.NOW_PLAYING -> Unit
+                                        TvDestination.NOW_PLAYING -> Unit
+                                    }
                                 }
                             }
                         }
@@ -895,9 +939,13 @@ private fun AlunaraTvApp(
 
         if (showWebViewLogin) {
             YouTubeWebViewLoginScreen(
-                onCancel = { showWebViewLogin = false },
+                onCancel = {
+                    showWebViewLogin = false
+                    focusRestoreTick++
+                },
                 onCredentialsCaptured = { credentials ->
                     showWebViewLogin = false
+                    focusRestoreTick++
                     sessionManager.loginWithCredentials(credentials)
                 },
                 modifier = Modifier.fillMaxSize(),
@@ -907,13 +955,17 @@ private fun AlunaraTvApp(
         AppUpdateDialog(
             visible = updateDialogVisible,
             state = updateUiState,
+            launchError = updateLaunchError?.let { stringResource(it) },
             currentVersionName = appUpdateManager.currentVersionName,
             onStartDownload = { info -> appUpdateManager.startDownload(info) },
             onCancelDownload = { appUpdateManager.cancelDownload() },
             onRetryCheck = { appUpdateManager.checkForUpdatesManual() },
             onRequestInstallPermission = {
+                updateLaunchError = null
                 runCatching {
                     hostActivityContext.startActivity(appUpdateManager.buildUnknownSourcesIntent())
+                }.onFailure {
+                    updateLaunchError = R.string.update_dialog_permission_launch_failed
                 }
             },
             onRetriggerInstall = { appUpdateManager.retriggerInstall() },

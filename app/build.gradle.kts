@@ -38,7 +38,7 @@ fun deriveSemVerCode(versionName: String): Int {
 }
 
 val resolvedVersionName =
-    providers.gradleProperty("versionName").orNull?.takeIf { it.isNotBlank() } ?: "0.1.6"
+    providers.gradleProperty("versionName").orNull?.takeIf { it.isNotBlank() } ?: "0.1.7"
 val resolvedVersionCode =
     providers.gradleProperty("versionCode").orNull?.toIntOrNull()?.coerceAtLeast(1)
         ?: deriveSemVerCode(resolvedVersionName)
@@ -53,6 +53,7 @@ android {
         targetSdk = 35
         versionCode = resolvedVersionCode
         versionName = resolvedVersionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -174,4 +175,8 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

@@ -786,6 +786,15 @@ class PlaybackSessionManagerTest {
             assertEquals(1, manager.activeLyricIndexFlow.value)
             assertEquals(stateBeforeNowPlaying, manager.uiState.value)
 
+            manager.setLyricsPanelVisible(false)
+            player.currentPositionValueMs = 1_100L
+            advanceTimeBy(300L)
+            runCurrent()
+            assertEquals(1_100L, manager.positionMsFlow.value)
+            assertEquals(1, manager.activeLyricIndexFlow.value)
+            manager.setLyricsPanelVisible(true)
+            assertEquals(0, manager.activeLyricIndexFlow.value)
+
             manager.clearQueue()
             advanceUntilIdle()
         }

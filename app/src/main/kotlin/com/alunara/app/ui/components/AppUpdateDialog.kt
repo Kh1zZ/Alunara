@@ -41,6 +41,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -76,6 +79,7 @@ fun AppUpdateDialog(
     onRetriggerInstall: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    launchError: String? = null,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
@@ -186,6 +190,14 @@ fun AppUpdateDialog(
                         .padding(horizontal = 24.dp, vertical = 22.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                if (launchError != null) {
+                    Text(
+                        text = launchError,
+                        color = colors.errorText,
+                        fontSize = AlunaraTypography.label(prefs.textScale),
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                }
                 when (state) {
                     is AppUpdateUiState.UpdateAvailable -> {
                         val info = state.info

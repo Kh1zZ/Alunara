@@ -203,4 +203,6 @@
     <string name="update_dialog_ready_desc">Update package downloaded. Confirm installation in the system prompt to complete the update.</string>
     <string name="update_dialog_install_now">Install Now</string>
     <string name="update_dialog_close">Close</string>
+    <string name="update_dialog_installer_launch_failed">Android could not open the installer. Choose Install Now to retry.</string>
+    <string name="update_dialog_permission_launch_failed">Android could not open the install permission settings. Choose Allow Installs to retry.</string>
 </resources>

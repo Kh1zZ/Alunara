@@ -126,6 +126,8 @@ fun SettingsScreen(
     val activePrefs = LocalAlunaraDisplayPrefs.current
     var confirmingLogout by remember { mutableStateOf(false) }
     val cancelLogoutRequester = remember { FocusRequester() }
+    val logoutRequester = remember { FocusRequester() }
+    var restoreLogoutAction by remember { mutableStateOf(false) }
     var isPickingLanguage by remember { mutableStateOf(false) }
     var languageSlideDir by remember { mutableIntStateOf(1) }
     var hadOpenedLanguagePicker by remember { mutableStateOf(false) }
@@ -134,9 +136,17 @@ fun SettingsScreen(
 
     LaunchedEffect(confirmingLogout) {
         if (confirmingLogout) {
+            restoreLogoutAction = true
             withFrameNanos { }
             cancelLogoutRequester.safeRequestFocus()
+        } else if (restoreLogoutAction) {
+            restoreLogoutAction = false
+            withFrameNanos { }
+            logoutRequester.safeRequestFocus()
         }
+    }
+    BackHandler(enabled = confirmingLogout && !isPickingLanguage) {
+        confirmingLogout = false
     }
 
     LaunchedEffect(isPickingLanguage) {
@@ -561,6 +571,7 @@ fun SettingsScreen(
                             text = stringResource(R.string.logout_button),
                             icon = Icons.AutoMirrored.Rounded.Logout,
                             onClick = { confirmingLogout = true },
+                            modifier = Modifier.focusRequester(logoutRequester),
                         )
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
