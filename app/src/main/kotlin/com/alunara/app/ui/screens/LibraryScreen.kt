@@ -2,7 +2,9 @@ package com.alunara.app.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -35,10 +37,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -63,6 +73,7 @@ private enum class LibraryTab {
     HISTORY,
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun LibraryScreen(
     favorites: List<Track>,
@@ -95,6 +106,7 @@ fun LibraryScreen(
     val tabPlaylistsRequester = remember { FocusRequester() }
     val tabFavoritesRequester = remember { FocusRequester() }
     val tabHistoryRequester = remember { FocusRequester() }
+    val contentAreaRequester = remember { FocusRequester() }
     val firstContentItemRequester = remember { FocusRequester() }
     var restoreHistoryAction by remember { mutableStateOf(false) }
 
@@ -206,6 +218,13 @@ fun LibraryScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            val handleTabDownKey: (KeyEvent) -> Boolean = { event ->
+                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown && hasContentDownTarget) {
+                    contentAreaRequester.safeRequestFocus() || firstContentItemRequester.safeRequestFocus()
+                } else {
+                    false
+                }
+            }
             TvFocusableButton(
                 text = stringResource(R.string.library_tab_playlists, accountPlaylists.size),
                 icon = Icons.Rounded.LibraryMusic,
@@ -218,12 +237,17 @@ fun LibraryScreen(
                     Modifier
                         .focusRequester(tabPlaylistsRequester)
                         .then(if (selectedTab == LibraryTab.PLAYLISTS) Modifier.focusRequester(entryFocusRequester) else Modifier)
+                        .onPreviewKeyEvent(handleTabDownKey)
                         .focusProperties {
                             right = tabFavoritesRequester
                             if (hasTopRightAction) {
-                                up = if (authSession is AuthSessionState.Authenticated) createPlaylistRequester else topRightActionRequester
+                                up =
+                                    if (authSession is AuthSessionState.Authenticated && selectedTab == LibraryTab.PLAYLISTS) {
+                                        createPlaylistRequester
+                                    } else {
+                                        topRightActionRequester
+                                    }
                             }
-                            if (hasContentDownTarget) down = firstContentItemRequester
                         },
             )
             TvFocusableButton(
@@ -238,11 +262,11 @@ fun LibraryScreen(
                     Modifier
                         .focusRequester(tabFavoritesRequester)
                         .then(if (selectedTab == LibraryTab.FAVORITES) Modifier.focusRequester(entryFocusRequester) else Modifier)
+                        .onPreviewKeyEvent(handleTabDownKey)
                         .focusProperties {
                             left = tabPlaylistsRequester
                             right = tabHistoryRequester
                             if (hasTopRightAction) up = topRightActionRequester
-                            if (hasContentDownTarget) down = firstContentItemRequester
                         },
             )
             TvFocusableButton(
@@ -254,17 +278,18 @@ fun LibraryScreen(
                     Modifier
                         .focusRequester(tabHistoryRequester)
                         .then(if (selectedTab == LibraryTab.HISTORY) Modifier.focusRequester(entryFocusRequester) else Modifier)
+                        .onPreviewKeyEvent(handleTabDownKey)
                         .focusProperties {
                             left = tabFavoritesRequester
                             if (hasTopRightAction) {
-                                right = if (authSession is AuthSessionState.Authenticated && selectedTab == LibraryTab.PLAYLISTS) {
-                                    createPlaylistRequester
-                                } else {
-                                    topRightActionRequester
-                                }
+                                right =
+                                    if (authSession is AuthSessionState.Authenticated && selectedTab == LibraryTab.PLAYLISTS) {
+                                        createPlaylistRequester
+                                    } else {
+                                        topRightActionRequester
+                                    }
                                 up = topRightActionRequester
                             }
-                            if (hasContentDownTarget) down = firstContentItemRequester
                         },
             )
         }
@@ -315,147 +340,157 @@ fun LibraryScreen(
             )
         }
 
-        when (selectedTab) {
-            LibraryTab.PLAYLISTS ->
-                if (authSession !is AuthSessionState.Authenticated) {
-                    Column(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusCard))
-                                .padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
+        Box(
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .focusRequester(contentAreaRequester)
+                    .focusRestorer()
+                    .focusGroup(),
+        ) {
+            when (selectedTab) {
+                LibraryTab.PLAYLISTS ->
+                    if (authSession !is AuthSessionState.Authenticated) {
+                        Column(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusCard))
+                                    .padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.account_playlists_guest_title),
+                                color = colors.primaryAccent,
+                                fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = stringResource(R.string.account_playlists_guest_desc),
+                                color = colors.mutedText,
+                                fontSize = AlunaraTypography.body(prefs.textScale),
+                                lineHeight = AlunaraTypography.body(prefs.textScale) * 1.45f,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                TvFocusableButton(
+                                    text = stringResource(R.string.login_webview_button),
+                                    icon = Icons.AutoMirrored.Rounded.Login,
+                                    highlighted = true,
+                                    onClick = onOpenWebViewLogin,
+                                    modifier = Modifier.focusRequester(firstContentItemRequester),
+                                )
+                                TvFocusableButton(
+                                    text = stringResource(R.string.open_search),
+                                    icon = Icons.Rounded.Search,
+                                    onClick = onNavigateToSearch,
+                                )
+                                TvFocusableButton(
+                                    text = stringResource(R.string.open_account_status),
+                                    icon = Icons.Rounded.Settings,
+                                    onClick = onNavigateToSettings,
+                                )
+                            }
+                        }
+                    } else if (librarySyncing && accountPlaylists.isEmpty()) {
+                        TvCardRowSkeleton(count = 5)
+                    } else if (accountPlaylists.isEmpty()) {
                         Text(
-                            text = stringResource(R.string.account_playlists_guest_title),
-                            color = colors.primaryAccent,
-                            fontSize = AlunaraTypography.sectionTitle(prefs.textScale),
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = stringResource(R.string.account_playlists_guest_desc),
+                            text = stringResource(R.string.account_playlists_empty),
                             color = colors.mutedText,
-                            fontSize = AlunaraTypography.body(prefs.textScale),
-                            lineHeight = AlunaraTypography.body(prefs.textScale) * 1.45f,
+                            fontSize = AlunaraTypography.rowTitle(prefs.textScale),
+                            modifier = Modifier.padding(top = 8.dp),
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            TvFocusableButton(
-                                text = stringResource(R.string.login_webview_button),
-                                icon = Icons.AutoMirrored.Rounded.Login,
-                                highlighted = true,
-                                onClick = onOpenWebViewLogin,
-                                modifier = Modifier.focusRequester(firstContentItemRequester),
-                            )
-                            TvFocusableButton(
-                                text = stringResource(R.string.open_search),
-                                icon = Icons.Rounded.Search,
-                                onClick = onNavigateToSearch,
-                            )
-                            TvFocusableButton(
-                                text = stringResource(R.string.open_account_status),
-                                icon = Icons.Rounded.Settings,
-                                onClick = onNavigateToSettings,
-                            )
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = AlunaraDimens.CardWidth),
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            contentPadding = PaddingValues(start = 6.dp, top = 6.dp, end = 6.dp, bottom = 16.dp),
+                        ) {
+                            itemsIndexed(
+                                items = accountPlaylists,
+                                key = { _, pl -> "acc-pl-${pl.id}" },
+                                contentType = { _, _ -> "library-playlist-card" },
+                            ) { idx, playlist ->
+                                TvMediaCard(
+                                    title = playlist.title,
+                                    subtitle = playlist.author ?: playlist.trackCountText ?: stringResource(R.string.badge_youtube_synced),
+                                    thumbnailUrl = playlist.thumbnailUrl,
+                                    onClick = { onOpenPlaylist(playlist) },
+                                    modifier = if (idx == 0) Modifier.focusRequester(firstContentItemRequester) else Modifier,
+                                )
+                            }
                         }
                     }
-                } else if (librarySyncing && accountPlaylists.isEmpty()) {
-                    TvCardRowSkeleton(count = 5)
-                } else if (accountPlaylists.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.account_playlists_empty),
-                        color = colors.mutedText,
-                        fontSize = AlunaraTypography.rowTitle(prefs.textScale),
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = AlunaraDimens.CardWidth),
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        contentPadding = PaddingValues(start = 6.dp, top = 6.dp, end = 6.dp, bottom = 16.dp),
-                    ) {
-                        itemsIndexed(
-                            items = accountPlaylists,
-                            key = { _, pl -> "acc-pl-${pl.id}" },
-                            contentType = { _, _ -> "library-playlist-card" },
-                        ) { idx, playlist ->
-                            TvMediaCard(
-                                title = playlist.title,
-                                subtitle = playlist.author ?: playlist.trackCountText ?: stringResource(R.string.badge_youtube_synced),
-                                thumbnailUrl = playlist.thumbnailUrl,
-                                onClick = { onOpenPlaylist(playlist) },
-                                modifier = if (idx == 0) Modifier.focusRequester(firstContentItemRequester) else Modifier,
-                            )
-                        }
-                    }
-                }
 
-            LibraryTab.FAVORITES ->
-                if (favorites.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.favorites_empty),
-                        color = colors.mutedText,
-                        fontSize = AlunaraTypography.rowTitle(prefs.textScale),
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 12.dp),
-                    ) {
-                        items(
-                            count = favorites.size,
-                            key = { idx -> "fav-${favorites[idx].id}" },
-                            contentType = { "library-song-row" },
-                        ) { index ->
-                            val track = favorites[index]
-                            TvSongRow(
-                                track = track,
-                                isActive = track.id == activeTrackId,
-                                onPlayClick = { onPlayTracks(favorites, index) },
-                                secondaryActionLabel = stringResource(R.string.remove_favorite),
-                                secondaryActionIcon = Icons.Rounded.DeleteOutline,
-                                onSecondaryClick = { onToggleFavorite(track) },
-                                modifier = if (index == 0) Modifier.focusRequester(firstContentItemRequester) else Modifier,
-                            )
+                LibraryTab.FAVORITES ->
+                    if (favorites.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.favorites_empty),
+                            color = colors.mutedText,
+                            fontSize = AlunaraTypography.rowTitle(prefs.textScale),
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = 12.dp),
+                        ) {
+                            items(
+                                count = favorites.size,
+                                key = { idx -> "fav-${favorites[idx].id}" },
+                                contentType = { "library-song-row" },
+                            ) { index ->
+                                val track = favorites[index]
+                                TvSongRow(
+                                    track = track,
+                                    isActive = track.id == activeTrackId,
+                                    onPlayClick = { onPlayTracks(favorites, index) },
+                                    secondaryActionLabel = stringResource(R.string.remove_favorite),
+                                    secondaryActionIcon = Icons.Rounded.DeleteOutline,
+                                    onSecondaryClick = { onToggleFavorite(track) },
+                                    modifier = if (index == 0) Modifier.focusRequester(firstContentItemRequester) else Modifier,
+                                )
+                            }
                         }
                     }
-                }
 
-            LibraryTab.HISTORY ->
-                if (recentHistory.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.history_empty),
-                        color = colors.mutedText,
-                        fontSize = AlunaraTypography.rowTitle(prefs.textScale),
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 12.dp),
-                    ) {
-                        items(
-                            count = recentHistory.size,
-                            key = { idx -> "hist-${recentHistory[idx].id}" },
-                            contentType = { "library-song-row" },
-                        ) { index ->
-                            val track = recentHistory[index]
-                            TvSongRow(
-                                track = track,
-                                isActive = track.id == activeTrackId,
-                                onPlayClick = { onPlayTracks(recentHistory, index) },
-                                secondaryActionLabel = stringResource(R.string.add_to_queue),
-                                secondaryActionIcon = Icons.AutoMirrored.Rounded.PlaylistAdd,
-                                onSecondaryClick = { onEnqueueTrack(track) },
-                                modifier = if (index == 0) Modifier.focusRequester(firstContentItemRequester) else Modifier,
-                            )
+                LibraryTab.HISTORY ->
+                    if (recentHistory.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.history_empty),
+                            color = colors.mutedText,
+                            fontSize = AlunaraTypography.rowTitle(prefs.textScale),
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = 12.dp),
+                        ) {
+                            items(
+                                count = recentHistory.size,
+                                key = { idx -> "hist-${recentHistory[idx].id}" },
+                                contentType = { "library-song-row" },
+                            ) { index ->
+                                val track = recentHistory[index]
+                                TvSongRow(
+                                    track = track,
+                                    isActive = track.id == activeTrackId,
+                                    onPlayClick = { onPlayTracks(recentHistory, index) },
+                                    secondaryActionLabel = stringResource(R.string.add_to_queue),
+                                    secondaryActionIcon = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                                    onSecondaryClick = { onEnqueueTrack(track) },
+                                    modifier = if (index == 0) Modifier.focusRequester(firstContentItemRequester) else Modifier,
+                                )
+                            }
                         }
                     }
-                }
+            }
         }
     }
 }

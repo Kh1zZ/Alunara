@@ -185,9 +185,9 @@ Official signed builds are published **exclusively on [GitHub Releases](https://
 2. Connect from your computer and install the APK matching your TV's ABI:
    ```bash
    adb connect <YOUR_TV_IP>:5555
-   adb install -r alunara-0.2.1.armv7a.apk
+   adb install -r alunara-0.2.2.armv7a.apk
    ```
-   *(Replace with `alunara-0.2.1.armv8a.apk` for 64-bit `arm64-v8a` devices. Once installed, future releases can be downloaded and installed directly inside **Settings → App Updates**.)*
+   *(Replace with `alunara-0.2.2.armv8a.apk` for 64-bit `arm64-v8a` devices. Once installed, future releases can be downloaded and installed directly inside **Settings → App Updates**.)*
 
 #### Option B — USB Flash Drive or TV Downloader App
 1. Download the matching APK directly from [GitHub Releases](https://github.com/Kh1zZ/Alunara/releases/latest).

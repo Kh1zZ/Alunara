@@ -2,6 +2,15 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.2.2] - 2026-11-24
+
+### Fixed
+- **D-Pad Uninitialized `FocusRequester` Crashes**:
+  - Replaced unsafe `focusProperties { up = ... }` on `DockedMiniPlayer` controls (`TvComponents.kt`, `MainActivity.kt`) with safe `onPreviewKeyEvent` handlers routing to `browsePaneFocusRequester.safeRequestFocus()`, eliminating the `IllegalStateException: FocusRequester is not initialized` crash when pressing **Up** from the mini player after scrolling down in Settings or Home.
+  - Replaced unsafe `focusProperties { down = ... }` on `TvHeaderSearchBar` and `focusProperties { right = ... }` on left-rail items (`MainActivity.kt`) with safe `onPreviewKeyEvent` / `safeRequestFocus()` routing, and migrated pane containers to Compose's safe `.focusRestorer()` API.
+  - Fixed `LibraryScreen` tab header `up` focus target when switching away from Playlists tab, wrapped the active tab body in a persistent `focusGroup()` + `.focusRestorer()`, and replaced off-screen `firstContentItemRequester` `down` properties with safe `onPreviewKeyEvent` routing.
+  - Updated `MainActivity` `BackHandler` for the companion sign-in overlay to cleanly stop incomplete companion server sessions on remote Back press.
+
 ## [0.2.1] - 2026-11-24
 
 ### Added

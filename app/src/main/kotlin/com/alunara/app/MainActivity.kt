@@ -671,6 +671,10 @@ private fun AlunaraTvApp(
         when {
             showWebViewLogin -> {
                 showWebViewLogin = false
+                if (activeCompanionServer?.isCompletedOnTv != true) {
+                    activeCompanionServer?.stop()
+                    activeCompanionServer = null
+                }
                 focusRestoreTick++
             }
 
@@ -814,8 +818,15 @@ private fun AlunaraTvApp(
                                 Modifier
                                     .fillMaxWidth()
                                     .focusRequester(headerSearchRequester)
+                                    .onPreviewKeyEvent { event ->
+                                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
+                                            activeContentEntryRequester?.safeRequestFocus() == true ||
+                                                browsePaneFocusRequester.safeRequestFocus()
+                                        } else {
+                                            false
+                                        }
+                                    }
                                     .focusProperties {
-                                        down = activeContentEntryRequester ?: browsePaneFocusRequester
                                         left = activeRailRequester
                                     }
                                     .padding(
@@ -882,7 +893,7 @@ private fun AlunaraTvApp(
                                                 } else {
                                                     Modifier
                                                         .focusRequester(browsePaneFocusRequester)
-                                                        .focusRestorer { paneEntryRequester }
+                                                        .focusRestorer()
                                                         .focusGroup()
                                                 },
                                             ),
@@ -1037,7 +1048,7 @@ private fun AlunaraTvApp(
                                 sessionState = visibleMiniPlayerState,
                                 positionMsFlow = sessionManager.positionMsFlow,
                                 playPauseFocusRequester = miniPlayerPlayPauseRequester,
-                                upFocusRequester = activeContentEntryRequester ?: browsePaneFocusRequester,
+                                upFocusRequester = browsePaneFocusRequester,
                                 onTogglePlayPause = onTogglePlayPause,
                                 onOpenNowPlaying = onOpenNowPlayingCb,
                             )
@@ -1048,16 +1059,20 @@ private fun AlunaraTvApp(
                 FixedNavigationRail(
                     selected = browseDest,
                     railRequesters = railRequesters,
-                    contentEntryRequester = activeContentEntryRequester ?: browsePaneFocusRequester,
-                    browsePaneFocusRequester = browsePaneFocusRequester,
                     onSelect = onSelectRailDest,
                     onEnterContent = { dest ->
-                        if (browseDest != dest) {
+                        val sameDest = browseDest == dest
+                        if (!sameDest) {
                             onSelectRailDest(dest)
                         }
                         val focusedDirectly =
-                            activeContentEntryRequester?.safeRequestFocus() == true ||
-                                browsePaneFocusRequester.safeRequestFocus()
+                            if (sameDest) {
+                                browsePaneFocusRequester.safeRequestFocus() ||
+                                    activeContentEntryRequester?.safeRequestFocus() == true
+                            } else {
+                                activeContentEntryRequester?.safeRequestFocus() == true ||
+                                    browsePaneFocusRequester.safeRequestFocus()
+                            }
                         if (!focusedDirectly) {
                             focusRestoreTick++
                         }
@@ -1160,8 +1175,6 @@ private class RailFocusTracker(
 private fun FixedNavigationRail(
     selected: TvDestination,
     railRequesters: Map<TvDestination, FocusRequester>,
-    contentEntryRequester: FocusRequester,
-    browsePaneFocusRequester: FocusRequester,
     onSelect: (TvDestination) -> Unit,
     onEnterContent: (TvDestination) -> Unit,
 ) {
@@ -1239,8 +1252,6 @@ private fun FixedNavigationRail(
                         ),
                     selected = selected == dest,
                     focusTracker = focusTracker,
-                    rightFocusRequester = contentEntryRequester,
-                    fallbackRightFocusRequester = browsePaneFocusRequester,
                     modifier = Modifier.focusRequester(itemRequester),
                     onFocusEnter = {
                         pendingFocusDest = dest
@@ -1272,8 +1283,6 @@ private fun RailItem(
     label: String,
     selected: Boolean,
     focusTracker: RailFocusTracker,
-    rightFocusRequester: FocusRequester,
-    fallbackRightFocusRequester: FocusRequester,
     modifier: Modifier = Modifier,
     onFocusEnter: () -> Unit,
     onClick: () -> Unit,
@@ -1309,9 +1318,6 @@ private fun RailItem(
                 .graphicsLayer {
                     scaleX = focusScale
                     scaleY = focusScale
-                }
-                .focusProperties {
-                    right = rightFocusRequester
                 }
                 .onPreviewKeyEvent { event ->
                     if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
