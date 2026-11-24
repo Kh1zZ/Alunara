@@ -237,4 +237,13 @@
     <string name="search_genre_back_all">すべてのジャンル</string>
     <string name="search_genres_error">ジャンルを読み込めませんでした。</string>
     <string name="search_genre_content_error">%1$s の音楽を読み込めませんでした。</string>
+    <string name="remote_section_title">スマホリモコン（Phone Remote）</string>
+    <string name="remote_section_subtitle">同じ Wi-Fi 上のスマホから再生操作・曲とジャンル検索・キュー編集・テレビ音量・D-pad 操作を行えます。</string>
+    <string name="remote_toggle_label">スマホリモコンを有効にする</string>
+    <string name="remote_regenerate_code">コードを再生成</string>
+    <string name="remote_qr_instruction">QR を読み取るか、スマホで %1$s を開いてコードを入力：</string>
+    <string name="remote_code_label">TV リモートコード</string>
+    <string name="remote_local_url_format">ローカル LAN 直リンク：%1$s</string>
+    <string name="remote_offline_hint">スマホリモコンを有効にするにはテレビを Wi-Fi に接続してください。</string>
+    <string name="remote_lockout_warning">誤入力が続いたためロックされました。「コードを再生成」を押して解除してください。</string>
 </resources>

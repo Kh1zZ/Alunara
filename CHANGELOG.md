@@ -2,6 +2,15 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.2.4] - 2026-11-24
+
+### Added
+- **Local Wi-Fi Phone Remote Control & GitHub Pages Pairing Portal**:
+  - Embedded 100% local LAN HTTP server (`AlunaraRemoteServer` on port `4581`) bound strictly to private RFC-1918 IPv4 interfaces with 24-character constant-time session token verification, 8-attempt PIN brute-force lockout, `X-Alunara-Remote: 1` CSRF protection, and XSS-safe JSON/HTML serialization.
+  - Built a mobile Dark Forest Green 4-tab web controller (**Now Playing**, **Search & Genres**, **Queue**, and **TV Remote D-Pad**) supporting transport/seek, TV volume, audio quality presets, lyrics sync offset & Romaji toggle, mood chips, queue reordering/removal, YouTube Music search & genre drilldown, account playlist creation/addition, and virtual TV D-Pad navigation with `visibilitychange` smart polling.
+  - Added **Phone Remote Control** card in TV **Settings** (`SettingsScreen`) with enable/disable toggle, **Regenerate Code** credential rotation, QR code pairing, compact Base32 **TV Remote Code**, and direct LAN URL.
+  - Added static GitHub Pages Companion Hub (`docs/index.html`) and Remote Pairing Portal (`docs/remote/index.html` at `https://kh1zz.github.io/Alunara/remote`) with client-side Base32 decoding and `localStorage` 1-tap Saved TV reconnect.
+
 ## [0.2.3] - 2026-11-24
 
 ### Added

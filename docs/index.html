@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Alunara TV — Companion Hub</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 14px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #101813;
+      color: #E3EEE5;
+    }
+    .wrap {
+      width: 100%;
+      max-width: 460px;
+      background: #1D2B22;
+      border: 1px solid #355442;
+      border-radius: 18px;
+      padding: 22px 20px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+    }
+    .topBar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .brand {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #85BDA0;
+    }
+    .langs { display: flex; gap: 6px; }
+    .langBtn {
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid #355442;
+      background: #142119;
+      color: #B2C4B7;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .langBtn.active {
+      background: #2E493A;
+      border-color: #B5E6CC;
+      color: #E3EEE5;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      color: #C8F0DA;
+    }
+    .desc {
+      margin: 0 0 18px;
+      font-size: 13.5px;
+      line-height: 1.5;
+      color: #B2C4B7;
+    }
+    .cards {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .hubCard {
+      display: block;
+      text-decoration: none;
+      padding: 16px;
+      border-radius: 14px;
+      background: #142119;
+      border: 1.5px solid #355442;
+      color: inherit;
+      transition: border-color 0.15s ease, transform 0.12s ease;
+    }
+    .hubCard.primary { border-color: #85BDA0; }
+    .hubCard:hover, .hubCard:focus-visible {
+      outline: none;
+      border-color: #C8F0DA;
+      transform: translateY(-1px);
+    }
+    .hubTitle {
+      font-size: 16px;
+      font-weight: 700;
+      color: #C8F0DA;
+      margin: 0 0 6px;
+    }
+    .hubDesc {
+      font-size: 13px;
+      line-height: 1.45;
+      color: #B2C4B7;
+      margin: 0;
+    }
+    .foot {
+      margin-top: 16px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: #9AB5A5;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topBar">
+      <span class="brand">Alunara TV</span>
+      <div class="langs">
+        <button type="button" class="langBtn" data-lang="id">ID</button>
+        <button type="button" class="langBtn" data-lang="en">EN</button>
+        <button type="button" class="langBtn" data-lang="ja">日本語</button>
+      </div>
+    </div>
+    <h1 id="titleEl">Portal Pendamping Alunara</h1>
+    <p id="descEl" class="desc">Pilih mode koneksi ke Alunara di Android TV melalui Wi-Fi rumah yang sama.</p>
+
+    <div class="cards">
+      <a class="hubCard primary" href="./remote/">
+        <div id="remoteTitle" class="hubTitle">📱 Kontrol Alunara via HP (Remote)</div>
+        <p id="remoteDesc" class="hubDesc">Putar/jeda lagu, geser durasi, cari musik &amp; genre lewat keyboard HP, atur antrean, volume TV, dan D-pad virtual.</p>
+      </a>
+      <a class="hubCard" href="./login/">
+        <div id="loginTitle" class="hubTitle">🔐 Masuk Akun YouTube Music di TV</div>
+        <p id="loginDesc" class="hubDesc">Login akun Google / YouTube Music dari HP tanpa mengetik di remote TV.</p>
+      </a>
+    </div>
+
+    <div id="footEl" class="foot">100% Lokal · Tanpa Server Cloud · Tanpa Pelacakan</div>
+  </div>
+
+  <script>
+    (function () {
+      var COPY = {
+        id: {
+          title: 'Portal Pendamping Alunara',
+          desc: 'Pilih mode koneksi ke Alunara di Android TV melalui Wi-Fi rumah yang sama.',
+          rTitle: '📱 Kontrol Alunara via HP (Remote)',
+          rDesc: 'Putar/jeda lagu, geser durasi, cari musik & genre lewat keyboard HP, atur antrean, volume TV, dan D-pad virtual.',
+          lTitle: '🔐 Masuk Akun YouTube Music di TV',
+          lDesc: 'Login akun Google / YouTube Music dari HP tanpa mengetik di remote TV.',
+          foot: '100% Lokal · Tanpa Server Cloud · Tanpa Pelacakan'
+        },
+        en: {
+          title: 'Alunara Companion Hub',
+          desc: 'Choose how to connect to Alunara on your Android TV over your home Wi-Fi.',
+          rTitle: '📱 Control Alunara from Phone (Remote)',
+          rDesc: 'Play/pause, scrub timeline, search songs & genres from your phone keyboard, manage queue, TV volume, and virtual D-pad.',
+          lTitle: '🔐 Sign In to YouTube Music on TV',
+          lDesc: 'Sign in with your Google / YouTube Music account from your phone without TV typing.',
+          foot: '100% Local · No Cloud Relay · Zero Tracking'
+        },
+        ja: {
+          title: 'Alunara コンパニオンハブ',
+          desc: '同じ自宅 Wi-Fi 上の Android TV（Alunara）への接続方法を選択してください。',
+          rTitle: '📱 スマホから Alunara を操作（リモコン）',
+          rDesc: '再生・シーク・スマホでの曲＆ジャンル検索・キュー編集・TV 音量・D-pad 操作に対応。',
+          lTitle: '🔐 テレビの YouTube Music にログイン',
+          lDesc: 'テレビリモコンで文字入力せずに Google アカウントへログインします。',
+          foot: '完全ローカル · クラウド中継なし · 追跡ゼロ'
+        }
+      };
+
+      var lang = 'en';
+      var navLang = (navigator.language || '').toLowerCase();
+      if (navLang.indexOf('id') === 0 || navLang.indexOf('in') === 0) lang = 'id';
+      else if (navLang.indexOf('ja') === 0) lang = 'ja';
+
+      function setLang(nextLang) {
+        lang = COPY[nextLang] ? nextLang : 'en';
+        document.documentElement.lang = lang;
+        var c = COPY[lang];
+        document.getElementById('titleEl').textContent = c.title;
+        document.getElementById('descEl').textContent = c.desc;
+        document.getElementById('remoteTitle').textContent = c.rTitle;
+        document.getElementById('remoteDesc').textContent = c.rDesc;
+        document.getElementById('loginTitle').textContent = c.lTitle;
+        document.getElementById('loginDesc').textContent = c.lDesc;
+        document.getElementById('footEl').textContent = c.foot;
+        Array.from(document.querySelectorAll('.langBtn')).forEach(function (btn) {
+          btn.classList.toggle('active', btn.getAttribute('data-lang') === lang);
+        });
+      }
+
+      Array.from(document.querySelectorAll('.langBtn')).forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          setLang(btn.getAttribute('data-lang'));
+        });
+      });
+      setLang(lang);
+    })();
+  </script>
+</body>
+</html>

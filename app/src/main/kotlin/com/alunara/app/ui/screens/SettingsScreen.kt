@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.MotionPhotosOff
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.SystemUpdate
@@ -82,9 +83,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Text
 import com.alunara.app.BuildConfig
 import com.alunara.app.R
+import com.alunara.app.remote.RemoteServerStatus
 import com.alunara.app.ui.components.TvFocusableButton
 import com.alunara.app.ui.components.TvIconButton
 import com.alunara.app.ui.components.safeRequestFocus
@@ -122,6 +125,9 @@ fun SettingsScreen(
     onToggleAutoUpdate: () -> Unit = {},
     onCheckForUpdates: () -> Unit = {},
     onOpenUpdateDialog: () -> Unit = {},
+    remoteStatus: RemoteServerStatus = RemoteServerStatus(),
+    onToggleRemoteEnabled: () -> Unit = {},
+    onRegenerateRemoteCode: () -> Unit = {},
 ) {
     val colors = LocalAlunaraColors.current
     val activePrefs = LocalAlunaraDisplayPrefs.current
@@ -195,6 +201,142 @@ fun SettingsScreen(
                 onClick = onToggleAutoplay,
                 buttonFocusRequester = entryFocusRequester,
             )
+        }
+
+        item {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(colors.surface, RoundedCornerShape(AlunaraDimens.RadiusControl))
+                        .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.focusProperties { canFocus = false },
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PhoneAndroid,
+                        contentDescription = null,
+                        tint = colors.primaryAccent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.remote_section_title),
+                        color = colors.primaryAccent,
+                        fontSize = AlunaraTypography.body(activePrefs.textScale),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.remote_section_subtitle),
+                    color = colors.mutedText,
+                    fontSize = AlunaraTypography.label(activePrefs.textScale),
+                    lineHeight = AlunaraTypography.label(activePrefs.textScale) * 1.4f,
+                    modifier = Modifier.focusProperties { canFocus = false },
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        SettingsInlineToggle(
+                            label = stringResource(R.string.remote_toggle_label),
+                            actionLabel = if (remoteStatus.enabled) stringResource(R.string.state_on) else stringResource(R.string.state_off),
+                            icon = Icons.Rounded.PhoneAndroid,
+                            highlighted = remoteStatus.enabled,
+                            onClick = onToggleRemoteEnabled,
+                        )
+                    }
+                    if (remoteStatus.enabled) {
+                        TvFocusableButton(
+                            text = stringResource(R.string.remote_regenerate_code),
+                            icon = Icons.Rounded.Refresh,
+                            onClick = onRegenerateRemoteCode,
+                        )
+                    }
+                }
+                if (remoteStatus.lockTriggered) {
+                    Text(
+                        text = stringResource(R.string.remote_lockout_warning),
+                        color = colors.errorText,
+                        fontSize = AlunaraTypography.label(activePrefs.textScale),
+                        modifier = Modifier.focusProperties { canFocus = false },
+                    )
+                }
+                val activePairUrl = remoteStatus.qrPairUrl
+                if (remoteStatus.enabled && activePairUrl != null) {
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .background(colors.background, RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                                .focusProperties { canFocus = false },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        QrCodeCanvas(
+                            content = activePairUrl,
+                            modifier = Modifier.size(124.dp),
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.remote_qr_instruction, remoteStatus.portalDisplayUrl),
+                                color = colors.primaryText,
+                                fontSize = AlunaraTypography.label(activePrefs.textScale),
+                                lineHeight = AlunaraTypography.label(activePrefs.textScale) * 1.35f,
+                            )
+                            val code = remoteStatus.pairingCode
+                            if (!code.isNullOrBlank()) {
+                                Row(
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .background(colors.secondarySurface, RoundedCornerShape(10.dp))
+                                            .border(BorderStroke(1.dp, colors.primaryAccent.copy(alpha = 0.5f)), RoundedCornerShape(10.dp))
+                                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.remote_code_label),
+                                        color = colors.mutedText,
+                                        fontSize = AlunaraTypography.caption(activePrefs.textScale),
+                                    )
+                                    Text(
+                                        text = code,
+                                        color = colors.focusOutline,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 2.sp,
+                                    )
+                                }
+                            }
+                            Text(
+                                text = stringResource(R.string.remote_local_url_format, activePairUrl),
+                                color = colors.dimmedLyrics,
+                                fontSize = AlunaraTypography.caption(activePrefs.textScale),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                } else if (remoteStatus.enabled) {
+                    Text(
+                        text = stringResource(R.string.remote_offline_hint),
+                        color = colors.mutedText,
+                        fontSize = AlunaraTypography.caption(activePrefs.textScale),
+                        modifier = Modifier.focusProperties { canFocus = false },
+                    )
+                }
+            }
         }
 
         item {

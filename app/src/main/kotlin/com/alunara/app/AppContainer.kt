@@ -7,6 +7,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import androidx.room.Room
 import coil3.SingletonImageLoader
 import com.alunara.app.playback.AlunaraPlaybackService
@@ -14,6 +15,10 @@ import com.alunara.app.playback.PlaybackPreferences
 import com.alunara.app.playback.PlaybackSessionManager
 import com.alunara.app.playback.SharedPreferencesPlaybackPreferencesStore
 import com.alunara.app.playback.SinglePlayerLifecycleController
+import com.alunara.app.remote.AlunaraRemoteServer
+import com.alunara.app.remote.AndroidTvVolumeController
+import com.alunara.app.remote.RemotePreferencesStore
+import com.alunara.app.remote.SharedPreferencesRemotePreferencesStore
 import com.alunara.app.update.AppUpdateManager
 import com.alunara.core.data.cache.CacheBudgetDecision
 import com.alunara.core.data.cache.CacheBudgetManager
@@ -78,6 +83,10 @@ class AppContainer(
         SharedPreferencesPlaybackPreferencesStore(appContext)
     }
 
+    val remotePrefsStore: RemotePreferencesStore by lazy {
+        SharedPreferencesRemotePreferencesStore(appContext)
+    }
+
     val musicEngine: MusicEngine by lazy {
         ArchiveTuneMusicAdapter()
     }
@@ -122,10 +131,27 @@ class AppContainer(
         )
     }
 
+    val remoteServer: AlunaraRemoteServer by lazy {
+        AlunaraRemoteServer(
+            scope = ProcessLifecycleOwner.get().lifecycleScope,
+            prefsStore = remotePrefsStore,
+            sessionManager = playbackSessionManager,
+            musicEngine = musicEngine,
+            volumeController = AndroidTvVolumeController(appContext),
+        )
+    }
+
     val playbackLifecycleObserver: DefaultLifecycleObserver by lazy {
         object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                remoteServer.syncWithPrefs()
+            }
+
             override fun onStop(owner: LifecycleOwner) {
                 playbackSessionManager.onAppBackgrounded()
+                if (!isPlaybackServiceRunning) {
+                    remoteServer.stop()
+                }
                 // Free decoded artwork RAM immediately when leaving UI for Android TV launcher
                 runCatching { SingletonImageLoader.get(appContext).memoryCache?.clear() }
             }

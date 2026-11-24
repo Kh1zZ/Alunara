@@ -107,6 +107,8 @@ import com.alunara.app.playback.PlaybackSessionManager
 import com.alunara.app.playback.PlaybackSessionUiState
 import com.alunara.app.playback.SyncNotice
 import com.alunara.app.playback.SyncNoticeKind
+import com.alunara.app.remote.AlunaraRemoteServer
+import com.alunara.app.remote.RemoteServerStatus
 import com.alunara.app.ui.components.AddToPlaylistDialog
 import com.alunara.app.ui.components.AppUpdateDialog
 import com.alunara.app.ui.components.DockedMiniPlayer
@@ -214,6 +216,7 @@ class MainActivity : ComponentActivity() {
                         musicEngine = container.musicEngine,
                         sessionManager = container.playbackSessionManager,
                         appUpdateManager = container.appUpdateManager,
+                        remoteServer = container.remoteServer,
                         displayPrefs = displayPrefs,
                         appLanguage = appLanguage,
                         pendingNowPlaying = pendingNowPlaying,
@@ -270,6 +273,7 @@ private fun AlunaraTvApp(
     musicEngine: MusicEngine,
     sessionManager: PlaybackSessionManager,
     appUpdateManager: AppUpdateManager,
+    remoteServer: AlunaraRemoteServer,
     displayPrefs: AlunaraDisplayPrefs,
     appLanguage: AppLanguage,
     pendingNowPlaying: Boolean,
@@ -280,11 +284,13 @@ private fun AlunaraTvApp(
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     val sessionState by sessionManager.uiState.collectAsStateWithLifecycle()
+    val remoteStatus by remoteServer.status.collectAsStateWithLifecycle()
     val updateUiState by appUpdateManager.uiState.collectAsStateWithLifecycle()
     val updateDialogVisible by appUpdateManager.dialogVisible.collectAsStateWithLifecycle()
     var updateLaunchError by remember { mutableStateOf<Int?>(null) }
     val autoUpdateEnabled by appUpdateManager.autoUpdateEnabled.collectAsStateWithLifecycle()
-    val hostActivityContext = LocalView.current.context
+    val hostView = LocalView.current
+    val hostActivityContext = hostView.context
     val focusManager = LocalFocusManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
@@ -347,6 +353,38 @@ private fun AlunaraTvApp(
             companionGraceJob?.cancel()
             activeCompanionServer?.stop()
             activeCompanionServer = null
+        }
+    }
+
+    LaunchedEffect(appLanguage) {
+        remoteServer.language = appLanguage
+    }
+
+    DisposableEffect(remoteServer, hostView) {
+        remoteServer.onDispatchDpadKey = { keyCode ->
+            hostView.rootView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+            hostView.rootView.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+        }
+        remoteServer.onNavigateDestination = { destName ->
+            val target = TvDestination.entries.firstOrNull { it.name == destName }
+            if (target == TvDestination.NOW_PLAYING) {
+                if (sessionState.currentTrack != null) {
+                    showWebViewLogin = false
+                    if (currentDestination != TvDestination.NOW_PLAYING) {
+                        returnDestBeforeNowPlaying = currentDestination
+                        currentDestination = TvDestination.NOW_PLAYING
+                    }
+                }
+            } else if (target != null) {
+                showWebViewLogin = false
+                catalogStack = emptyList()
+                currentDestination = target
+                focusRestoreTick++
+            }
+        }
+        onDispose {
+            remoteServer.onDispatchDpadKey = null
+            remoteServer.onNavigateDestination = null
         }
     }
 
@@ -1090,6 +1128,9 @@ private fun AlunaraTvApp(
                                                 onToggleAutoUpdate = onToggleAutoUpdateCb,
                                                 onCheckForUpdates = onCheckForUpdatesCb,
                                                 onOpenUpdateDialog = onOpenUpdateDialogCb,
+                                                remoteStatus = remoteStatus,
+                                                onToggleRemoteEnabled = { remoteServer.setEnabled(!remoteStatus.enabled) },
+                                                onRegenerateRemoteCode = { remoteServer.regenerateCode() },
                                             )
 
                                         TvDestination.NOW_PLAYING -> Unit

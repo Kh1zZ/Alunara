@@ -237,4 +237,13 @@
     <string name="search_genre_back_all">Semua Genre</string>
     <string name="search_genres_error">Gagal memuat daftar genre.</string>
     <string name="search_genre_content_error">Gagal memuat musik untuk %1$s.</string>
+    <string name="remote_section_title">Kontrol via HP (Phone Remote)</string>
+    <string name="remote_section_subtitle">Kendalikan musik, cari lagu &amp; genre dari keyboard HP, atur antrean, volume TV, dan D-pad lewat Wi-Fi rumah yang sama.</string>
+    <string name="remote_toggle_label">Aktifkan server remote HP</string>
+    <string name="remote_regenerate_code">Acak Ulang Kode</string>
+    <string name="remote_qr_instruction">Scan QR atau buka %1$s di HP lalu masukkan Kode TV:</string>
+    <string name="remote_code_label">Kode Remote TV</string>
+    <string name="remote_local_url_format">Link LAN langsung: %1$s</string>
+    <string name="remote_offline_hint">Hubungkan TV ke Wi-Fi untuk mengaktifkan URL remote HP.</string>
+    <string name="remote_lockout_warning">Pairing terkunci setelah terlalu banyak kode salah. Pilih Acak Ulang Kode untuk membuka.</string>
 </resources>

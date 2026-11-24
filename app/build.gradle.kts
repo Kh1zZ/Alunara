@@ -38,7 +38,7 @@ fun deriveSemVerCode(versionName: String): Int {
 }
 
 val resolvedVersionName =
-    providers.gradleProperty("versionName").orNull?.takeIf { it.isNotBlank() } ?: "0.2.3"
+    providers.gradleProperty("versionName").orNull?.takeIf { it.isNotBlank() } ?: "0.2.4"
 val resolvedVersionCode =
     providers.gradleProperty("versionCode").orNull?.toIntOrNull()?.coerceAtLeast(1)
         ?: deriveSemVerCode(resolvedVersionName)

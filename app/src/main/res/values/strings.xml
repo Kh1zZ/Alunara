@@ -237,4 +237,13 @@
     <string name="search_genre_back_all">All Genres</string>
     <string name="search_genres_error">Could not load genres.</string>
     <string name="search_genre_content_error">Could not load music for %1$s.</string>
+    <string name="remote_section_title">Phone Remote Control</string>
+    <string name="remote_section_subtitle">Control playback, search songs &amp; genres, manage the queue, TV volume, and D-pad directly from your phone on the same Wi-Fi.</string>
+    <string name="remote_toggle_label">Enable phone remote server</string>
+    <string name="remote_regenerate_code">Regenerate Code</string>
+    <string name="remote_qr_instruction">Scan QR or open %1$s on your phone and enter TV Code:</string>
+    <string name="remote_code_label">TV Remote Code</string>
+    <string name="remote_local_url_format">Direct LAN fallback: %1$s</string>
+    <string name="remote_offline_hint">Connect TV to Wi-Fi to activate phone remote URL.</string>
+    <string name="remote_lockout_warning">Pairing locked after repeated wrong codes. Select Regenerate Code to unlock.</string>
 </resources>
