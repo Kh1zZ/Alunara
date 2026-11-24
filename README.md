@@ -42,7 +42,8 @@ Television living rooms deserve a calmer music experience than a stretched phone
 | **Memory Footprint** | **~72 MB PSS** on entry-level **1 GB RAM** Android TVs (R8 full-mode + `RGB_565` artwork) |
 | **Navigation Smoothness** | **60 FPS** D-pad focus routing with a fixed `72.dp` pure icon rail and zero-relayout GPU progress bar |
 | **Audio Pipeline** | Audio-only AAC/MP4A and Opus streams ranked by URL availability and the selected bitrate preset |
-| **Lyrics & Scripts** | `100 ms` decoupled karaoke sync (`[offset:±ms]`, `endTimeMs`) + offline **Romaji / Hangul / Cyrillic** |
+| **Lyrics & Scripts** | `100 ms` decoupled **Calm Vocal Sweep & Center Glide** karaoke sync (`[offset:±ms]`, `endTimeMs`, CJK normalization) + single-pass offline **Romaji / Hangul / Cyrillic** |
+| **App Updates** | Built-in **GitHub Releases** updater with automatic ABI selection (`arm64-v8a` / `armeabi-v7a`) and direct Android TV `PackageInstaller` handoff |
 | **Sign-In Experience** | **Smart Phone QR Login Wizard** over local LAN HTTP — zero on-screen remote typing |
 | **Privacy & Licensing** | **Zero ads, zero telemetry**, guest mode out of the box, 100% open source under **GNU GPL v3.0** |
 
@@ -79,7 +80,8 @@ Rather than shifting colors aggressively with every album cover, Alunara locks i
 - Built exclusively for television geometry (`960×540 dp` logical 720p grid with TV overscan margins).
 - **Pure icon-only left navigation rail (`72.dp`)** maximizes horizontal stage space without width transitions or black-frame flicker.
 - GPU-drawn `drawBehind` mini-player progress strip eliminates layout passes while browsing Home, Search, Library, or Settings.
-- Coil downscaled `RGB_565` artwork caching keeps bitmap allocations tight on low-memory hardware.
+- Coil downscaled `RGB_565` artwork caching and a lightweight `240px` blurred backdrop keep bitmap allocations tight on low-memory hardware.
+- Built-in **Text Scaling**, **High-Contrast**, **Reduce Motion**, and a focus-locked **trilingual language switcher** (English, Bahasa Indonesia, Japanese).
 
 ### 2. Audio Engine
 - Streams **audio-only** YouTube Music tracks with zero video decoder overhead.
@@ -88,10 +90,10 @@ Rather than shifting colors aggressively with every album cover, Alunara locks i
 - Powered by a single-instance Media3 `AlunaraPlaybackService` with tuned `DefaultLoadControl` buffering (`15s` min / `30s` max / `2 MB` target), native TV Now Playing session integration, Up Next queue management, Shuffle/Repeat, and persistent session restore.
 
 ### 3. Synchronized Karaoke Lyrics & Offline Romanization
-- Decoupled `100 ms` active-line sync via `activeLyricIndexFlow` keeps lyrics fluid without triggering recompositions across browse screens.
-- Full support for global LRC `[offset:±ms]` tags, accurate word-level `endTimeMs` spans for karaoke sweeps, and constant `FontWeight` rendering to avoid `StaticLayout` re-wrap jank.
-- Bounded multi-provider engine (**SimpMusic**, **LRCLIB**, **KuGou**) with adaptive provider reliability scoring.
-- **Built-in offline romanization** for **Japanese (Kuromoji)**, **Korean Hangul**, and **Cyrillic** scripts directly on the TV.
+- **Calm Vocal Sweep & Center Glide:** center-anchored smooth scroll (`animateScrollBy`), minimalist Forest-Mint active bar indicator, subtle three-dot instrumental intro cue, and zero-recomposition GPU `clipRect` vocal sweep fill on singing tokens (with automatic single-text simplification under `Reduce Motion`).
+- Decoupled `100 ms` active-line sync via `activeLyricIndexFlow`, global LRC `[offset:±ms]` support, accurate word-level `endTimeMs` spans, and CJK-aware intra-token whitespace normalization for clean upstream word-sync tokenization.
+- Bounded multi-provider engine (**SimpMusic**, **LRCLIB**, **KuGou**) with adaptive provider reliability scoring and Room caching (`LRC_V2`).
+- **Built-in single-pass offline romanization** for **Japanese (Kuromoji)**, **Korean Hangul**, and **Cyrillic** scripts directly on the TV.
 
 ### 4. Zero-Typing Smart Phone QR Login
 - Start sign-in on your TV, scan the on-screen QR code with your phone on the same Wi-Fi network, and follow the live synchronized TV ↔ phone wizard served by Alunara's temporary local LAN HTTP server.
@@ -102,6 +104,10 @@ Rather than shifting colors aggressively with every album cover, Alunara locks i
 - Launch and stream immediately in **Guest Mode** with zero mandatory login.
 - Local Room database caches Home and Library surfaces for instant cold-start browsing.
 - Completely free of ads, analytics, crash trackers, or third-party telemetry SDKs.
+
+### 6. Seamless In-App Auto-Update
+- Automatically checks [`Kh1zZ/Alunara/releases/latest`](https://github.com/Kh1zZ/Alunara/releases/latest) at startup (when Auto-Update is enabled) or on demand via **Settings → App Updates**.
+- Matches the TV's CPU ABI (`arm64-v8a` or `armeabi-v7a`) automatically, downloads the signed split APK directly inside Alunara with live progress, and hands off immediately to Android TV's system `PackageInstaller`.
 
 ---
 
@@ -130,8 +136,8 @@ Alunara follows a clean **modular-lite** Gradle layout that isolates Android TV 
 flowchart TB
     subgraph TV["Android TV App (:app)"]
         UI["Compose for TV 10-Foot UI<br/>Icon Rail • Browse • Now Playing • Karaoke"]
-        Media["AlunaraPlaybackService<br/>Media3 ExoPlayer • AAC-First • 15s/30s Buffer"]
-        QR["Smart QR Login Wizard<br/>Local LAN HTTP Server"]
+        Media["AlunaraPlaybackService<br/>Media3 ExoPlayer • Audio-First • 15s/30s Buffer"]
+        QR["Smart QR Login Wizard &amp; In-App Updater<br/>Local LAN HTTP Server • GitHub Releases"]
     end
 
     subgraph Core["Alunara Core Modules"]
@@ -179,9 +185,9 @@ Official signed builds are published **exclusively on [GitHub Releases](https://
 2. Connect from your computer and install the APK matching your TV's ABI:
    ```bash
    adb connect <YOUR_TV_IP>:5555
-   adb install -r alunara-0.1.0.armv7a.apk
+   adb install -r alunara-0.2.0.armv7a.apk
    ```
-   *(Replace with `alunara-0.1.0.armv8a.apk` for 64-bit `arm64-v8a` devices.)*
+   *(Replace with `alunara-0.2.0.armv8a.apk` for 64-bit `arm64-v8a` devices. Once installed, future releases can be downloaded and installed directly inside **Settings → App Updates**.)*
 
 #### Option B — USB Flash Drive or TV Downloader App
 1. Download the matching APK directly from [GitHub Releases](https://github.com/Kh1zZ/Alunara/releases/latest).
@@ -204,16 +210,16 @@ Official signed builds are published **exclusively on [GitHub Releases](https://
 
 ### Common Gradle Tasks
 ```bash
-# Run all 86 JVM unit tests across 19 test suites
+# Run all 112 JVM unit tests across 24 test suites
 ./gradlew :core:domain:test :core:music:test :core:lyrics:test :core:data:testDebugUnitTest :app:testDebugUnitTest
 
-# Run Android Lint & build R8 split release APKs
-./gradlew :app:lintDebug :app:assembleRelease
+# Run Android Lint on debug sources (signed R8 split release APKs are built via GitHub Actions)
+./gradlew :app:lintDebug
 ```
-*(On Windows, use `.\gradlew.bat`.)*
+*(On Windows, use `.\gradlew.bat`. Release APK builds run via [`.github/workflows/release.yml`](.github/workflows/release.yml).)*
 
 ### Localization & Project Documentation
-- **UI Languages:** Built-in **English** (`values`) and **Bahasa Indonesia** (`values-in`), plus offline lyrics romanization for Japanese, Korean, and Cyrillic. Community translations via Pull Requests are warmly welcomed.
+- **UI Languages:** Built-in **English** (`values`), **Bahasa Indonesia** (`values-in`), and **Japanese (`日本語`)** (`values-ja`), plus offline lyrics romanization for Japanese, Korean, and Cyrillic. Community translations via Pull Requests are warmly welcomed.
 - **Engineering Docs:** [`CHANGELOG.md`](CHANGELOG.md) · [`CREDITS.md`](CREDITS.md) · [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) · [`AGENTS.md`](AGENTS.md) · [`M5 Release Report`](docs/M5_RELEASE_REPORT.md)
 
 ---

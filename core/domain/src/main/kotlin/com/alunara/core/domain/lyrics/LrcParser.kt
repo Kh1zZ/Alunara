@@ -69,7 +69,7 @@ object LrcParser {
                 if (words.isNotEmpty()) {
                     words.joinToString(separator = "") { it.text }.trim()
                 } else {
-                    decodeHtmlEntities(bodyRaw.trim())
+                    stripIntraCjkSpaces(decodeHtmlEntities(bodyRaw.trim()))
                 }
             if (text.isEmpty()) return@forEach
 
@@ -320,7 +320,7 @@ object LrcParser {
             }
         }
 
-        if (rawWords.size <= 1) return rawWords
+        if (rawWords.size <= 1) return normalizeIntraCjkWordSpaces(rawWords)
         val merged = ArrayList<SyncedLyricWord>(rawWords.size)
         rawWords.forEach { current ->
             val prev = merged.lastOrNull()
@@ -334,7 +334,111 @@ object LrcParser {
                 merged += current
             }
         }
-        return merged
+        return normalizeIntraCjkWordSpaces(merged)
+    }
+
+    private fun isAsciiHorizontalSpace(ch: Char): Boolean = ch == ' ' || ch == '\t'
+
+    private fun isJapaneseOrChineseNoSpaceChar(ch: Char): Boolean {
+        val block = Character.UnicodeBlock.of(ch)
+        if (block == Character.UnicodeBlock.HIRAGANA ||
+            block == Character.UnicodeBlock.KATAKANA ||
+            block == Character.UnicodeBlock.KATAKANA_PHONETIC_EXTENSIONS ||
+            block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
+            block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+            block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
+            block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
+            block == Character.UnicodeBlock.CJK_SYMBOLS_AND_PUNCTUATION
+        ) {
+            return true
+        }
+        return ch == '！' || ch == '？' || ch == '，' || ch == '．' ||
+            ch == '：' || ch == '；' || ch == '（' || ch == '）' ||
+            ch == '〜' || ch == '～' || ch == 'ー'
+    }
+
+    private fun stripIntraCjkSpaces(text: String): String {
+        if (' ' !in text && '\t' !in text) return text
+        val sb = StringBuilder(text.length)
+        var i = 0
+        while (i < text.length) {
+            val ch = text[i]
+            if (isAsciiHorizontalSpace(ch)) {
+                var end = i + 1
+                while (end < text.length && isAsciiHorizontalSpace(text[end])) {
+                    end++
+                }
+                val prev = sb.lastOrNull()
+                val next = text.getOrNull(end)
+                if (prev != null && next != null &&
+                    isJapaneseOrChineseNoSpaceChar(prev) &&
+                    isJapaneseOrChineseNoSpaceChar(next)
+                ) {
+                    i = end
+                    continue
+                }
+                sb.append(text, i, end)
+                i = end
+            } else {
+                sb.append(ch)
+                i++
+            }
+        }
+        return sb.toString()
+    }
+
+    private fun normalizeIntraCjkWordSpaces(words: List<SyncedLyricWord>): List<SyncedLyricWord> {
+        if (words.isEmpty()) return words
+        val stripped = words.map { w ->
+            val cleaned = stripIntraCjkSpaces(w.text)
+            if (cleaned == w.text) w else w.copy(text = cleaned)
+        }
+        if (stripped.size <= 1) return stripped
+
+        // Drop standalone ASCII-space tokens sitting strictly between CJK/Kana/CJK-punctuation neighbors
+        val filtered = ArrayList<SyncedLyricWord>(stripped.size)
+        for (idx in stripped.indices) {
+            val current = stripped[idx]
+            val isPureAsciiSpace = current.text.isNotEmpty() && current.text.all(::isAsciiHorizontalSpace)
+            if (isPureAsciiSpace) {
+                val prevAnchor = filtered.lastOrNull { it.text.any { ch -> !isAsciiHorizontalSpace(ch) } }
+                    ?.text?.lastOrNull { !isAsciiHorizontalSpace(it) }
+                val nextAnchor = ((idx + 1) until stripped.size)
+                    .firstNotNullOfOrNull { j -> stripped[j].text.firstOrNull { !isAsciiHorizontalSpace(it) } }
+                if (prevAnchor != null && nextAnchor != null &&
+                    isJapaneseOrChineseNoSpaceChar(prevAnchor) &&
+                    isJapaneseOrChineseNoSpaceChar(nextAnchor)
+                ) {
+                    if (filtered.isNotEmpty() && filtered.last().endTimeMs == null && current.endTimeMs != null) {
+                        filtered[filtered.lastIndex] = filtered.last().copy(endTimeMs = current.endTimeMs)
+                    }
+                    continue
+                }
+            }
+            filtered += current
+        }
+
+        if (filtered.size <= 1) return filtered
+        val result = filtered.toMutableList()
+        for (i in 0 until result.lastIndex) {
+            val left = result[i]
+            val right = result[i + 1]
+            val leftHasTrailing = left.text.lastOrNull()?.let(::isAsciiHorizontalSpace) == true
+            val rightHasLeading = right.text.firstOrNull()?.let(::isAsciiHorizontalSpace) == true
+            if (!leftHasTrailing && !rightHasLeading) continue
+
+            val leftAnchor = left.text.lastOrNull { !isAsciiHorizontalSpace(it) } ?: continue
+            val rightAnchor = right.text.firstOrNull { !isAsciiHorizontalSpace(it) } ?: continue
+            if (isJapaneseOrChineseNoSpaceChar(leftAnchor) && isJapaneseOrChineseNoSpaceChar(rightAnchor)) {
+                if (leftHasTrailing) {
+                    result[i] = left.copy(text = left.text.trimEnd(::isAsciiHorizontalSpace))
+                }
+                if (rightHasLeading) {
+                    result[i + 1] = right.copy(text = right.text.trimStart(::isAsciiHorizontalSpace))
+                }
+            }
+        }
+        return result
     }
 
     private fun decodeHtmlEntities(input: String): String {

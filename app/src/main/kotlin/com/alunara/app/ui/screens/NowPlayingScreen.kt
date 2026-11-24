@@ -1795,6 +1795,14 @@ private fun String.isTrailingPunctuationToken(): Boolean {
     }
 }
 
+private fun String.isLeadingPunctuationToken(): Boolean {
+    val trimmed = trim()
+    return trimmed.isNotEmpty() && trimmed.all { ch ->
+        ch == '(' || ch == '[' || ch == '{' || ch == '"' || ch == '“' || ch == '‘' ||
+            ch == '（' || ch == '「' || ch == '『' || ch == '【' || ch == '〈' || ch == '《'
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ActiveWordSyncedLyricText(
@@ -1815,7 +1823,7 @@ private fun ActiveWordSyncedLyricText(
     val tokenTexts =
         remember(line, useRomanizedWords) {
             words.map { word ->
-                if (useRomanizedWords && !word.romanizedText.isNullOrBlank()) {
+                if (useRomanizedWords && word.romanizedText != null) {
                     word.romanizedText!!
                 } else {
                     word.text
@@ -1867,8 +1875,9 @@ private fun ActiveWordSyncedLyricText(
                 val nextToken = tokenTexts.getOrNull(idx + 1)
                 val endsWithSpace = txt.lastOrNull()?.isWhitespace() == true
                 val hasCjk = txt.any { it.isCjkOrKanaOrHangul() }
+                val isLeadingPunctuation = txt.isLeadingPunctuationToken()
                 val nextIsPunctuation = nextToken?.isTrailingPunctuationToken() == true
-                if ((endsWithSpace || hasCjk) && !nextIsPunctuation) {
+                if (!isLeadingPunctuation && (endsWithSpace || hasCjk) && !nextIsPunctuation) {
                     groups.add(currentGroup.toList())
                     currentGroup.clear()
                 }
@@ -1929,8 +1938,10 @@ private fun ActiveWordSyncedLyricText(
         wordGroups.forEach { group ->
             if (group.size == 1) {
                 val wIdx = group[0]
+                val wordText = tokenTexts[wIdx]
+                if (wordText.isEmpty()) return@forEach
                 SyncedWordToken(
-                    text = tokenTexts[wIdx],
+                    text = wordText,
                     isPassed = wIdx < passedCount,
                     isSinging = wIdx == singingWordIdx,
                     animateTransition = wIdx == singingWordIdx || wIdx == passedCount - 1,
@@ -1941,10 +1952,13 @@ private fun ActiveWordSyncedLyricText(
                     inactiveWordColor = inactiveWordColor,
                 )
             } else {
+                if (group.all { tokenTexts[it].isEmpty() }) return@forEach
                 Row(verticalAlignment = Alignment.Bottom) {
                     group.forEach { wIdx ->
+                        val wordText = tokenTexts[wIdx]
+                        if (wordText.isEmpty()) return@forEach
                         SyncedWordToken(
-                            text = tokenTexts[wIdx],
+                            text = wordText,
                             isPassed = wIdx < passedCount,
                             isSinging = wIdx == singingWordIdx,
                             animateTransition = wIdx == singingWordIdx || wIdx == passedCount - 1,

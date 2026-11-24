@@ -2,6 +2,19 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.2.0] - 2026-11-24
+
+### Lyrics & Romaji
+
+- Normalize artificial ASCII whitespace inserted between Japanese and Chinese characters (`Han`, `Hiragana`, `Katakana`, and CJK punctuation) in `LrcParser` word-synced and line-synced parsing while preserving Hangul word spacing and embedded Latin words in mixed-script lines.
+- Remove Mandarin Pinyin ICU fallback on confirmed Japanese lyric segments in `LyricsRomanizer` so unknown Kanji stay identifiable rather than emitting Pinyin, and track covered word slices during single-pass word-sync romanization to eliminate double spaces around CJK quotes and compound words.
+- Group opening brackets and CJK quotes (`「`, `『`, `(`, `[`) with their following token in `ActiveWordSyncedLyricText` and skip empty absorbed slices cleanly without disrupting karaoke word timing indices.
+- Upgrade `CachedLyricsRepository` synced cache format tag to `LRC_V2` without a Room schema migration so stale pre-`0.1.8` cached LRC rows refresh cleanly online while retaining parsed offline fallback.
+
+### Documentation
+
+- Refresh `README.md` for `v0.2.0` to cover Calm Vocal Sweep & Center Glide lyrics, CJK-normalized offline romanization, in-app GitHub Releases auto-update, trilingual TV localization (English, Bahasa Indonesia, Japanese), and the updated local-debug / GitHub Actions release verification workflow.
+
 ## [0.1.8] - 2026-11-24
 
 ### Lyrics & Localization

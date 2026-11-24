@@ -406,15 +406,6 @@ object LyricsRomanizer {
         }
         val unsupportedCount = surface.count(::isHanIdeograph)
         if (unsupportedCount > 0) {
-            val icu = transliterateWithIcu(surface)
-            if (icu != null && icu != surface) {
-                return TokenRomanizedSegment(
-                    text = icu,
-                    converted = unsupportedCount,
-                    unsupportedKanji = 0,
-                    sawKorean = false,
-                )
-            }
             return TokenRomanizedSegment(
                 text = surface,
                 converted = 0,
@@ -454,6 +445,7 @@ object LyricsRomanizer {
         if (hasJapanese) {
             val tokens = tokenizerProvider().tokenize(concatText)
             val builders = Array(words.size) { StringBuilder() }
+            val coveredByToken = BooleanArray(words.size)
             var lastNonEmptyWordIdx = -1
             var lastEmittedChar: Char? = null
 
@@ -467,6 +459,7 @@ object LyricsRomanizer {
                     if (wordEnds[wIdx] > tokStart && wordStarts[wIdx] < tokEnd) {
                         if (firstOverlap == -1) firstOverlap = wIdx
                         lastOverlap = wIdx
+                        coveredByToken[wIdx] = true
                     }
                 }
                 if (surface.isBlank()) {
@@ -542,7 +535,13 @@ object LyricsRomanizer {
 
             return words.mapIndexed { idx, w ->
                 val mapped = builders[idx].toString()
-                w.copy(romanizedText = mapped.ifEmpty { w.text })
+                val resolved =
+                    if (mapped.isNotEmpty() || coveredByToken[idx] || w.text.isBlank()) {
+                        mapped
+                    } else {
+                        w.text
+                    }
+                w.copy(romanizedText = resolved)
             }
         }
 

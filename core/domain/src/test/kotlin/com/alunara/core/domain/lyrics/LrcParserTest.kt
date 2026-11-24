@@ -190,4 +190,26 @@ class LrcParserTest {
         assertEquals("散々な思い出は", repaired.lines[1].text)
         assertEquals(7, repaired.lines[1].words.size)
     }
+
+    @Test
+    fun parse_stripsArtificialSpacesBetweenJapaneseCharactersWhilePreservingHangulAndLatinSpaces() {
+        val raw =
+            "[00:01.00]<00:01.00>壊 <00:01.20>れ <00:01.40>な <00:01.60>い <00:01.80>理 <00:02.00>由 <00:02.20>の <00:02.40>二 <00:02.60>人\n" +
+                "[00:05.00]<00:05.00>사랑해 <00:05.50>있어\n" +
+                "[00:08.00]<00:08.00>君と <00:08.40>You <00:08.80>& <00:09.10>Me <00:09.50>の物語\n" +
+                "[00:10.00]<00:10.00>教えて<00:10.40>欲 <00:10.70>しかった"
+        val parsed = LrcParser.parse(LyricsProviderId.SIMPMUSIC, raw) as LyricsDocument.Synced
+
+        assertEquals("壊れない理由の二人", parsed.lines[0].text)
+        assertEquals(listOf("壊", "れ", "な", "い", "理", "由", "の", "二", "人"), parsed.lines[0].words.map { it.text })
+
+        assertEquals("사랑해 있어", parsed.lines[1].text)
+        assertEquals(listOf("사랑해 ", "있어"), parsed.lines[1].words.map { it.text })
+
+        assertEquals("君と You & Me の物語", parsed.lines[2].text)
+        assertEquals(listOf("君と ", "You ", "& ", "Me ", "の物語"), parsed.lines[2].words.map { it.text })
+
+        assertEquals("教えて欲しかった", parsed.lines[3].text)
+        assertEquals(listOf("教えて", "欲", "しかった"), parsed.lines[3].words.map { it.text })
+    }
 }

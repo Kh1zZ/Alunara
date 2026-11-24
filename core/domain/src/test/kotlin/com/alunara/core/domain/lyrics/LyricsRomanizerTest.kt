@@ -150,4 +150,33 @@ class LyricsRomanizerTest {
         assertEquals("eumak", synced.lines[1].romanizedText)
         assertEquals("eumak", krJoined)
     }
+
+    @Test
+    fun attachRomanization_romanizesSpacedUpstreamJapaneseCompoundsWithoutPinyinLeakOrDoubleQuoteSpaces() {
+        val raw =
+            "[00:01.00]<00:01.00>壊 <00:01.20>れ <00:01.40>な <00:01.60>い <00:01.80>理 <00:02.00>由 <00:02.20>の <00:02.40>わ <00:02.60>か <00:02.80>ら <00:03.00>ぬ <00:03.20>舟 <00:03.40>の <00:03.60>上 <00:03.80>に <00:04.00>二 <00:04.20>人\n" +
+                "[00:05.00]<00:05.00>教えて<00:05.40>欲 <00:05.70>しかった\n" +
+                "[00:08.00]<00:08.00>「<00:08.10>さよなら<00:08.50>」 <00:08.80>と一緒に"
+        val parsed = LrcParser.parse(LyricsProviderId.SIMPMUSIC, raw) as LyricsDocument.Synced
+        val summary = LyricsRomanizer.attachRomanization(parsed)
+        val synced = summary.document as LyricsDocument.Synced
+
+        val line0Roman = synced.lines[0].romanizedText.orEmpty()
+        assertTrue("line0=$line0Roman", line0Roman.contains("kowarenai"))
+        assertTrue("line0=$line0Roman", line0Roman.contains("riyuu"))
+        assertTrue("line0=$line0Roman", line0Roman.contains("wakaranu"))
+        assertFalse("line0=$line0Roman", line0Roman.contains("huai"))
+        assertFalse("line0=$line0Roman", line0Roman.contains("yoshi"))
+        assertFalse("line0=$line0Roman", line0Roman.contains("ni hito"))
+        assertEquals(line0Roman, synced.lines[0].words.joinToString("") { it.romanizedText.orEmpty() })
+
+        val line1Roman = synced.lines[1].romanizedText.orEmpty()
+        assertEquals("oshiete hoshikatta", line1Roman)
+        assertEquals(line1Roman, synced.lines[1].words.joinToString("") { it.romanizedText.orEmpty() })
+
+        val line2Roman = synced.lines[2].romanizedText.orEmpty()
+        assertTrue("line2=$line2Roman", line2Roman.startsWith("「sayonara」 to"))
+        assertFalse("line2=$line2Roman", line2Roman.contains("  "))
+        assertEquals(line2Roman, synced.lines[2].words.joinToString("") { it.romanizedText.orEmpty() })
+    }
 }

@@ -20,6 +20,9 @@ class CachedLyricsRepository(
     private val nowEpochMs: () -> Long = { System.currentTimeMillis() },
     private val maxCachedEntries: Int = MAX_CACHED_LYRICS_ENTRIES,
 ) : LyricsEngine {
+    private fun LyricsCacheEntity.isCurrentFormatHit(now: Long): Boolean =
+        expiresAtEpochMs > now && format != LEGACY_FORMAT_LRC
+
     override suspend fun fetchLyrics(
         track: Track,
         preferredProvider: LyricsProviderId?,
@@ -28,17 +31,25 @@ class CachedLyricsRepository(
         val existing = cacheDao.getEntry(track.id)
 
         if (preferredProvider == null) {
-            if (existing != null && existing.expiresAtEpochMs > now) {
+            if (existing != null && existing.isCurrentFormatHit(now)) {
                 return existing.toDocument()
             }
             val fetched = delegate.fetchLyrics(track, null)
+            if (fetched is LyricsDocument.Unavailable &&
+                existing != null &&
+                existing.expiresAtEpochMs > now &&
+                existing.format == LEGACY_FORMAT_LRC &&
+                !existing.isNegativeCache
+            ) {
+                return existing.toDocument()
+            }
             cacheDao.deleteExpired(now)
             cacheDocument(track.id, fetched, now, cacheNegative = true)
             return fetched
         }
 
         if (existing != null &&
-            existing.expiresAtEpochMs > now &&
+            existing.isCurrentFormatHit(now) &&
             !existing.isNegativeCache &&
             existing.provider == preferredProvider.name
         ) {
@@ -46,6 +57,15 @@ class CachedLyricsRepository(
         }
 
         val fetched = delegate.fetchLyrics(track, preferredProvider)
+        if (fetched is LyricsDocument.Unavailable &&
+            existing != null &&
+            existing.expiresAtEpochMs > now &&
+            existing.format == LEGACY_FORMAT_LRC &&
+            !existing.isNegativeCache &&
+            existing.provider == preferredProvider.name
+        ) {
+            return existing.toDocument()
+        }
         cacheDao.deleteExpired(now)
         cacheDocument(track.id, fetched, now, cacheNegative = false)
         return fetched
@@ -114,7 +134,7 @@ class CachedLyricsRepository(
             runCatching { LyricsProviderId.valueOf(provider) }
                 .getOrDefault(LyricsProviderId.LRCLIB)
         return when (format) {
-            FORMAT_LRC -> LrcParser.parse(providerId, payload)
+            FORMAT_LRC, LEGACY_FORMAT_LRC -> LrcParser.parse(providerId, payload)
             else -> LyricsDocument.Plain(providerId, payload)
         }
     }
@@ -155,7 +175,8 @@ class CachedLyricsRepository(
     }
 
     companion object {
-        private const val FORMAT_LRC = "LRC"
+        private const val FORMAT_LRC = "LRC_V2"
+        private const val LEGACY_FORMAT_LRC = "LRC"
         private const val FORMAT_PLAIN = "PLAIN"
         private const val FORMAT_NONE = "NONE"
         private const val POSITIVE_TTL_MS = 7L * 24L * 60L * 60L * 1000L

@@ -136,4 +136,85 @@ class CachedLyricsRepositoryTest {
             assertTrue(repo.fetchLyrics(track) is LyricsDocument.Unavailable)
             assertEquals(2, upstreamCalls)
         }
+
+    @Test
+    fun fetchLyrics_refreshesLegacyLrcFormatToV2WithOfflineFallback() =
+        runBlocking {
+            val now = 50_000L
+            var online = true
+            var upstreamCalls = 0
+            val dao = FakeLyricsCacheDao()
+            dao.upsertEntry(
+                LyricsCacheEntity(
+                    trackId = "legacy-online",
+                    provider = LyricsProviderId.SIMPMUSIC.name,
+                    format = "LRC",
+                    payload = "[00:01.00]<00:01.00>壊 <00:01.20>れ",
+                    fetchedAtEpochMs = 1_000L,
+                    expiresAtEpochMs = now + 100_000L,
+                    isNegativeCache = false,
+                ),
+            )
+            dao.upsertEntry(
+                LyricsCacheEntity(
+                    trackId = "legacy-offline",
+                    provider = LyricsProviderId.SIMPMUSIC.name,
+                    format = "LRC",
+                    payload = "[00:01.00]<00:01.00>壊 <00:01.20>れ <00:01.40>な <00:01.60>い",
+                    fetchedAtEpochMs = 1_000L,
+                    expiresAtEpochMs = now + 100_000L,
+                    isNegativeCache = false,
+                ),
+            )
+
+            val repo =
+                CachedLyricsRepository(
+                    delegate =
+                        object : LyricsEngine {
+                            override suspend fun fetchLyrics(
+                                track: Track,
+                                preferredProvider: LyricsProviderId?,
+                            ): LyricsDocument {
+                                upstreamCalls++
+                                if (!online) {
+                                    return LyricsDocument.Unavailable("Offline")
+                                }
+                                return LyricsDocument.Synced(
+                                    provider = LyricsProviderId.SIMPMUSIC,
+                                    lines =
+                                        listOf(
+                                            SyncedLyricLine(
+                                                startTimeMs = 1_000L,
+                                                text = "壊れ",
+                                                words =
+                                                    listOf(
+                                                        SyncedLyricWord(1_000L, "壊"),
+                                                        SyncedLyricWord(1_200L, "れ"),
+                                                    ),
+                                            ),
+                                        ),
+                                )
+                            }
+                        },
+                    cacheDao = dao,
+                    nowEpochMs = { now },
+                )
+
+            val refreshed = repo.fetchLyrics(Track(id = "legacy-online", title = "Online"))
+            assertTrue(refreshed is LyricsDocument.Synced)
+            assertEquals(1, upstreamCalls)
+            assertEquals("LRC_V2", dao.getEntry("legacy-online")?.format)
+
+            // Subsequent read hits upgraded LRC_V2 cache without calling upstream again
+            val cached = repo.fetchLyrics(Track(id = "legacy-online", title = "Online"))
+            assertTrue(cached is LyricsDocument.Synced)
+            assertEquals(1, upstreamCalls)
+
+            // Offline fallback serves legacy row parsed through normalized LrcParser
+            online = false
+            val offlineDoc = repo.fetchLyrics(Track(id = "legacy-offline", title = "Offline"))
+            assertTrue(offlineDoc is LyricsDocument.Synced)
+            assertEquals(2, upstreamCalls)
+            assertEquals("壊れない", (offlineDoc as LyricsDocument.Synced).lines.single().text)
+        }
 }
