@@ -232,4 +232,9 @@
     <string name="sync_notice_artist_subscribed">Subscribed to %1$s</string>
     <string name="sync_notice_artist_unsubscribed">Unsubscribed from %1$s</string>
     <string name="sync_notice_failed">YouTube sync failed: %1$s</string>
+    <string name="search_clear_query">Clear search</string>
+    <string name="search_genres_headline">Browse by Genre &amp; Mood</string>
+    <string name="search_genre_back_all">All Genres</string>
+    <string name="search_genres_error">Could not load genres.</string>
+    <string name="search_genre_content_error">Could not load music for %1$s.</string>
 </resources>

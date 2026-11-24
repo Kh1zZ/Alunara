@@ -2,7 +2,6 @@ package com.alunara.app.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,12 +36,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -73,7 +70,6 @@ private enum class LibraryTab {
     HISTORY,
 }
 
-@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun LibraryScreen(
     favorites: List<Track>,
@@ -106,7 +102,6 @@ fun LibraryScreen(
     val tabPlaylistsRequester = remember { FocusRequester() }
     val tabFavoritesRequester = remember { FocusRequester() }
     val tabHistoryRequester = remember { FocusRequester() }
-    val contentAreaRequester = remember { FocusRequester() }
     val firstContentItemRequester = remember { FocusRequester() }
     var restoreHistoryAction by remember { mutableStateOf(false) }
 
@@ -220,7 +215,7 @@ fun LibraryScreen(
         ) {
             val handleTabDownKey: (KeyEvent) -> Boolean = { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown && hasContentDownTarget) {
-                    contentAreaRequester.safeRequestFocus() || firstContentItemRequester.safeRequestFocus()
+                    firstContentItemRequester.safeRequestFocus()
                 } else {
                     false
                 }
@@ -344,10 +339,7 @@ fun LibraryScreen(
             modifier =
                 Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .focusRequester(contentAreaRequester)
-                    .focusRestorer()
-                    .focusGroup(),
+                    .fillMaxWidth(),
         ) {
             when (selectedTab) {
                 LibraryTab.PLAYLISTS ->

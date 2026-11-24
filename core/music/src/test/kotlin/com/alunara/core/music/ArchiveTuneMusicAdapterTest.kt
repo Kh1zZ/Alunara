@@ -1,6 +1,7 @@
 package com.alunara.core.music
 
 import com.alunara.core.domain.model.AccountCredentials
+import com.alunara.core.domain.model.GenreCategory
 import com.alunara.core.domain.policy.AudioQualityPreset
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -981,5 +982,115 @@ class ArchiveTuneMusicAdapterTest {
             assertEquals("PL_NEW", playbackCall?.first)
             assertEquals("https://music.youtube.com/api/stats/playback?docid=v2", playbackCall?.second)
             assertEquals(1, historySyncCount)
+        }
+
+    @Test
+    fun fetchMoodAndGenres_and_fetchGenreContent_mapCategoriesAndCombineSongsArtistsPlaylists() =
+        runTest {
+            val backend =
+                object : FakeMusicBackendBase() {
+                    override suspend fun moodAndGenres(): Result<List<MoodAndGenres>> =
+                        Result.success(
+                            listOf(
+                                MoodAndGenres(
+                                    title = "Genres",
+                                    items =
+                                        listOf(
+                                            MoodAndGenres.Item(
+                                                title = "J-Pop",
+                                                stripeColor = 0xFFE91E63L,
+                                                endpoint = BrowseEndpoint(browseId = "FEmusic_moods_and_genres_category", params = "p_jpop"),
+                                            ),
+                                        ),
+                                ),
+                                MoodAndGenres(
+                                    title = "Empty",
+                                    items = emptyList(),
+                                ),
+                            ),
+                        )
+
+                    override suspend fun browse(
+                        browseId: String,
+                        params: String?,
+                    ): Result<BrowseResult> =
+                        Result.success(
+                            BrowseResult(
+                                title = "J-Pop",
+                                items =
+                                    listOf(
+                                        BrowseResult.Item(
+                                            title = "Featured Playlists",
+                                            items =
+                                                listOf(
+                                                    PlaylistItem(
+                                                        id = "VLPL_JPOP",
+                                                        title = "J-Pop Hits",
+                                                        author = Artist("YouTube Music", null),
+                                                        songCountText = "50 songs",
+                                                        thumbnail = "https://img/jpop-pl.jpg",
+                                                        playEndpoint = null,
+                                                        shuffleEndpoint = null,
+                                                        radioEndpoint = null,
+                                                    ),
+                                                    SongItem(
+                                                        id = "s-jpop-1",
+                                                        title = "Lemon",
+                                                        artists = listOf(Artist("Kenshi Yonezu", "art-ky")),
+                                                        album = Album("STRAY SHEEP", "alb-ss"),
+                                                        duration = 255,
+                                                        thumbnail = "https://img/lemon.jpg",
+                                                    ),
+                                                ),
+                                        ),
+                                    ),
+                            ),
+                        )
+
+                    override suspend fun searchSummary(query: String): Result<SearchSummaryPage> =
+                        Result.success(
+                            SearchSummaryPage(
+                                summaries =
+                                    listOf(
+                                        SearchSummary(
+                                            title = "Results",
+                                            items =
+                                                listOf(
+                                                    SongItem(
+                                                        id = "s-jpop-1",
+                                                        title = "Lemon",
+                                                        artists = listOf(Artist("Kenshi Yonezu", "art-ky")),
+                                                        album = Album("STRAY SHEEP", "alb-ss"),
+                                                        duration = 255,
+                                                        thumbnail = "https://img/lemon.jpg",
+                                                    ),
+                                                    ArtistItem(
+                                                        id = "art-ky",
+                                                        title = "Kenshi Yonezu",
+                                                        thumbnail = "https://img/ky.jpg",
+                                                        shuffleEndpoint = null,
+                                                        radioEndpoint = null,
+                                                    ),
+                                                ),
+                                        ),
+                                    ),
+                            ),
+                        )
+                }
+
+            val adapter = ArchiveTuneMusicAdapter(backend) {}
+            val sections = adapter.fetchMoodAndGenres().getOrThrow()
+            assertEquals(1, sections.size)
+            assertEquals("Genres", sections[0].title)
+            val category = sections[0].items.single()
+            assertEquals("J-Pop", category.title)
+            assertEquals("FEmusic_moods_and_genres_category", category.browseId)
+            assertEquals("p_jpop", category.params)
+            assertEquals(0xFFE91E63L, category.stripeColorArgb)
+
+            val content = adapter.fetchGenreContent(category).getOrThrow()
+            assertEquals(listOf("s-jpop-1"), content.songs.map { it.id })
+            assertEquals(listOf("art-ky"), content.artists.map { it.id })
+            assertEquals(listOf("VLPL_JPOP"), content.playlists.map { it.id })
         }
 }

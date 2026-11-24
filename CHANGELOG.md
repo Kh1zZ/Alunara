@@ -2,6 +2,18 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.2.3] - 2026-11-24
+
+### Added
+- **Sidebar Search Menu & Genre/Mood Discovery**:
+  - Moved Search to the left navigation rail directly below Home and removed the top header search bar across Home, Library, and Catalog Detail views.
+  - When the Search screen has no query, `SearchScreen` now loads YouTube Music Genres & Moods (`MusicEngine.fetchMoodAndGenres`) as a focusable 4-column tile grid; selecting a genre fetches its songs, artists, and playlists (`MusicEngine.fetchGenreContent` combining `browse()` and `searchSummary()`), with an **All Genres** back button and clear-search (`×`) control. Typing a search query displays normal search results as before.
+
+### Fixed
+- **1-Press Direct D-Pad Entry from Sidebar**:
+  - Removed the `hostView.post` focus reset inside `FixedNavigationRail` so moving along the rail automatically switches panes after `90 ms` without requiring OK click first.
+  - Removed focus-swallowing `.focusGroup()` wrappers around the browse panes and `LibraryScreen` body, removed header search bar fallback traps, and blocked `FocusDirection.Right` entry into `DockedMiniPlayer` so pressing **Right** from any sidebar item highlights an interactive content control in one press (while D-pad **Up** from the mini player uses spatial navigation).
+
 ## [0.2.2] - 2026-11-24
 
 ### Fixed

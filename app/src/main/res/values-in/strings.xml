@@ -232,4 +232,9 @@
     <string name="sync_notice_artist_subscribed">Berhasil subscribe %1$s</string>
     <string name="sync_notice_artist_unsubscribed">Batal subscribe %1$s</string>
     <string name="sync_notice_failed">Sinkronisasi YouTube gagal: %1$s</string>
+    <string name="search_clear_query">Hapus pencarian</string>
+    <string name="search_genres_headline">Jelajahi Berdasarkan Genre &amp; Suasana</string>
+    <string name="search_genre_back_all">Semua Genre</string>
+    <string name="search_genres_error">Gagal memuat daftar genre.</string>
+    <string name="search_genre_content_error">Gagal memuat musik untuk %1$s.</string>
 </resources>

@@ -232,4 +232,9 @@
     <string name="sync_notice_artist_subscribed">%1$s を登録しました</string>
     <string name="sync_notice_artist_unsubscribed">%1$s の登録を解除しました</string>
     <string name="sync_notice_failed">YouTube 同期エラー：%1$s</string>
+    <string name="search_clear_query">検索をクリア</string>
+    <string name="search_genres_headline">ジャンルとムードから探す</string>
+    <string name="search_genre_back_all">すべてのジャンル</string>
+    <string name="search_genres_error">ジャンルを読み込めませんでした。</string>
+    <string name="search_genre_content_error">%1$s の音楽を読み込めませんでした。</string>
 </resources>

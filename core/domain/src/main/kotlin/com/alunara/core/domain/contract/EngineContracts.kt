@@ -6,6 +6,8 @@ import com.alunara.core.domain.model.AccountScope
 import com.alunara.core.domain.model.AlbumDetail
 import com.alunara.core.domain.model.ArtistDetail
 import com.alunara.core.domain.model.AudioStreamSource
+import com.alunara.core.domain.model.GenreCategory
+import com.alunara.core.domain.model.GenreSection
 import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.LyricsDocument
 import com.alunara.core.domain.model.LyricsProviderId
@@ -21,6 +23,11 @@ interface MusicEngine {
     suspend fun searchGuest(query: String): Result<SearchResults>
 
     suspend fun fetchGuestHome(): Result<List<HomeSection>>
+
+    suspend fun fetchMoodAndGenres(): Result<List<GenreSection>> = Result.success(emptyList())
+
+    suspend fun fetchGenreContent(genre: GenreCategory): Result<SearchResults> =
+        Result.success(SearchResults())
 
     suspend fun resolveAudioStream(trackId: String): Result<AudioStreamSource>
 

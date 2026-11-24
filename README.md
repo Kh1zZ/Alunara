@@ -185,9 +185,9 @@ Official signed builds are published **exclusively on [GitHub Releases](https://
 2. Connect from your computer and install the APK matching your TV's ABI:
    ```bash
    adb connect <YOUR_TV_IP>:5555
-   adb install -r alunara-0.2.2.armv7a.apk
+   adb install -r alunara-0.2.3.armv7a.apk
    ```
-   *(Replace with `alunara-0.2.2.armv8a.apk` for 64-bit `arm64-v8a` devices. Once installed, future releases can be downloaded and installed directly inside **Settings → App Updates**.)*
+   *(Replace with `alunara-0.2.3.armv8a.apk` for 64-bit `arm64-v8a` devices. Once installed, future releases can be downloaded and installed directly inside **Settings → App Updates**.)*
 
 #### Option B — USB Flash Drive or TV Downloader App
 1. Download the matching APK directly from [GitHub Releases](https://github.com/Kh1zZ/Alunara/releases/latest).
@@ -210,7 +210,7 @@ Official signed builds are published **exclusively on [GitHub Releases](https://
 
 ### Common Gradle Tasks
 ```bash
-# Run all 118 JVM unit tests across 24 test suites
+# Run all 119 JVM unit tests across 24 test suites
 ./gradlew :core:domain:test :core:music:test :core:lyrics:test :core:data:testDebugUnitTest :app:testDebugUnitTest
 
 # Run Android Lint on debug sources (signed R8 split release APKs are built via GitHub Actions)

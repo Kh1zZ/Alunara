@@ -64,10 +64,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -84,6 +84,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -139,10 +140,13 @@ import com.alunara.core.domain.contract.MusicEngine
 import com.alunara.core.domain.model.AlbumRef
 import com.alunara.core.domain.model.ArtistRef
 import com.alunara.core.domain.model.AuthSessionState
+import com.alunara.core.domain.model.GenreCategory
+import com.alunara.core.domain.model.GenreSection
 import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.PlaybackStatus
 import com.alunara.core.domain.model.PlaylistSummary
 import com.alunara.core.domain.model.QueueFilterChip
+import com.alunara.core.domain.model.SearchResults
 import com.alunara.core.domain.model.Track
 import com.alunara.core.domain.policy.AudioQualityPreset
 import kotlinx.coroutines.Dispatchers
@@ -163,6 +167,7 @@ private enum class TvDestination {
 private val RailDestinations =
     listOf(
         TvDestination.HOME,
+        TvDestination.SEARCH,
         TvDestination.LIBRARY,
         TvDestination.SETTINGS,
     )
@@ -280,6 +285,7 @@ private fun AlunaraTvApp(
     var updateLaunchError by remember { mutableStateOf<Int?>(null) }
     val autoUpdateEnabled by appUpdateManager.autoUpdateEnabled.collectAsStateWithLifecycle()
     val hostActivityContext = LocalView.current.context
+    val focusManager = LocalFocusManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -297,11 +303,10 @@ private fun AlunaraTvApp(
     var companionGraceJob by remember { mutableStateOf<Job?>(null) }
     val railRequesters = remember { RailDestinations.associateWith { FocusRequester() } }
     val railHomeFocusRequester = railRequesters[TvDestination.HOME] ?: remember { FocusRequester() }
-    val browsePaneFocusRequester = remember { FocusRequester() }
-    val headerSearchRequester = remember { FocusRequester() }
     val miniPlayerPlayPauseRequester = remember { FocusRequester() }
     val saveableStateHolder = rememberSaveableStateHolder()
     var focusRestoreTick by remember { mutableIntStateOf(0) }
+    var pendingRailEnterTick by remember { mutableIntStateOf(0) }
     var searchFocusRequested by remember { mutableStateOf(false) }
 
     val openSignInWithCompanion: () -> Unit = {
@@ -365,7 +370,7 @@ private fun AlunaraTvApp(
             (sessionState.recentHistory + sessionState.remoteHistory).distinctBy { it.id }
         }
 
-    // Search state
+    // Search & Genre discovery state
     var searchQuery by rememberSaveable { mutableStateOf("") }
     val latestSearch =
         remember(coroutineScope, musicEngine) {
@@ -374,6 +379,15 @@ private fun AlunaraTvApp(
             }
         }
     val searchState = latestSearch.state
+    var genreSections by remember { mutableStateOf<List<GenreSection>>(emptyList()) }
+    var genresLoading by remember { mutableStateOf(false) }
+    var genresError by remember { mutableStateOf<String?>(null) }
+    var selectedGenre by remember { mutableStateOf<GenreCategory?>(null) }
+    var genreResults by remember { mutableStateOf<SearchResults?>(null) }
+    var genreContentLoading by remember { mutableStateOf(false) }
+    var genreContentError by remember { mutableStateOf<String?>(null) }
+    var genreLoadJob by remember { mutableStateOf<Job?>(null) }
+    var genreContentJob by remember { mutableStateOf<Job?>(null) }
 
     fun loadHome(
         force: Boolean = false,
@@ -400,6 +414,58 @@ private fun AlunaraTvApp(
             }
     }
 
+    fun loadGenres(
+        force: Boolean = false,
+        languageTag: String = appLanguage.innerTubeHl,
+    ) {
+        if (genresLoading && !force) return
+        if (force) {
+            genreLoadJob?.cancel()
+        }
+        genreLoadJob =
+            coroutineScope.launch {
+                genresLoading = true
+                genresError = null
+                val res =
+                    withContext(Dispatchers.IO) {
+                        musicEngine.setContentLanguage(languageTag)
+                        musicEngine.fetchMoodAndGenres()
+                    }
+                res.fold(
+                    onSuccess = { genreSections = it },
+                    onFailure = { genresError = it.message ?: "Network error" },
+                )
+                genresLoading = false
+            }
+    }
+
+    fun selectGenre(genre: GenreCategory) {
+        genreContentJob?.cancel()
+        selectedGenre = genre
+        genreResults = null
+        genreContentError = null
+        genreContentJob =
+            coroutineScope.launch {
+                genreContentLoading = true
+                val res =
+                    withContext(Dispatchers.IO) {
+                        musicEngine.setContentLanguage(appLanguage.innerTubeHl)
+                        musicEngine.fetchGenreContent(genre)
+                    }
+                res.fold(
+                    onSuccess = { genreResults = it },
+                    onFailure = { genreContentError = it.message ?: "Network error" },
+                )
+                genreContentLoading = false
+            }
+    }
+
+    fun focusActivePaneDirectly() {
+        if (activeContentEntryRequester?.safeRequestFocus() != true) {
+            focusManager.moveFocus(FocusDirection.Right)
+        }
+    }
+
     fun openNowPlaying() {
         showWebViewLogin = false
         if (currentDestination != TvDestination.NOW_PLAYING) {
@@ -408,7 +474,7 @@ private fun AlunaraTvApp(
         }
     }
 
-    fun openHeaderSearch() {
+    fun openSearchTab(requestInput: Boolean = true) {
         if (currentDestination != TvDestination.SEARCH || catalogStack.isNotEmpty()) {
             if (currentDestination != TvDestination.SEARCH) {
                 returnDestBeforeSearch = currentDestination
@@ -417,7 +483,7 @@ private fun AlunaraTvApp(
             catalogStack = emptyList()
             currentDestination = TvDestination.SEARCH
         }
-        searchFocusRequested = true
+        searchFocusRequested = requestInput
     }
 
     fun popCatalog() {
@@ -508,8 +574,20 @@ private fun AlunaraTvApp(
     val onCatalogBack = remember { { popCatalog() } }
     val onOpenNowPlayingCb = remember { { openNowPlaying() } }
     val onRetryHome = remember { { loadHome(force = true) } }
-    val onQueryChangeCb = remember { { q: String -> searchQuery = q } }
-    val onSubmitSearchCb = remember(latestSearch) { { latestSearch.submit(searchQuery) } }
+    val onQueryChangeCb =
+        remember {
+            { q: String ->
+                searchQuery = q
+                if (q.isNotBlank()) selectedGenre = null
+            }
+        }
+    val onSubmitSearchCb =
+        remember(latestSearch) {
+            {
+                if (searchQuery.isNotBlank()) selectedGenre = null
+                latestSearch.submit(searchQuery)
+            }
+        }
     val onRetrySearchCb = remember(latestSearch) { { latestSearch.submit(latestSearch.state.query) } }
     val onClearHistoryCb = remember(sessionManager) { { sessionManager.clearHistory() } }
     val onRefreshLibraryCb = remember(sessionManager) { { sessionManager.refreshAccountLibrary() } }
@@ -546,7 +624,7 @@ private fun AlunaraTvApp(
                 }
             }
         }
-    val onNavigateSearchFromLibrary = remember { { openHeaderSearch() } }
+    val onNavigateSearchFromLibrary = remember { { openSearchTab(requestInput = true) } }
     val onNavigateSettingsCb =
         remember {
             {
@@ -642,17 +720,34 @@ private fun AlunaraTvApp(
         withContext(Dispatchers.IO) {
             musicEngine.setContentLanguage(appLanguage.innerTubeHl)
         }
-        if (prevLang != null && prevLang != appLanguage && homeLoadedOnce) {
-            loadHome(force = true, languageTag = appLanguage.innerTubeHl)
+        if (prevLang != null && prevLang != appLanguage) {
+            if (homeLoadedOnce) {
+                loadHome(force = true, languageTag = appLanguage.innerTubeHl)
+            }
+            selectedGenre = null
+            genreResults = null
+            genreContentError = null
+            if (genreSections.isNotEmpty() || currentDestination == TvDestination.SEARCH) {
+                loadGenres(force = true, languageTag = appLanguage.innerTubeHl)
+            }
         }
     }
 
     LaunchedEffect(focusRestoreTick) {
         if (focusRestoreTick > 0) {
             withFrameNanos { }
+            withFrameNanos { }
             if (activeContentEntryRequester?.safeRequestFocus() != true) {
-                browsePaneFocusRequester.safeRequestFocus()
+                (railRequesters[currentDestination] ?: railHomeFocusRequester).safeRequestFocus()
             }
+        }
+    }
+
+    LaunchedEffect(pendingRailEnterTick) {
+        if (pendingRailEnterTick > 0) {
+            withFrameNanos { }
+            withFrameNanos { }
+            focusActivePaneDirectly()
         }
     }
 
@@ -665,6 +760,9 @@ private fun AlunaraTvApp(
 
     LaunchedEffect(currentDestination) {
         sessionManager.setNowPlayingVisible(currentDestination == TvDestination.NOW_PLAYING)
+        if (currentDestination == TvDestination.SEARCH && genreSections.isEmpty() && !genresLoading) {
+            loadGenres()
+        }
     }
 
     BackHandler(enabled = showWebViewLogin || currentDestination != TvDestination.HOME || catalogStack.isNotEmpty()) {
@@ -685,6 +783,12 @@ private fun AlunaraTvApp(
 
             catalogStack.isNotEmpty() -> {
                 popCatalog()
+            }
+
+            currentDestination == TvDestination.SEARCH && searchQuery.isBlank() && selectedGenre != null -> {
+                selectedGenre = null
+                genreResults = null
+                genreContentError = null
             }
 
             currentDestination == TvDestination.SEARCH -> {
@@ -790,12 +894,6 @@ private fun AlunaraTvApp(
         } else {
             val browseDest = currentDestination
             val activeCatalogTarget = catalogStack.lastOrNull()
-            val showHeaderSearchBar =
-                activeCatalogTarget != null ||
-                    browseDest == TvDestination.HOME ||
-                    browseDest == TvDestination.LIBRARY
-            val activeRailRequester = railRequesters[browseDest] ?: railHomeFocusRequester
-            val onHeaderSearchClick = remember { { openHeaderSearch() } }
             Box(
                 modifier =
                     Modifier
@@ -810,33 +908,6 @@ private fun AlunaraTvApp(
                             .fillMaxSize()
                             .padding(start = AlunaraDimens.RailCollapsedWidth),
                 ) {
-                    if (showHeaderSearchBar) {
-                        TvHeaderSearchBar(
-                            currentQuery = searchQuery,
-                            onClick = onHeaderSearchClick,
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(headerSearchRequester)
-                                    .onPreviewKeyEvent { event ->
-                                        if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown) {
-                                            activeContentEntryRequester?.safeRequestFocus() == true ||
-                                                browsePaneFocusRequester.safeRequestFocus()
-                                        } else {
-                                            false
-                                        }
-                                    }
-                                    .focusProperties {
-                                        left = activeRailRequester
-                                    }
-                                    .padding(
-                                        start = 28.dp,
-                                        end = AlunaraDimens.OverscanHorizontal,
-                                        top = AlunaraDimens.OverscanVertical,
-                                        bottom = 4.dp,
-                                    ),
-                        )
-                    }
                     val paneTarget: Any = activeCatalogTarget ?: browseDest
                     Box(
                         modifier =
@@ -847,7 +918,7 @@ private fun AlunaraTvApp(
                                 .padding(
                                     start = 28.dp,
                                     end = AlunaraDimens.OverscanHorizontal,
-                                    top = if (showHeaderSearchBar) 8.dp else AlunaraDimens.OverscanVertical,
+                                    top = AlunaraDimens.OverscanVertical,
                                     bottom = AlunaraDimens.OverscanVertical,
                                 ),
                     ) {
@@ -892,9 +963,6 @@ private fun AlunaraTvApp(
                                                     }.onPreviewKeyEvent { true }
                                                 } else {
                                                     Modifier
-                                                        .focusRequester(browsePaneFocusRequester)
-                                                        .focusRestorer()
-                                                        .focusGroup()
                                                 },
                                             ),
                                     ) {
@@ -959,6 +1027,23 @@ private fun AlunaraTvApp(
                                                 onInputFocusHandled = { searchFocusRequested = false },
                                                 onRetrySearch = onRetrySearchCb,
                                                 onAddToPlaylist = { trk -> onOpenAddToPlaylistCb(trk) },
+                                                genreSections = genreSections,
+                                                genresLoading = genresLoading,
+                                                genresError = genresError,
+                                                selectedGenre = selectedGenre,
+                                                genreResults = genreResults,
+                                                genreContentLoading = genreContentLoading,
+                                                genreContentError = genreContentError,
+                                                onSelectGenre = { genre -> selectGenre(genre) },
+                                                onClearSelectedGenre = {
+                                                    selectedGenre = null
+                                                    genreResults = null
+                                                    genreContentError = null
+                                                },
+                                                onRetryGenres = { loadGenres(force = true) },
+                                                onRetryGenreContent = {
+                                                    selectedGenre?.let { selectGenre(it) }
+                                                },
                                             )
 
                                         TvDestination.LIBRARY ->
@@ -1048,7 +1133,6 @@ private fun AlunaraTvApp(
                                 sessionState = visibleMiniPlayerState,
                                 positionMsFlow = sessionManager.positionMsFlow,
                                 playPauseFocusRequester = miniPlayerPlayPauseRequester,
-                                upFocusRequester = browsePaneFocusRequester,
                                 onTogglePlayPause = onTogglePlayPause,
                                 onOpenNowPlaying = onOpenNowPlayingCb,
                             )
@@ -1061,20 +1145,11 @@ private fun AlunaraTvApp(
                     railRequesters = railRequesters,
                     onSelect = onSelectRailDest,
                     onEnterContent = { dest ->
-                        val sameDest = browseDest == dest
-                        if (!sameDest) {
+                        if (currentDestination == dest && catalogStack.isEmpty()) {
+                            focusActivePaneDirectly()
+                        } else {
                             onSelectRailDest(dest)
-                        }
-                        val focusedDirectly =
-                            if (sameDest) {
-                                browsePaneFocusRequester.safeRequestFocus() ||
-                                    activeContentEntryRequester?.safeRequestFocus() == true
-                            } else {
-                                activeContentEntryRequester?.safeRequestFocus() == true ||
-                                    browsePaneFocusRequester.safeRequestFocus()
-                            }
-                        if (!focusedDirectly) {
-                            focusRestoreTick++
+                            pendingRailEnterTick++
                         }
                     },
                 )
@@ -1167,10 +1242,6 @@ private fun AlunaraTvApp(
 
 private val RailControlShape = RoundedCornerShape(AlunaraDimens.RadiusControl)
 
-private class RailFocusTracker(
-    var alreadyFocused: Boolean = false,
-)
-
 @Composable
 private fun FixedNavigationRail(
     selected: TvDestination,
@@ -1179,17 +1250,14 @@ private fun FixedNavigationRail(
     onEnterContent: (TvDestination) -> Unit,
 ) {
     val colors = LocalAlunaraColors.current
-    val hostView = LocalView.current
-    val focusTracker = remember { RailFocusTracker() }
-    var pendingFocusDest by remember { mutableStateOf<TvDestination?>(null) }
+    var focusedRailDest by remember { mutableStateOf<TvDestination?>(null) }
 
-    LaunchedEffect(pendingFocusDest) {
-        val target = pendingFocusDest ?: return@LaunchedEffect
-        delay(90L)
+    LaunchedEffect(focusedRailDest, selected) {
+        val target = focusedRailDest ?: return@LaunchedEffect
         if (target != selected) {
+            delay(90L)
             onSelect(target)
         }
-        pendingFocusDest = null
     }
 
     Row(modifier = Modifier.fillMaxHeight()) {
@@ -1199,16 +1267,7 @@ private fun FixedNavigationRail(
                     .width(AlunaraDimens.RailCollapsedWidth)
                     .fillMaxHeight()
                     .background(colors.surface)
-                    .padding(horizontal = 8.dp, vertical = 18.dp)
-                    .onFocusChanged { focusState ->
-                        val hasFocusNow = focusState.hasFocus
-                        hostView.post {
-                            focusTracker.alreadyFocused = hasFocusNow
-                            if (!hasFocusNow) {
-                                pendingFocusDest = null
-                            }
-                        }
-                    },
+                    .padding(horizontal = 8.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -1251,19 +1310,16 @@ private fun FixedNavigationRail(
                             },
                         ),
                     selected = selected == dest,
-                    focusTracker = focusTracker,
                     modifier = Modifier.focusRequester(itemRequester),
-                    onFocusEnter = {
-                        pendingFocusDest = dest
+                    onFocusChangedItem = { isFocused ->
+                        if (isFocused) {
+                            focusedRailDest = dest
+                        } else if (focusedRailDest == dest) {
+                            focusedRailDest = null
+                        }
                     },
-                    onClick = {
-                        pendingFocusDest = null
-                        onSelect(dest)
-                    },
-                    onEnterContent = {
-                        pendingFocusDest = null
-                        onEnterContent(dest)
-                    },
+                    onClick = { onSelect(dest) },
+                    onEnterContent = { onEnterContent(dest) },
                 )
             }
         }
@@ -1282,9 +1338,8 @@ private fun RailItem(
     icon: ImageVector,
     label: String,
     selected: Boolean,
-    focusTracker: RailFocusTracker,
     modifier: Modifier = Modifier,
-    onFocusEnter: () -> Unit,
+    onFocusChangedItem: (Boolean) -> Unit,
     onClick: () -> Unit,
     onEnterContent: () -> Unit,
 ) {
@@ -1363,9 +1418,7 @@ private fun RailItem(
                 }
                 .onFocusChanged { focusState ->
                     focused = focusState.isFocused
-                    if (focusState.isFocused && focusTracker.alreadyFocused && !selected) {
-                        onFocusEnter()
-                    }
+                    onFocusChangedItem(focusState.isFocused)
                 }
                 .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -1418,56 +1471,6 @@ private fun SyncNoticePill(
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun TvHeaderSearchBar(
-    currentQuery: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = LocalAlunaraColors.current
-    val prefs = LocalAlunaraDisplayPrefs.current
-    var focused by remember { mutableStateOf(false) }
-    val bgColor = if (focused) colors.focusedButtonBg else colors.surface
-    val borderColor = if (focused) colors.focusRingStrong else colors.secondarySurface
-    val iconTint = if (focused) colors.focusedButtonContent else colors.primaryAccent
-    val textColor =
-        when {
-            focused -> colors.focusedButtonContent
-            currentQuery.isNotBlank() -> colors.primaryText
-            else -> colors.mutedText
-        }
-
-    Row(
-        modifier =
-            modifier
-                .height(AlunaraDimens.ControlHeight)
-                .background(bgColor, RailControlShape)
-                .border(BorderStroke(colors.focusBorderWidth, borderColor), RailControlShape)
-                .semantics { role = Role.Button }
-                .onFocusChanged { focused = it.isFocused }
-                .clickable(onClick = onClick)
-                .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.Search,
-            contentDescription = stringResource(R.string.nav_search),
-            tint = iconTint,
-            modifier = Modifier.size(20.dp),
-        )
-        Text(
-            text = currentQuery.takeIf { it.isNotBlank() } ?: stringResource(R.string.header_search_hint),
-            color = textColor,
-            fontSize = AlunaraTypography.rowTitle(prefs.textScale),
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
         )
     }
 }

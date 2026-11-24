@@ -8,6 +8,8 @@ import com.alunara.core.domain.model.AlbumRef
 import com.alunara.core.domain.model.ArtistDetail
 import com.alunara.core.domain.model.ArtistRef
 import com.alunara.core.domain.model.AudioStreamSource
+import com.alunara.core.domain.model.GenreCategory
+import com.alunara.core.domain.model.GenreSection
 import com.alunara.core.domain.model.HomeSection
 import com.alunara.core.domain.model.PlaylistDetail
 import com.alunara.core.domain.model.PlaylistSummary
@@ -131,6 +133,90 @@ class ArchiveTuneMusicAdapter internal constructor(
             )
         }
     }
+
+    override suspend fun fetchMoodAndGenres(): Result<List<GenreSection>> {
+        ensureGatekeeperUnlocked()
+        backend.useLoginForBrowse = backend.hasLoginCookie()
+        return backend.moodAndGenres().map { groups ->
+            groups.mapNotNull { group ->
+                val items =
+                    group.items.map { item ->
+                        GenreCategory(
+                            id = "${item.endpoint.browseId}:${item.endpoint.params.orEmpty()}:${item.title}",
+                            title = item.title,
+                            browseId = item.endpoint.browseId,
+                            params = item.endpoint.params,
+                            stripeColorArgb = item.stripeColor,
+                        )
+                    }
+                if (items.isEmpty()) null else GenreSection(title = group.title, items = items)
+            }
+        }
+    }
+
+    override suspend fun fetchGenreContent(genre: GenreCategory): Result<SearchResults> =
+        coroutineScope {
+            ensureGatekeeperUnlocked()
+            backend.useLoginForBrowse = backend.hasLoginCookie()
+
+            val browseDeferred =
+                async {
+                    try {
+                        backend.browse(genre.browseId, genre.params)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        Result.failure(e)
+                    }
+                }
+            val searchDeferred =
+                async {
+                    try {
+                        backend.searchSummary(genre.title)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        Result.failure(e)
+                    }
+                }
+
+            val browseRes = browseDeferred.await()
+            val searchRes = searchDeferred.await()
+            if (browseRes.isFailure && searchRes.isFailure) {
+                return@coroutineScope Result.failure(
+                    browseRes.exceptionOrNull() ?: searchRes.exceptionOrNull() ?: IllegalStateException("Genre load failed"),
+                )
+            }
+
+            val songs = mutableListOf<Track>()
+            val albums = mutableListOf<AlbumRef>()
+            val artists = mutableListOf<ArtistRef>()
+            val playlists = mutableListOf<PlaylistSummary>()
+
+            fun collectItems(items: Iterable<YTItem>) {
+                items.forEach { item ->
+                    when (item) {
+                        is SongItem -> songs += item.toDomainTrack()
+                        is AlbumItem -> albums += item.toDomainAlbum()
+                        is ArtistItem -> artists += item.toDomainArtist()
+                        is PlaylistItem -> playlists += item.toDomainPlaylist()
+                        else -> Unit
+                    }
+                }
+            }
+
+            browseRes.getOrNull()?.items?.forEach { section -> collectItems(section.items) }
+            searchRes.getOrNull()?.summaries?.forEach { summary -> collectItems(summary.items) }
+
+            Result.success(
+                SearchResults(
+                    songs = songs.distinctBy { it.id },
+                    albums = albums.distinctBy { it.id },
+                    artists = artists.distinctBy { it.id ?: it.name },
+                    playlists = playlists.distinctBy { it.id },
+                ),
+            )
+        }
 
     override suspend fun fetchGuestHome(): Result<List<HomeSection>> =
         coroutineScope {

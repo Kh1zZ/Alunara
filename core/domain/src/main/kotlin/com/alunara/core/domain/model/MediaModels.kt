@@ -109,6 +109,19 @@ data class HomeSection(
     val playlists: List<PlaylistSummary> = emptyList(),
 )
 
+data class GenreCategory(
+    val id: String,
+    val title: String,
+    val browseId: String,
+    val params: String? = null,
+    val stripeColorArgb: Long = 0xFF85BDA0L,
+)
+
+data class GenreSection(
+    val title: String,
+    val items: List<GenreCategory> = emptyList(),
+)
+
 data class QueueFilterChip(
     val label: String,
     val playlistId: String,

@@ -22,6 +22,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,9 +49,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -376,7 +379,7 @@ fun TvArtwork(
 }
 
 @Composable
-private fun rememberFocusScale(
+internal fun rememberFocusScale(
     focused: Boolean,
     targetScale: Float,
     reduceMotion: Boolean,
@@ -893,7 +896,6 @@ fun DockedMiniPlayer(
     modifier: Modifier = Modifier,
     positionMsFlow: StateFlow<Long>? = null,
     playPauseFocusRequester: FocusRequester? = null,
-    upFocusRequester: FocusRequester? = null,
 ) {
     val track = sessionState.currentTrack ?: return
     DockedMiniPlayerContent(
@@ -906,11 +908,11 @@ fun DockedMiniPlayer(
         onTogglePlayPause = onTogglePlayPause,
         onOpenNowPlaying = onOpenNowPlaying,
         playPauseFocusRequester = playPauseFocusRequester,
-        upFocusRequester = upFocusRequester,
         modifier = modifier,
     )
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun DockedMiniPlayerContent(
     track: Track,
@@ -922,7 +924,6 @@ private fun DockedMiniPlayerContent(
     onTogglePlayPause: () -> Unit,
     onOpenNowPlaying: () -> Unit,
     playPauseFocusRequester: FocusRequester?,
-    upFocusRequester: FocusRequester?,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
@@ -947,7 +948,20 @@ private fun DockedMiniPlayerContent(
             ).joinToString(" · ")
         }
 
-    Column(modifier = modifier.fillMaxWidth().background(colors.surface)) {
+    Column(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(colors.surface)
+                .focusProperties {
+                    onEnter = {
+                        if (requestedFocusDirection == FocusDirection.Right) {
+                            cancelFocusChange()
+                        }
+                    }
+                }
+                .focusGroup(),
+    ) {
         MiniPlayerProgressStrip(
             durationMs = durationMs,
             fallbackPositionMs = fallbackPositionMs,
@@ -985,13 +999,6 @@ private fun DockedMiniPlayerContent(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            val handleUpKey: (KeyEvent) -> Boolean = { event ->
-                if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp) {
-                    upFocusRequester?.safeRequestFocus() == true
-                } else {
-                    false
-                }
-            }
             TvIconButton(
                 icon = if (status == PlaybackStatus.PLAYING) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                 contentDescription =
@@ -1006,7 +1013,6 @@ private fun DockedMiniPlayerContent(
                 modifier =
                     Modifier
                         .focusRequester(playPauseRequester)
-                        .onPreviewKeyEvent(handleUpKey)
                         .focusProperties {
                             right = openNowPlayingRequester
                         },
@@ -1018,7 +1024,6 @@ private fun DockedMiniPlayerContent(
                 modifier =
                     Modifier
                         .focusRequester(openNowPlayingRequester)
-                        .onPreviewKeyEvent(handleUpKey)
                         .focusProperties {
                             left = playPauseRequester
                         },
