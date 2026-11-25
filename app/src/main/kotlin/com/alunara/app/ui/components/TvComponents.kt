@@ -57,6 +57,7 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -888,6 +889,8 @@ fun TvSongListSkeleton(
     }
 }
 
+private val MiniPlayerZoneShape = RoundedCornerShape(16.dp)
+
 @Composable
 fun DockedMiniPlayer(
     sessionState: PlaybackSessionUiState,
@@ -896,6 +899,9 @@ fun DockedMiniPlayer(
     modifier: Modifier = Modifier,
     positionMsFlow: StateFlow<Long>? = null,
     playPauseFocusRequester: FocusRequester? = null,
+    onMoveUpToContent: (() -> Boolean)? = null,
+    onMoveLeftToRail: (() -> Boolean)? = null,
+    onFocusZoneChanged: ((Boolean) -> Unit)? = null,
 ) {
     val track = sessionState.currentTrack ?: return
     DockedMiniPlayerContent(
@@ -908,6 +914,9 @@ fun DockedMiniPlayer(
         onTogglePlayPause = onTogglePlayPause,
         onOpenNowPlaying = onOpenNowPlaying,
         playPauseFocusRequester = playPauseFocusRequester,
+        onMoveUpToContent = onMoveUpToContent,
+        onMoveLeftToRail = onMoveLeftToRail,
+        onFocusZoneChanged = onFocusZoneChanged,
         modifier = modifier,
     )
 }
@@ -924,12 +933,23 @@ private fun DockedMiniPlayerContent(
     onTogglePlayPause: () -> Unit,
     onOpenNowPlaying: () -> Unit,
     playPauseFocusRequester: FocusRequester?,
+    onMoveUpToContent: (() -> Boolean)?,
+    onMoveLeftToRail: (() -> Boolean)?,
+    onFocusZoneChanged: ((Boolean) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val colors = LocalAlunaraColors.current
     val prefs = LocalAlunaraDisplayPrefs.current
     val playPauseRequester = playPauseFocusRequester ?: remember { FocusRequester() }
     val openNowPlayingRequester = remember { FocusRequester() }
+    var zoneFocused by remember { mutableStateOf(false) }
+    val zoneBorderColor =
+        if (zoneFocused) {
+            colors.primaryAccent.copy(alpha = 0.8f)
+        } else {
+            colors.secondarySurface.copy(alpha = 0.85f)
+        }
+    val zoneBorderWidth = if (zoneFocused) 1.5.dp else 1.dp
     val statusText =
         when (status) {
             PlaybackStatus.RESOLVING -> stringResource(R.string.status_resolving)
@@ -952,7 +972,23 @@ private fun DockedMiniPlayerContent(
         modifier =
             modifier
                 .fillMaxWidth()
-                .background(colors.surface)
+                .clip(MiniPlayerZoneShape)
+                .background(colors.surface, MiniPlayerZoneShape)
+                .border(BorderStroke(zoneBorderWidth, zoneBorderColor), MiniPlayerZoneShape)
+                .onFocusChanged { fs ->
+                    val hasFocus = fs.hasFocus
+                    if (zoneFocused != hasFocus) {
+                        zoneFocused = hasFocus
+                        onFocusZoneChanged?.invoke(hasFocus)
+                    }
+                }
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionUp && onMoveUpToContent != null) {
+                        onMoveUpToContent()
+                    } else {
+                        false
+                    }
+                }
                 .focusProperties {
                     onEnter = {
                         if (requestedFocusDirection == FocusDirection.Right) {
@@ -960,6 +996,7 @@ private fun DockedMiniPlayerContent(
                         }
                     }
                 }
+                .focusRestorer(fallback = playPauseRequester)
                 .focusGroup(),
     ) {
         MiniPlayerProgressStrip(
@@ -972,7 +1009,7 @@ private fun DockedMiniPlayerContent(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(min = AlunaraDimens.MiniPlayerHeight)
-                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -1013,8 +1050,13 @@ private fun DockedMiniPlayerContent(
                 modifier =
                     Modifier
                         .focusRequester(playPauseRequester)
-                        .focusProperties {
-                            right = openNowPlayingRequester
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.DirectionRight -> openNowPlayingRequester.safeRequestFocus()
+                                Key.DirectionLeft -> onMoveLeftToRail?.invoke() ?: false
+                                else -> false
+                            }
                         },
             )
             TvFocusableButton(
@@ -1024,8 +1066,12 @@ private fun DockedMiniPlayerContent(
                 modifier =
                     Modifier
                         .focusRequester(openNowPlayingRequester)
-                        .focusProperties {
-                            left = playPauseRequester
+                        .onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionLeft) {
+                                playPauseRequester.safeRequestFocus()
+                            } else {
+                                false
+                            }
                         },
             )
         }

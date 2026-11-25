@@ -319,8 +319,9 @@ fun SettingsScreen(
                                     )
                                 }
                             }
+                            val fallbackLocalUrl = remoteStatus.directLocalPairUrl ?: activePairUrl
                             Text(
-                                text = stringResource(R.string.remote_local_url_format, activePairUrl),
+                                text = stringResource(R.string.remote_local_url_format, fallbackLocalUrl),
                                 color = colors.dimmedLyrics,
                                 fontSize = AlunaraTypography.caption(activePrefs.textScale),
                                 maxLines = 1,
@@ -957,7 +958,7 @@ private fun FocusLockedLanguagePickerDialog(
                 )
                 .focusRequester(pickerFocusRequester)
                 .focusProperties {
-                    exit = { FocusRequester.Cancel }
+                    onExit = { cancelFocusChange() }
                 }
                 .focusable()
                 .onPreviewKeyEvent { keyEvent ->

@@ -747,7 +747,7 @@ fun NowPlayingScreen(
                                 Modifier.fillMaxSize()
                                     .focusProperties {
                                         canFocus = false
-                                        enter = { FocusRequester.Cancel }
+                                        onEnter = { cancelFocusChange() }
                                     }
                                     .focusGroup()
                                     .onPreviewKeyEvent { true }

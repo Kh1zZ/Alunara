@@ -246,4 +246,8 @@
     <string name="remote_local_url_format">Link LAN langsung: %1$s</string>
     <string name="remote_offline_hint">Hubungkan TV ke Wi-Fi untuk mengaktifkan URL remote HP.</string>
     <string name="remote_lockout_warning">Pairing terkunci setelah terlalu banyak kode salah. Pilih Acak Ulang Kode untuk membuka.</string>
+    <string name="login_step_verifying">Memverifikasi akun YouTube Music…</string>
+    <string name="login_phone_connected">HP terhubung</string>
+    <string name="login_phone_waiting">Menunggu HP…</string>
+    <string name="nav_confirm_ok_hint">Tekan OK untuk buka %1$s</string>
 </resources>

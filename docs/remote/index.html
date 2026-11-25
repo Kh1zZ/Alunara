@@ -229,6 +229,7 @@
     </form>
 
     <div id="statusBox" class="status" role="status" aria-live="polite"></div>
+    <a id="directOpenBtn" href="#" style="display:none; margin-top:10px; text-align:center; text-decoration:none; padding:13px 16px; border-radius:12px; background:#2E493A; border:1px solid #85BDA0; color:#C8F0DA; font-size:14px; font-weight:700;">Buka Langsung ke TV →</a>
 
     <div id="noteEl" class="note">
       <strong>100% Lokal &amp; Cepat:</strong> Kode hanya didekode di browser HP Anda lalu dialihkan langsung ke server lokal TV di Wi-Fi rumah — nol server cloud, nol pelacakan.
@@ -253,9 +254,10 @@
           reconnect: 'Sambungkan Kembali ke TV',
           label: 'Kode Remote TV',
           btn: 'Buka Remote TV',
+          directBtn: 'Buka Remote Langsung ({target}) →',
           note: '<strong>100% Lokal &amp; Cepat:</strong> Kode hanya didekode di browser HP Anda lalu dialihkan langsung ke server lokal TV di Wi-Fi rumah — nol server cloud, nol pelacakan.',
           invalid: 'Kode Remote TV tidak valid. Periksa kembali 6, 7, atau 12 karakter pada menu Pengaturan TV.',
-          connecting: 'Membuka Alunara Remote di Wi-Fi lokal ({target})…',
+          connecting: 'Membuka Alunara Remote di Wi-Fi lokal ({target})… Jika browser menahan pengalihan, ketuk tombol di bawah.',
           alt: 'Ingin masuk ke akun YouTube Music? Buka Portal Login TV →'
         },
         en: {
@@ -266,9 +268,10 @@
           reconnect: 'Reconnect to TV',
           label: 'TV Remote Code',
           btn: 'Open TV Remote',
+          directBtn: 'Open Remote Directly ({target}) →',
           note: '<strong>100% Local &amp; Private:</strong> Your code is decoded locally in your browser and routed straight to your TV over home Wi-Fi — no cloud server, zero tracking.',
           invalid: 'Invalid TV Remote Code. Check the 6, 7, or 12 characters shown in Alunara Settings on your TV.',
-          connecting: 'Opening Alunara Remote on local Wi-Fi ({target})…',
+          connecting: 'Opening Alunara Remote on local Wi-Fi ({target})… If your browser pauses the redirect, tap the button below.',
           alt: 'Need to sign in to YouTube Music? Open TV Login Portal →'
         },
         ja: {
@@ -279,9 +282,10 @@
           reconnect: 'このテレビに再接続',
           label: 'TV リモートコード',
           btn: 'リモコンを開く',
+          directBtn: 'リモコンを直接開く ({target}) →',
           note: '<strong>完全ローカルで高速:</strong> コードはスマホのブラウザ内で変換され、家庭内 Wi-Fi 上のテレビへ直接接続します（外部サーバー通信なし）。',
           invalid: 'リモートコードが無効です。テレビの設定画面にある 6桁 / 7桁 / 12桁のコードを確認してください。',
-          connecting: 'ローカル Wi-Fi 上の Alunara Remote（{target}）へ移動しています…',
+          connecting: 'ローカル Wi-Fi 上の Alunara Remote（{target}）へ移動しています… 自動遷移しない場合は下のボタンをタップしてください。',
           alt: 'YouTube Music にログインする場合はこちら →'
         }
       };
@@ -370,6 +374,7 @@
 
       var input = document.getElementById('codeInput');
       var statusBox = document.getElementById('statusBox');
+      var directOpenBtn = document.getElementById('directOpenBtn');
       var savedCard = document.getElementById('savedCard');
       var savedCodeEl = document.getElementById('savedCodeEl');
       var savedHostEl = document.getElementById('savedHostEl');
@@ -404,6 +409,7 @@
       function connectWithCode(raw) {
         var decoded = decodePairingCode(raw);
         if (!decoded) {
+          directOpenBtn.style.display = 'none';
           showStatus(COPY[lang].invalid, false);
           return;
         }
@@ -412,8 +418,12 @@
           localStorage.setItem(STORAGE_KEY, formatted);
         } catch (_) {}
         var pinHex = decoded.pin.toString(16).padStart(3, '0');
-        var targetUrl = 'http://' + decoded.ip + ':' + decoded.port + '/p?k=' + encodeURIComponent(pinHex);
-        showStatus(COPY[lang].connecting.replace('{target}', decoded.ip + ':' + decoded.port), true);
+        var hostPort = decoded.ip + ':' + decoded.port;
+        var targetUrl = 'http://' + hostPort + '/p?k=' + encodeURIComponent(pinHex);
+        directOpenBtn.href = targetUrl;
+        directOpenBtn.textContent = COPY[lang].directBtn.replace('{target}', hostPort);
+        directOpenBtn.style.display = 'block';
+        showStatus(COPY[lang].connecting.replace('{target}', hostPort), true);
         window.location.href = targetUrl;
       }
 

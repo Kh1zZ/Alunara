@@ -1015,6 +1015,10 @@ class PlaybackSessionManager(
         }
     }
 
+    fun requestLyricsForRemote() {
+        ensureLyricsLoaded()
+    }
+
     private fun ensureLyricsLoaded() {
         val state = mutableUiState.value
         val track = state.currentTrack ?: return

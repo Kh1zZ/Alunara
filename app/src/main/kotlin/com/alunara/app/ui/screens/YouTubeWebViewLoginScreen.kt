@@ -122,7 +122,9 @@ fun YouTubeWebViewLoginScreen(
         )
     }
     var companionUrl by remember { mutableStateOf(companionServer?.localLoginUrl) }
+    var companionQrUrl by remember { mutableStateOf(companionServer?.qrPortalUrl ?: companionServer?.localLoginUrl) }
     var pairingCode by remember { mutableStateOf(companionServer?.pairingCode) }
+    var phoneConnected by remember { mutableStateOf(companionServer?.isPhoneConnected == true) }
     var companionFeedbackResId by remember { mutableStateOf<Int?>(null) }
     var webViewFocused by remember { mutableStateOf(false) }
     var domFocusIndex by remember { mutableIntStateOf(0) }
@@ -154,7 +156,7 @@ fun YouTubeWebViewLoginScreen(
                     webView.evaluateJavascript(checkStepOnceJs, null)
                 }
             },
-            500L,
+            450L,
         )
         webView.postDelayed(
             {
@@ -181,8 +183,8 @@ fun YouTubeWebViewLoginScreen(
                 cookieManager.setCookie(YOUTUBE_MUSIC_ORIGIN, "$pair; Path=/; Secure")
             }
         cookieManager.flush()
-        currentStep = LocalLoginCompanionServer.STEP_DONE
-        targetServer?.currentStep = LocalLoginCompanionServer.STEP_DONE
+        currentStep = LocalLoginCompanionServer.STEP_VERIFYING
+        targetServer?.markVerifying()
         companionFeedbackResId = R.string.login_feedback_cookie_applied
         webViewHolder.value?.loadUrl(YOUTUBE_MUSIC_ORIGIN)
     }
@@ -280,9 +282,20 @@ fun YouTubeWebViewLoginScreen(
             }
         }
         companionUrl = activeServer.start()
+        companionQrUrl = activeServer.qrPortalUrl ?: companionUrl
         pairingCode = activeServer.pairingCode
         withFrameNanos { }
         cancelRequester.safeRequestFocus()
+    }
+
+    LaunchedEffect(activeServer) {
+        while (true) {
+            phoneConnected = activeServer.isPhoneConnected
+            if (activeServer.isVerifyingOnTv && currentStep != LocalLoginCompanionServer.STEP_VERIFYING) {
+                currentStep = LocalLoginCompanionServer.STEP_VERIFYING
+            }
+            kotlinx.coroutines.delay(1_000L)
+        }
     }
 
     DisposableEffect(activeServer, companionServer) {
@@ -306,6 +319,7 @@ fun YouTubeWebViewLoginScreen(
         when (currentStep) {
             LocalLoginCompanionServer.STEP_PASSWORD -> stringResource(R.string.login_step_password)
             LocalLoginCompanionServer.STEP_VERIFY -> stringResource(R.string.login_step_verify)
+            LocalLoginCompanionServer.STEP_VERIFYING -> stringResource(R.string.login_step_verifying)
             LocalLoginCompanionServer.STEP_DONE -> stringResource(R.string.login_step_done)
             else -> stringResource(R.string.login_step_email)
         }
@@ -334,9 +348,13 @@ fun YouTubeWebViewLoginScreen(
                 modifier =
                     Modifier
                         .focusRequester(cancelRequester)
-                        .focusProperties {
-                            down = webViewRequester
-                            right = helperFocusInputRequester
+                        .onPreviewKeyEvent { keyEvent ->
+                            if (keyEvent.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (keyEvent.key) {
+                                Key.DirectionDown -> webViewRequester.safeRequestFocus()
+                                Key.DirectionRight -> helperFocusInputRequester.safeRequestFocus()
+                                else -> false
+                            }
                         },
             )
             Column(
@@ -363,6 +381,25 @@ fun YouTubeWebViewLoginScreen(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            Text(
+                text =
+                    if (phoneConnected) {
+                        stringResource(R.string.login_phone_connected)
+                    } else {
+                        stringResource(R.string.login_phone_waiting)
+                    },
+                color = if (phoneConnected) colors.focusedButtonContent else colors.mutedText,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier =
+                    Modifier
+                        .background(
+                            if (phoneConnected) colors.primaryAccent else colors.background,
+                            RoundedCornerShape(999.dp),
+                        )
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .focusProperties { canFocus = false },
+            )
             Text(
                 text = stepBadgeText,
                 color = colors.primaryAccent,
@@ -415,15 +452,16 @@ fun YouTubeWebViewLoginScreen(
                 }
 
                 val activeUrl = companionUrl
+                val activeQrUrl = companionQrUrl ?: activeUrl
                 val activeCode = pairingCode
-                if (activeUrl != null) {
+                if (activeQrUrl != null) {
                     Row(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(20.dp),
                     ) {
                         QrCodeCanvas(
-                            content = activeUrl,
+                            content = activeQrUrl,
                             modifier = Modifier.size(204.dp),
                         )
                         Column(
@@ -482,13 +520,15 @@ fun YouTubeWebViewLoginScreen(
                             )
                         }
                     }
-                    Text(
-                        text = stringResource(R.string.qr_companion_local_fallback, activeUrl),
-                        color = colors.dimmedLyrics,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (activeUrl != null) {
+                        Text(
+                            text = stringResource(R.string.qr_companion_local_fallback, activeUrl),
+                            color = colors.dimmedLyrics,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 } else {
                     Text(
                         text = stringResource(R.string.qr_companion_unavailable),
@@ -626,6 +666,10 @@ fun YouTubeWebViewLoginScreen(
                                 val cookieManager = CookieManager.getInstance()
                                 cookieManager.setAcceptCookie(true)
                                 cookieManager.setAcceptThirdPartyCookies(this, true)
+                                if (!activeServer.isCompletedOnTv && !activeServer.isVerifyingOnTv) {
+                                    cookieManager.removeAllCookies(null)
+                                    cookieManager.flush()
+                                }
 
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
@@ -643,28 +687,19 @@ fun YouTubeWebViewLoginScreen(
                                     val cookie = cookieManager.getCookie(YOUTUBE_MUSIC_ORIGIN).orEmpty()
                                     if (LocalLoginCompanionServer.hasValidSapisidCookie(cookie)) {
                                         latestCookie = cookie
-                                        currentStep = LocalLoginCompanionServer.STEP_DONE
-                                        activeServer.currentStep = LocalLoginCompanionServer.STEP_DONE
-                                        activeServer.lastStatusHint =
-                                            when (appLanguage) {
-                                                AppLanguage.INDONESIAN ->
-                                                    "Berhasil masuk YouTube Music — memverifikasi akun…"
-                                                AppLanguage.JAPANESE ->
-                                                    "YouTube Music にサインインしました — アカウントを確認中…"
-                                                else ->
-                                                    "Signed in to YouTube Music — verifying account…"
-                                            }
+                                        currentStep = LocalLoginCompanionServer.STEP_VERIFYING
+                                        activeServer.markVerifying()
                                         view.evaluateJavascript(buildExtractYtcfgJs(0), null)
                                     }
                                 }
 
                                 fun syncUrlAndHost(url: String?) {
-                                    val parsedHost = url?.let { runCatching { Uri.parse(it).host }.getOrNull() }
+                                    val parsedHost = extractUrlHost(url)
                                     if (!parsedHost.isNullOrBlank()) {
                                         currentHost = parsedHost
                                         activeServer.currentHost = parsedHost
                                     }
-                                    if (!captured.get()) {
+                                    if (!captured.get() && !activeServer.isVerifyingOnTv) {
                                         inferStepFromUrl(url, language = appLanguage)?.let { (step, hint) ->
                                             currentStep = step
                                             activeServer.currentStep = step
@@ -694,7 +729,8 @@ fun YouTubeWebViewLoginScreen(
                                                     return@post
                                                 }
                                                 if (captured.compareAndSet(false, true)) {
-                                                    activeServer.currentStep = LocalLoginCompanionServer.STEP_DONE
+                                                    currentStep = LocalLoginCompanionServer.STEP_VERIFYING
+                                                    activeServer.markVerifying()
                                                     onCredentialsCaptured(
                                                         AccountCredentials(
                                                             cookie = cookie,
@@ -708,14 +744,15 @@ fun YouTubeWebViewLoginScreen(
                                         onFocusIndex = { idx ->
                                             webViewHolder.value?.post { domFocusIndex = idx }
                                         },
-                                        onStepDetected = { step, hint ->
+                                        onStepDetected = { step, hint, errorMsg ->
                                             webViewHolder.value?.post {
-                                                if (!captured.get()) {
+                                                if (!captured.get() && !activeServer.isVerifyingOnTv) {
                                                     currentStep = step
                                                     activeServer.currentStep = step
                                                     if (hint.isNotBlank()) {
                                                         activeServer.lastStatusHint = hint
                                                     }
+                                                    activeServer.lastErrorMessage = errorMsg
                                                 }
                                             }
                                         },
@@ -750,7 +787,7 @@ fun YouTubeWebViewLoginScreen(
                                             super.doUpdateVisitedHistory(view, url, isReload)
                                             syncUrlAndHost(url)
                                             if (view == null || captured.get()) return
-                                            if (url != null && url.startsWith(YOUTUBE_MUSIC_ORIGIN)) {
+                                            if (isMusicYouTubeHost(url)) {
                                                 captureMusicCookiesAndYtcfg(view)
                                             } else {
                                                 view.evaluateJavascript(installStepWatcherJs, null)
@@ -765,7 +802,7 @@ fun YouTubeWebViewLoginScreen(
                                             super.onPageFinished(view, url)
                                             syncUrlAndHost(url)
                                             if (view == null || captured.get()) return
-                                            if (url != null && url.startsWith(YOUTUBE_MUSIC_ORIGIN)) {
+                                            if (isMusicYouTubeHost(url)) {
                                                 captureMusicCookiesAndYtcfg(view)
                                             } else {
                                                 view.evaluateJavascript(buildHighlightDomScript(0), null)
@@ -896,22 +933,34 @@ private fun webViewStepLabel(
         else -> en
     }
 
-private fun inferStepFromUrl(
+internal fun extractUrlHost(url: String?): String? {
+    if (url.isNullOrBlank()) return null
+    return runCatching { java.net.URI(url).host?.lowercase() }.getOrNull()
+        ?: runCatching { Uri.parse(url).host?.lowercase() }.getOrNull()
+}
+
+internal fun isMusicYouTubeHost(url: String?): Boolean =
+    extractUrlHost(url)?.equals("music.youtube.com", ignoreCase = true) == true
+
+internal fun inferStepFromUrl(
     url: String?,
     language: AppLanguage,
 ): Pair<String, String>? {
     if (url.isNullOrBlank()) return null
-    val lower = url.lowercase()
+    val host = extractUrlHost(url).orEmpty()
+    val path =
+        runCatching { java.net.URI(url).path?.lowercase().orEmpty() }
+            .getOrDefault(url.substringBefore('?').lowercase())
     return when {
-        lower.startsWith(YOUTUBE_MUSIC_ORIGIN) || lower.contains("://music.youtube.com") ->
-            LocalLoginCompanionServer.STEP_DONE to
+        host == "music.youtube.com" ->
+            LocalLoginCompanionServer.STEP_VERIFYING to
                 webViewStepLabel(
                     language = language,
-                    id = "Langkah 4 · Berhasil masuk YouTube Music",
-                    ja = "ステップ 4 · YouTube Music にサインインしました",
-                    en = "Step 4 · Signed in to YouTube Music",
+                    id = "Berhasil masuk YouTube Music — memverifikasi akun…",
+                    ja = "YouTube Music にサインインしました — アカウントを確認中…",
+                    en = "Signed in to YouTube Music — verifying account…",
                 )
-        lower.contains("/challenge/pwd") || lower.contains("/signin/v2/challenge/pwd") ->
+        path.contains("/challenge/pwd") || path.contains("/signin/v2/challenge/pwd") ->
             LocalLoginCompanionServer.STEP_PASSWORD to
                 webViewStepLabel(
                     language = language,
@@ -919,7 +968,7 @@ private fun inferStepFromUrl(
                     ja = "ステップ 2/3 · Google アカウントのパスワードを入力",
                     en = "Step 2 of 3 · Enter Google account password",
                 )
-        lower.contains("/challenge/dp") || lower.contains("/challenge/ootp") ->
+        path.contains("/challenge/dp") || path.contains("/challenge/ootp") ->
             LocalLoginCompanionServer.STEP_VERIFY to
                 webViewStepLabel(
                     language = language,
@@ -927,7 +976,7 @@ private fun inferStepFromUrl(
                     ja = "ステップ 3/3 · スマホの Google 通知で「はい、私です」をタップ",
                     en = "Step 3 of 3 · Tap 'Yes, it's me' on your phone's Google Prompt",
                 )
-        lower.contains("/challenge/") ->
+        path.contains("/challenge/") ->
             LocalLoginCompanionServer.STEP_VERIFY to
                 webViewStepLabel(
                     language = language,
@@ -935,7 +984,7 @@ private fun inferStepFromUrl(
                     ja = "ステップ 3/3 · スマホで 2段階認証 / OTP コードを確認",
                     en = "Step 3 of 3 · Complete 2FA / OTP verification on phone",
                 )
-        lower.contains("/identifier") || lower.contains("accounts.google.com/servicelogin") ->
+        path.contains("/identifier") || (host == "accounts.google.com" && path.contains("/servicelogin")) ->
             LocalLoginCompanionServer.STEP_EMAIL to
                 webViewStepLabel(
                     language = language,
@@ -961,9 +1010,9 @@ private fun buildCheckStepOnceJs(language: AppLanguage): String {
         JSONObject.quote(
             webViewStepLabel(
                 language = language,
-                id = "Langkah 4 · Berhasil masuk YouTube Music — memverifikasi akun…",
-                ja = "ステップ 4 · YouTube Music にサインイン完了 — アカウントを確認中…",
-                en = "Step 4 · Signed in to YouTube Music — verifying account…",
+                id = "Berhasil masuk YouTube Music — memverifikasi akun…",
+                ja = "YouTube Music にサインイン完了 — アカウントを確認中…",
+                en = "Signed in to YouTube Music — verifying account…",
             ),
         )
     val step1Prefix = JSONObject.quote(webViewStepLabel(language, "Langkah 1 dari 3 · ", "ステップ 1/3 · ", "Step 1 of 3 · "))
@@ -1017,18 +1066,25 @@ private fun buildCheckStepOnceJs(language: AppLanguage): String {
                 var r = el.getBoundingClientRect();
                 return r.width > 1 && r.height > 1;
             };
-            var host = window.location.hostname || '';
-            var href = (window.location.href || '').toLowerCase();
+            var host = (window.location.hostname || '').toLowerCase();
+            var pathname = (window.location.pathname || '').toLowerCase();
             var headingEl = document.querySelector('#headingText, h1');
             var heading = headingEl ? (headingEl.innerText || headingEl.textContent || '').trim().replace(/\s+/g, ' ') : '';
+            var errNodes = Array.from(document.querySelectorAll('[aria-live="assertive"], .o6cuMc, .Ekjuhf, [jsname="B34EJ"]')).filter(isVisible);
+            var errText = '';
+            for (var e = 0; e < errNodes.length; e++) {
+                var txt = (errNodes[e].innerText || errNodes[e].textContent || '').trim().replace(/\s+/g, ' ');
+                if (txt.length >= 4 && txt.length <= 220) { errText = txt; break; }
+            }
             var hasPassword = Array.from(document.querySelectorAll('input[type="password"], input[name="Passwd"], input[name="password"]')).some(isVisible);
             var hasEmail = Array.from(document.querySelectorAll('input[type="email"], input[name="identifier"], #identifierId')).some(isVisible);
             var hasOtp = Array.from(document.querySelectorAll('input[type="tel"], input[name="Pin"], input[id*="totp" i], input[autocomplete="one-time-code"], input[type="number"]')).some(isVisible);
             var step = 'email';
             var hint = $defaultEmail;
-            if (host.indexOf('music.youtube.com') >= 0) {
-                step = 'done';
+            if (host === 'music.youtube.com') {
+                step = 'verifying';
                 hint = $doneHint;
+                errText = '';
                 if (!window.__alunaraMusicNotified && window.AlunaraAuth && window.AlunaraAuth.onMusicHomeReached) {
                     window.__alunaraMusicNotified = true;
                     window.AlunaraAuth.onMusicHomeReached();
@@ -1036,7 +1092,7 @@ private fun buildCheckStepOnceJs(language: AppLanguage): String {
             } else if (hasPassword) {
                 step = 'password';
                 hint = heading ? ($step2Prefix + heading) : $step2Default;
-            } else if (href.indexOf('/challenge/') >= 0 || hasOtp || document.querySelector('[data-challengetype]')) {
+            } else if (pathname.indexOf('/challenge/') >= 0 || hasOtp || document.querySelector('[data-challengetype]')) {
                 step = 'verify';
                 if (hasOtp) {
                     hint = heading ? ($step3Prefix + heading + $step3OtpSuffix) : $step3OtpDefault;
@@ -1046,15 +1102,15 @@ private fun buildCheckStepOnceJs(language: AppLanguage): String {
             } else if (hasEmail) {
                 step = 'email';
                 hint = heading ? ($step1Prefix + heading) : $defaultEmail;
-            } else if (href.indexOf('/challenge/pwd') >= 0) {
+            } else if (pathname.indexOf('/challenge/pwd') >= 0) {
                 step = 'password';
                 hint = $step2Loading;
             }
-            var sig = step + '|' + hint;
+            var sig = step + '|' + hint + '|' + errText;
             if (window.__alunaraLastReportedStep !== sig) {
                 window.__alunaraLastReportedStep = sig;
                 if (window.AlunaraAuth && window.AlunaraAuth.onLoginStep) {
-                    window.AlunaraAuth.onLoginStep(step, hint);
+                    window.AlunaraAuth.onLoginStep(step, hint, errText);
                 }
             }
         })();
@@ -1216,7 +1272,7 @@ private const val CLICK_NEXT_OR_ACTIVE_JS =
 private class AlunaraAuthJsBridge(
     private val onContext: (visitorData: String?, dataSyncId: String?, attempt: Int) -> Unit,
     private val onFocusIndex: (Int) -> Unit,
-    private val onStepDetected: (step: String, hint: String) -> Unit,
+    private val onStepDetected: (step: String, hint: String, errorMsg: String) -> Unit,
     private val onMusicHomeReached: () -> Unit,
 ) {
     @JavascriptInterface
@@ -1246,15 +1302,16 @@ private class AlunaraAuthJsBridge(
     fun onLoginStep(
         step: String?,
         hint: String?,
+        errorMsg: String?,
     ) {
         val safeStep =
             when (step) {
                 LocalLoginCompanionServer.STEP_PASSWORD,
                 LocalLoginCompanionServer.STEP_VERIFY,
-                LocalLoginCompanionServer.STEP_DONE,
+                LocalLoginCompanionServer.STEP_VERIFYING,
                 -> step
                 else -> LocalLoginCompanionServer.STEP_EMAIL
             }
-        onStepDetected(safeStep, hint.orEmpty())
+        onStepDetected(safeStep, hint.orEmpty(), errorMsg.orEmpty())
     }
 }

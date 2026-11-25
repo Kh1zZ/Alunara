@@ -2,6 +2,25 @@
 
 Seluruh perubahan penting pada **Alunara** dicatat di berkas ini secara inkremental sesuai ketentuan `AGENTS.md` (entri versi terdahulu tidak pernah dihapus).
 
+## [0.2.5] - 2026-11-24
+
+### Fixed
+- **Seamless TV ↔ Phone Companion Login Sync**:
+  - Fixed premature "Sign-In Complete" popup right after entering the pairing code by replacing substring URL matching with strict hostname checks (`extractUrlHost` / `isMusicYouTubeHost`) so Google's `?continue=https://music.youtube.com/` parameter no longer triggers completion.
+  - Added an explicit `verifying` state (`STEP_VERIFYING`) between WebView cookie capture and `PlaybackSessionManager` account verification so the phone wizard only shows `#doneModal` when TV authentication truly succeeds (`completed: true`), surfaces Google/TV error messages inline, and pauses background polling when hidden.
+  - Added a live **Phone connected / Waiting for phone…** indicator in the TV sign-in header and cleared stale WebView cookies on fresh Guest sign-in.
+- **GitHub Pages QR Pairing URLs**:
+  - Updated both TV Sign-In QR (`LocalLoginCompanionServer`) and Phone Remote QR (`AlunaraRemoteServer`) to encode `https://kh1zz.github.io/Alunara/login/?c=<CODE>` and `https://kh1zz.github.io/Alunara/remote/?c=<CODE>`, keeping direct local LAN URLs visible as fallback text and adding an immediate fallback direct-open link on the GitHub Pages portals.
+- **3-Box Separated D-Pad Focus Architecture & Confirmation Sidebar**:
+  - Restored 3 visually distinct focus zones on the main browse shell (**Box 1: Left Sidebar**, **Box 2: Main Content**, **Box 3: Bottom Mini-Player**) with crisp active-zone accent borders, `.focusGroup()` + `.focusRestorer()` state memory, and standard Android TV Left-Navigation `BackHandler` flow.
+  - Replaced `90 ms` auto-switching on sidebar focus with confirmation-based navigation: D-pad **Up/Down** highlights sidebar destinations with a subtle `"Press OK to open <Tab>"` cue, **OK** confirms and enters content, and **Right** enters the currently active screen directly without changing tabs.
+  - Migrated deprecated `focusProperties` `enter`/`exit` lambdas to `onEnter`/`onExit` and hardened conditional requester transitions across `LibraryScreen` and `YouTubeWebViewLoginScreen`.
+
+### Changed
+- **Zero-Animation Mobile-First Phone Remote Redesign (Option A) with Capped Lyrics**:
+  - Redesigned the embedded Phone Remote web interface (`AlunaraRemoteServer`) specifically for mobile touch ergonomics with a 4-tab bottom bar (**Now Playing**, **Search**, **Queue**, **Remote**), crisp inline SVG icons (zero emoji), DOM signature diffing, and strictly **zero CSS/JS animations, transitions, or `backdrop-filter` blur**.
+  - Added a `Player | Lyrics` segmented switch inside **Now Playing** backed by a lazy `GET /api/lyrics` endpoint strictly capped at **80 lines / 160 chars per line / 16 KB JSON** (line-level highlighting only, zero word-sync overhead).
+
 ## [0.2.4] - 2026-11-24
 
 ### Added

@@ -142,7 +142,7 @@ fun AddToPlaylistDialog(
                             .background(colors.surface, cardShape)
                             .border(BorderStroke(2.dp, colors.focusRingStrong), cardShape)
                             .clickable(interactionSource = cardInteraction, indication = null, onClick = {})
-                            .focusProperties { exit = { FocusRequester.Cancel } }
+                            .focusProperties { onExit = { cancelFocusChange() } }
                             .focusGroup()
                             .padding(horizontal = 24.dp, vertical = 20.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),

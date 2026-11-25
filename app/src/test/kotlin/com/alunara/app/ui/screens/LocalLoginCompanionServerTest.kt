@@ -201,4 +201,70 @@ class LocalLoginCompanionServerTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun inferStepFromUrl_doesNotTriggerDoneOnGoogleContinueQueryParam() {
+        val googleLoginUrl =
+            "https://accounts.google.com/v3/signin/identifier?continue=https://music.youtube.com/&ltmpl=music&service=youtube"
+        assertFalse(isMusicYouTubeHost(googleLoginUrl))
+        assertEquals("accounts.google.com", extractUrlHost(googleLoginUrl))
+        val inferred = inferStepFromUrl(googleLoginUrl, AppLanguage.INDONESIAN)
+        assertNotNull(inferred)
+        assertEquals(LocalLoginCompanionServer.STEP_EMAIL, inferred!!.first)
+
+        val pwdUrl =
+            "https://accounts.google.com/v3/signin/challenge/pwd?continue=https://music.youtube.com/"
+        assertFalse(isMusicYouTubeHost(pwdUrl))
+        assertEquals(
+            LocalLoginCompanionServer.STEP_PASSWORD,
+            inferStepFromUrl(pwdUrl, AppLanguage.ENGLISH)?.first,
+        )
+
+        val ytmUrl = "https://music.youtube.com/?hl=en"
+        assertTrue(isMusicYouTubeHost(ytmUrl))
+        assertEquals(
+            LocalLoginCompanionServer.STEP_VERIFYING,
+            inferStepFromUrl(ytmUrl, AppLanguage.ENGLISH)?.first,
+        )
+    }
+
+    @Test
+    fun buildPortalQrUrl_and_verifyingOrErrorStates_syncCleanlyAndGuardDoneModal() {
+        assertEquals(
+            "https://kh1zz.github.io/Alunara/login/?c=K7M9-P2",
+            LocalLoginCompanionServer.buildPortalQrUrl("K7M9-P2"),
+        )
+        assertEquals(null, LocalLoginCompanionServer.buildPortalQrUrl(""))
+
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            val server = LocalLoginCompanionServer(scope = scope, language = AppLanguage.ENGLISH) {}
+            server.markVerifying()
+            val verifyingJson = server.buildStatusJson()
+            assertTrue(server.isVerifyingOnTv)
+            assertFalse(server.isCompletedOnTv)
+            assertTrue(verifyingJson.contains(""""step":"verifying""""))
+            assertTrue(verifyingJson.contains(""""verifying":true"""))
+            assertTrue(verifyingJson.contains(""""completed":false"""))
+
+            server.markVerificationFailed("Invalid credentials")
+            val errorJson = server.buildStatusJson()
+            assertFalse(server.isVerifyingOnTv)
+            assertFalse(server.isCompletedOnTv)
+            assertTrue(errorJson.contains(""""error":"Invalid credentials""""))
+
+            val html =
+                LocalLoginCompanionServer.buildMobileHtml(
+                    token = "GUARD1",
+                    statusJson = verifyingJson,
+                    language = AppLanguage.ENGLISH,
+                )
+            assertTrue(html.contains("st.completed === true"))
+            assertFalse(html.contains("st.step === 'done'"))
+            assertTrue(html.contains("visibilitychange"))
+        } finally {
+            scope.cancel()
+        }
+    }
 }
+

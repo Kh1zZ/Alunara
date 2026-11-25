@@ -160,6 +160,7 @@
     </form>
 
     <div id="statusBox" class="status" role="status" aria-live="polite"></div>
+    <a id="directOpenBtn" class="primary" href="#" style="display:none; margin-top:10px; text-align:center; text-decoration:none; padding:13px 16px; border-radius:12px; background:#2E493A; border:1px solid #85BDA0; color:#C8F0DA; font-size:14px; font-weight:700;">Buka Langsung ke TV →</a>
 
     <div id="noteEl" class="note">
       <strong>100% Lokal &amp; Aman:</strong> Halaman ini hanya menerjemahkan Kode TV di browser HP Anda dan langsung mengarahkannya ke TV di Wi-Fi yang sama. Email &amp; sandi tidak pernah dikirim ke internet.
@@ -175,27 +176,30 @@
           desc: 'Masukkan Kode TV yang tampil di layar Alunara untuk membuka halaman login langsung di HP lewat Wi-Fi rumah.',
           label: 'Kode TV',
           btn: 'Hubungkan ke TV',
+          directBtn: 'Buka Langsung ke TV ({target}) →',
           note: '<strong>100% Lokal &amp; Aman:</strong> Halaman ini hanya menerjemahkan Kode TV di browser HP Anda dan langsung mengarahkannya ke TV di Wi-Fi yang sama. Email &amp; sandi tidak pernah dikirim ke internet.',
           invalid: 'Kode TV tidak valid. Periksa kembali huruf/angka 6, 7, atau 12 karakter pada layar TV Anda.',
-          connecting: 'Mengalihkan ke Alunara TV di Wi-Fi lokal ({target})…'
+          connecting: 'Mengalihkan ke Alunara TV di Wi-Fi lokal ({target})… Jika browser menahan pengalihan, ketuk tombol di bawah.'
         },
         en: {
           title: 'Connect to Your TV',
           desc: 'Enter the TV Code displayed on your Alunara screen to open the sign-in wizard straight on your phone over local Wi-Fi.',
           label: 'TV Pairing Code',
           btn: 'Connect to TV',
+          directBtn: 'Open TV Directly ({target}) →',
           note: '<strong>100% Local &amp; Private:</strong> This page decodes your TV Code inside your browser and redirects directly to your TV on the same Wi-Fi. Credentials never touch any server.',
           invalid: 'Invalid TV Code. Double-check the 6, 7, or 12 characters shown on your TV.',
-          connecting: 'Redirecting to Alunara TV on local Wi-Fi ({target})…'
+          connecting: 'Redirecting to Alunara TV on local Wi-Fi ({target})… If your browser pauses the redirect, tap the button below.'
         },
         ja: {
           title: 'テレビと接続',
           desc: 'Alunara のテレビ画面に表示されている TV コードを入力して、同じ Wi-Fi 経由でスマホからログイン画面を開きます。',
           label: 'TV ペアリングコード',
           btn: 'テレビに接続',
+          directBtn: 'テレビを直接開く ({target}) →',
           note: '<strong>完全ローカルで安全:</strong> このページはブラウザ内で TV コードを変換してローカル Wi-Fi のテレビへ直接転送します。パスワードなどが外部サーバーへ送信されることはありません。',
           invalid: 'TV コードが無効です。テレビ画面に表示された 6桁 / 7桁 / 12桁のコードを確認してください。',
-          connecting: 'ローカル Wi-Fi 上の Alunara TV（{target}）へ移動しています…'
+          connecting: 'ローカル Wi-Fi 上の Alunara TV（{target}）へ移動しています… 自動遷移しない場合は下のボタンをタップしてください。'
         }
       };
 
@@ -279,6 +283,7 @@
 
       var input = document.getElementById('codeInput');
       var statusBox = document.getElementById('statusBox');
+      var directOpenBtn = document.getElementById('directOpenBtn');
 
       input.addEventListener('input', function () {
         var formatted = formatCode(input.value);
@@ -293,12 +298,17 @@
       function connectWithCode(raw) {
         var decoded = decodePairingCode(raw);
         if (!decoded) {
+          directOpenBtn.style.display = 'none';
           showStatus(COPY[lang].invalid, false);
           return;
         }
         var pinHex = decoded.pin.toString(16).padStart(3, '0');
-        var targetUrl = 'http://' + decoded.ip + ':' + decoded.port + '/p?k=' + encodeURIComponent(pinHex);
-        showStatus(COPY[lang].connecting.replace('{target}', decoded.ip + ':' + decoded.port), true);
+        var hostPort = decoded.ip + ':' + decoded.port;
+        var targetUrl = 'http://' + hostPort + '/p?k=' + encodeURIComponent(pinHex);
+        directOpenBtn.href = targetUrl;
+        directOpenBtn.textContent = COPY[lang].directBtn.replace('{target}', hostPort);
+        directOpenBtn.style.display = 'block';
+        showStatus(COPY[lang].connecting.replace('{target}', hostPort), true);
         window.location.href = targetUrl;
       }
 

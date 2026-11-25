@@ -211,8 +211,76 @@ class AlunaraRemoteServerTest {
             assertTrue(html.contains("""id="tab-dpad""""))
             assertTrue(html.contains("X-Alunara-Remote"))
             assertTrue(html.contains("visibilitychange"))
+            assertTrue(html.contains("""id="subPlayerBtn""""))
+            assertTrue(html.contains("""id="subLyricsBtn""""))
+            assertTrue(html.contains("/api/lyrics"))
+            assertFalse("Remote CSS must contain zero @keyframes", html.contains("@keyframes"))
+            assertFalse("Remote CSS must contain zero transitions", html.contains("transition:"))
+            assertFalse("Remote CSS must contain zero animations", html.contains("animation:"))
+            assertFalse("Remote CSS must contain zero backdrop-filter", html.contains("backdrop-filter:"))
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun buildPortalQrUrl_pointsToGithubPagesRemotePortal() {
+        assertEquals(
+            "https://kh1zz.github.io/Alunara/remote/?c=K7M9-P2",
+            AlunaraRemoteServer.buildPortalQrUrl("K7M9-P2"),
+        )
+        assertEquals(null, AlunaraRemoteServer.buildPortalQrUrl("   "))
+    }
+
+    @Test
+    fun buildLyricsJson_capsLinesAndLineLengthAndOmitsWordSync() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            val server = createServer(scope)
+            val track =
+                Track(
+                    id = "trk-lyr",
+                    title = "Long Song",
+                    artists = listOf(ArtistRef(id = null, name = "Singer")),
+                )
+            val longText = "A".repeat(220)
+            val lines =
+                (0 until 120).map { idx ->
+                    com.alunara.core.domain.model.SyncedLyricLine(
+                        startTimeMs = idx * 2_000L,
+                        text = if (idx == 0) longText else "Line $idx",
+                        words =
+                            listOf(
+                                com.alunara.core.domain.model.SyncedLyricWord(
+                                    startTimeMs = idx * 2_000L,
+                                    text = "word$idx",
+                                ),
+                            ),
+                    )
+                }
+            val uiState =
+                PlaybackSessionUiState(
+                    queueState = QueueState(items = listOf(QueueItem("q1", track)), currentIndex = 0),
+                    status = PlaybackStatus.PLAYING,
+                    lyrics =
+                        LyricsDocument.Synced(
+                            provider = LyricsProviderId.LRCLIB,
+                            lines = lines,
+                        ),
+                )
+            val json = server.buildLyricsJson(uiState, positionMs = 4_500L)
+            assertTrue(json.contains(""""mode":"synced""""))
+            assertTrue(json.contains(""""totalLines":120"""))
+            assertTrue(json.contains(""""maxLines":80"""))
+            assertTrue(json.contains(""""truncated":true"""))
+            assertTrue(json.contains(""""activeIndex":2"""))
+            assertFalse(json.contains(""""i":80"""))
+            assertFalse(json.contains("words"))
+            assertFalse(json.contains("A".repeat(165)))
+            assertTrue(json.toByteArray(Charsets.UTF_8).size <= AlunaraRemoteServer.MAX_REMOTE_LYRICS_JSON_BYTES)
         } finally {
             scope.cancel()
         }
     }
 }
+

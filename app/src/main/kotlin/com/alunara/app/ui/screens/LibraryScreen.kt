@@ -220,6 +220,15 @@ fun LibraryScreen(
                     false
                 }
             }
+            val focusTopRightSafe: () -> Boolean = {
+                if (!hasTopRightAction) {
+                    false
+                } else if (authSession is AuthSessionState.Authenticated && selectedTab == LibraryTab.PLAYLISTS) {
+                    createPlaylistRequester.safeRequestFocus() || topRightActionRequester.safeRequestFocus()
+                } else {
+                    topRightActionRequester.safeRequestFocus()
+                }
+            }
             TvFocusableButton(
                 text = stringResource(R.string.library_tab_playlists, accountPlaylists.size),
                 icon = Icons.Rounded.LibraryMusic,
@@ -232,16 +241,13 @@ fun LibraryScreen(
                     Modifier
                         .focusRequester(tabPlaylistsRequester)
                         .then(if (selectedTab == LibraryTab.PLAYLISTS) Modifier.focusRequester(entryFocusRequester) else Modifier)
-                        .onPreviewKeyEvent(handleTabDownKey)
-                        .focusProperties {
-                            right = tabFavoritesRequester
-                            if (hasTopRightAction) {
-                                up =
-                                    if (authSession is AuthSessionState.Authenticated && selectedTab == LibraryTab.PLAYLISTS) {
-                                        createPlaylistRequester
-                                    } else {
-                                        topRightActionRequester
-                                    }
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.DirectionDown -> handleTabDownKey(event)
+                                Key.DirectionRight -> tabFavoritesRequester.safeRequestFocus()
+                                Key.DirectionUp -> focusTopRightSafe()
+                                else -> false
                             }
                         },
             )
@@ -257,11 +263,15 @@ fun LibraryScreen(
                     Modifier
                         .focusRequester(tabFavoritesRequester)
                         .then(if (selectedTab == LibraryTab.FAVORITES) Modifier.focusRequester(entryFocusRequester) else Modifier)
-                        .onPreviewKeyEvent(handleTabDownKey)
-                        .focusProperties {
-                            left = tabPlaylistsRequester
-                            right = tabHistoryRequester
-                            if (hasTopRightAction) up = topRightActionRequester
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.DirectionDown -> handleTabDownKey(event)
+                                Key.DirectionLeft -> tabPlaylistsRequester.safeRequestFocus()
+                                Key.DirectionRight -> tabHistoryRequester.safeRequestFocus()
+                                Key.DirectionUp -> focusTopRightSafe()
+                                else -> false
+                            }
                         },
             )
             TvFocusableButton(
@@ -273,17 +283,14 @@ fun LibraryScreen(
                     Modifier
                         .focusRequester(tabHistoryRequester)
                         .then(if (selectedTab == LibraryTab.HISTORY) Modifier.focusRequester(entryFocusRequester) else Modifier)
-                        .onPreviewKeyEvent(handleTabDownKey)
-                        .focusProperties {
-                            left = tabFavoritesRequester
-                            if (hasTopRightAction) {
-                                right =
-                                    if (authSession is AuthSessionState.Authenticated && selectedTab == LibraryTab.PLAYLISTS) {
-                                        createPlaylistRequester
-                                    } else {
-                                        topRightActionRequester
-                                    }
-                                up = topRightActionRequester
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.DirectionDown -> handleTabDownKey(event)
+                                Key.DirectionLeft -> tabFavoritesRequester.safeRequestFocus()
+                                Key.DirectionRight -> focusTopRightSafe()
+                                Key.DirectionUp -> focusTopRightSafe()
+                                else -> false
                             }
                         },
             )

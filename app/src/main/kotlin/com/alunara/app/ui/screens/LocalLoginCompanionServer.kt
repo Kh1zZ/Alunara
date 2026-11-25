@@ -69,12 +69,30 @@ class LocalLoginCompanionServer(
         private set
 
     @Volatile
+    var qrPortalUrl: String? = null
+        private set
+
+    @Volatile
     var isCompletedOnTv: Boolean = false
+        private set
+
+    @Volatile
+    var isVerifyingOnTv: Boolean = false
         private set
 
     @Volatile
     var completedAccountName: String = ""
         private set
+
+    @Volatile
+    var lastErrorMessage: String = ""
+
+    @Volatile
+    var lastClientSeenAtMs: Long = 0L
+        private set
+
+    val isPhoneConnected: Boolean
+        get() = lastClientSeenAtMs > 0L && (System.currentTimeMillis() - lastClientSeenAtMs) <= PHONE_CONNECTED_WINDOW_MS
 
     @Volatile
     var currentStep: String = STEP_EMAIL
@@ -97,8 +115,39 @@ class LocalLoginCompanionServer(
     @Volatile
     private var acceptJob: Job? = null
 
+    fun markVerifying() {
+        isVerifyingOnTv = true
+        lastErrorMessage = ""
+        currentStep = STEP_VERIFYING
+        lastStatusHint =
+            pickLocalized(
+                language = language,
+                id = "Memverifikasi akun YouTube Music di TV…",
+                ja = "テレビで YouTube Music アカウントを確認しています…",
+                en = "Verifying your YouTube Music account on the TV…",
+            )
+    }
+
+    fun markVerificationFailed(reason: String) {
+        isVerifyingOnTv = false
+        isCompletedOnTv = false
+        lastErrorMessage =
+            reason.ifBlank {
+                pickLocalized(
+                    language = language,
+                    id = "Verifikasi akun YouTube Music gagal. Silakan coba lagi.",
+                    ja = "YouTube Music アカウントの確認に失敗しました。もう一度お試しください。",
+                    en = "YouTube Music account verification failed. Please try again.",
+                )
+            }
+        currentStep = STEP_EMAIL
+        lastStatusHint = lastErrorMessage
+    }
+
     fun markCompleted(accountName: String = "") {
+        isVerifyingOnTv = false
         isCompletedOnTv = true
+        lastErrorMessage = ""
         currentStep = STEP_DONE
         if (accountName.isNotBlank()) {
             completedAccountName = accountName
@@ -136,6 +185,7 @@ class LocalLoginCompanionServer(
         pairingCode = encoded
         val url = "http://$lanIp:$resolvedPort/l?t=$sessionToken"
         localLoginUrl = url
+        qrPortalUrl = buildPortalQrUrl(encoded) ?: url
 
         acceptJob =
             scope.launch(Dispatchers.IO) {
@@ -170,19 +220,32 @@ class LocalLoginCompanionServer(
         return "http://$ip:$port/l?t=$sessionToken"
     }
 
-    internal fun buildStatusJson(): String =
-        buildString {
+    internal fun buildStatusJson(): String {
+        val resolvedStep =
+            when {
+                isCompletedOnTv -> STEP_DONE
+                isVerifyingOnTv -> STEP_VERIFYING
+                else -> currentStep
+            }
+        return buildString {
             append('{')
-            append("\"step\":").append(escapeJsonString(if (isCompletedOnTv) STEP_DONE else currentStep)).append(',')
+            append("\"step\":").append(escapeJsonString(resolvedStep)).append(',')
             append("\"host\":").append(escapeJsonString(currentHost)).append(',')
             append("\"hint\":").append(escapeJsonString(lastStatusHint)).append(',')
+            append("\"error\":").append(escapeJsonString(lastErrorMessage)).append(',')
+            append("\"verifying\":").append(isVerifyingOnTv).append(',')
             append("\"completed\":").append(isCompletedOnTv).append(',')
             append("\"accountName\":").append(escapeJsonString(completedAccountName))
             append('}')
         }
+    }
 
     private suspend fun handleClient(socket: Socket) {
         socket.use { s ->
+            val remoteIp = s.inetAddress?.hostAddress
+            if (!isPrivateIpv4(remoteIp)) {
+                return
+            }
             s.soTimeout = SOCKET_TIMEOUT_MS
             val input = BufferedInputStream(s.getInputStream())
             val output = s.getOutputStream()
@@ -208,6 +271,7 @@ class LocalLoginCompanionServer(
                 val rawPin = queryParams["k"]?.trim().orEmpty()
                 val submittedPin = rawPin.toIntOrNull(16) ?: rawPin.toIntOrNull()
                 if (submittedPin == activePairPin) {
+                    lastClientSeenAtMs = System.currentTimeMillis()
                     writeResponse(
                         output = output,
                         status = 302,
@@ -240,6 +304,8 @@ class LocalLoginCompanionServer(
                 writeResponse(output, 403, "text/plain; charset=utf-8", msg)
                 return
             }
+
+            lastClientSeenAtMs = System.currentTimeMillis()
 
             when {
                 request.method == "GET" && (request.path == "/l" || request.path == "/login") -> {
@@ -509,16 +575,41 @@ class LocalLoginCompanionServer(
         const val STEP_EMAIL = "email"
         const val STEP_PASSWORD = "password"
         const val STEP_VERIFY = "verify"
+        const val STEP_VERIFYING = "verifying"
         const val STEP_DONE = "done"
         const val DEFAULT_PAIRING_PORT = 4580
         const val PAIRING_PORTAL_DISPLAY_URL = "kh1zz.github.io/Alunara/login"
 
+        private const val PHONE_CONNECTED_WINDOW_MS = 6_000L
         private const val SOCKET_TIMEOUT_MS = 5000
         private const val MAX_HEADER_BYTES = 8192
         private const val MAX_BODY_BYTES = 16384
         private const val MAX_FAILED_PAIR_ATTEMPTS = 8
         private const val TOKEN_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
         private const val PAIR_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+        internal fun buildPortalQrUrl(pairingCode: String?): String? =
+            pairingCode?.takeIf { it.isNotBlank() }?.let { "https://$PAIRING_PORTAL_DISPLAY_URL/?c=$it" }
+
+        internal fun isPrivateIpv4(rawHost: String?): Boolean {
+            val cleaned =
+                rawHost
+                    ?.trim()
+                    ?.substringBefore('%')
+                    ?.removePrefix("::ffff:")
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: return false
+            val parts = cleaned.split('.')
+            if (parts.size != 4) return false
+            val octets = parts.map { it.toIntOrNull() ?: return false }
+            if (octets.any { it !in 0..255 }) return false
+            val o0 = octets[0]
+            val o1 = octets[1]
+            return (o0 == 127 && octets[1] == 0 && octets[2] == 0 && octets[3] == 1) ||
+                o0 == 10 ||
+                (o0 == 172 && o1 in 16..31) ||
+                (o0 == 192 && o1 == 168)
+        }
 
         fun generateSessionToken(): String {
             val rng = SecureRandom()
@@ -1013,6 +1104,7 @@ class LocalLoginCompanionServer(
                   var token = ${escapeJsonString(token)};
                   var stepOrder = ['email', 'password', 'verify', 'done'];
                   var lastSyncedStep = null;
+                  var lastErrorShown = '';
                   var doneModalShown = false;
                   var pollTimer = null;
                   var lblDone = $jsBadgeDone;
@@ -1038,12 +1130,23 @@ class LocalLoginCompanionServer(
                     var modal = document.getElementById('doneModal');
                     if (modal) modal.classList.remove('open');
                   }
+                  function stopPolling() {
+                    if (pollTimer !== null) {
+                      clearInterval(pollTimer);
+                      pollTimer = null;
+                    }
+                  }
+                  function startPolling() {
+                    if (doneModalShown || pollTimer !== null) return;
+                    pollTimer = setInterval(pollStatus, 750);
+                  }
                   function applyTvState(st) {
                     if (!st || !st.step) return;
                     var hintEl = document.getElementById('tvStepHint');
                     var hint = (st.hint || '') + (st.host ? ' · ' + st.host : '');
                     if (hintEl && hintEl.textContent !== hint) hintEl.textContent = hint;
-                    var activeIdx = stepOrder.indexOf(st.step);
+                    var visualStep = (st.step === 'verifying') ? 'done' : st.step;
+                    var activeIdx = stepOrder.indexOf(visualStep);
                     if (activeIdx < 0) activeIdx = 0;
                     stepOrder.forEach(function(name, i) {
                       var pill = document.getElementById('pill-' + name);
@@ -1066,25 +1169,32 @@ class LocalLoginCompanionServer(
                         else badge.textContent = lblStepPrefix + (i + 1);
                       }
                     });
-                    if (st.completed === true || st.step === 'done') {
+                    if (st.error) {
+                      if (st.error !== lastErrorShown) {
+                        lastErrorShown = st.error;
+                        showBanner(st.error, false);
+                      }
+                    } else if (lastErrorShown) {
+                      lastErrorShown = '';
+                    }
+                    if (st.verifying === true || st.step === 'verifying') {
+                      if (st.hint) showBanner(st.hint, true);
+                    }
+                    if (st.completed === true) {
                       showDoneModal(st.accountName || '');
                       doneModalShown = true;
-                      if (pollTimer !== null) {
-                        clearInterval(pollTimer);
-                        pollTimer = null;
-                      }
+                      stopPolling();
                     }
                     if (lastSyncedStep !== st.step) {
                       var isTransition = lastSyncedStep !== null;
                       lastSyncedStep = st.step;
                       var activeCard = document.getElementById('card-' + st.step);
                       if (activeCard && isTransition) {
-                        var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-                        try { activeCard.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' }); } catch (_) {}
+                        try { activeCard.scrollIntoView({ behavior: 'auto', block: 'center' }); } catch (_) {}
                         var inputId = st.step === 'password' ? 'passwordInput' : (st.step === 'verify' ? 'otpInput' : 'emailInput');
                         var targetInput = document.getElementById(inputId);
                         if (targetInput && (st.step === 'password' || (st.step === 'verify' && (st.hint || '').toLowerCase().indexOf('otp') >= 0))) {
-                          setTimeout(function() { try { targetInput.focus(); } catch (_) {} }, 250);
+                          setTimeout(function() { try { targetInput.focus(); } catch (_) {} }, 220);
                         }
                       }
                     }
@@ -1120,6 +1230,7 @@ class LocalLoginCompanionServer(
                       var actionVal = actionEl ? actionEl.value : '';
                       var inputVal = valueEl ? valueEl.value : '';
                       if (btn) btn.disabled = true;
+                      lastErrorShown = '';
                       fetch('/submit?t=' + encodeURIComponent(token), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -1128,7 +1239,6 @@ class LocalLoginCompanionServer(
                         .then(function(res) {
                           if (btn) btn.disabled = false;
                           showBanner(res.message || lblSent, !!res.ok);
-                          if (res.step) applyTvState({ step: res.step, hint: res.hint || '', host: '' });
                           pollStatus();
                           burstPoll();
                         })
@@ -1139,15 +1249,22 @@ class LocalLoginCompanionServer(
                     });
                   });
                   function pollStatus() {
+                    if (doneModalShown) return;
                     fetch('/status?t=' + encodeURIComponent(token), { cache: 'no-store' })
                       .then(function(r) { return r.ok ? r.json() : null; })
                       .then(function(st) { if (st) applyTvState(st); })
                       .catch(function() {});
                   }
+                  document.addEventListener('visibilitychange', function() {
+                    if (document.visibilityState === 'visible') {
+                      pollStatus();
+                      startPolling();
+                    } else {
+                      stopPolling();
+                    }
+                  });
                   applyTvState($resolvedStatusJson);
-                  if (!doneModalShown) {
-                    pollTimer = setInterval(pollStatus, 750);
-                  }
+                  startPolling();
                 </script>
                 </body>
                 </html>

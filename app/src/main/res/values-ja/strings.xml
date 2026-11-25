@@ -246,4 +246,8 @@
     <string name="remote_local_url_format">ローカル LAN 直リンク：%1$s</string>
     <string name="remote_offline_hint">スマホリモコンを有効にするにはテレビを Wi-Fi に接続してください。</string>
     <string name="remote_lockout_warning">誤入力が続いたためロックされました。「コードを再生成」を押して解除してください。</string>
+    <string name="login_step_verifying">YouTube Music アカウントを確認中…</string>
+    <string name="login_phone_connected">スマホ接続中</string>
+    <string name="login_phone_waiting">スマホ待機中…</string>
+    <string name="nav_confirm_ok_hint">OK で %1$s を開く</string>
 </resources>

@@ -246,4 +246,8 @@
     <string name="remote_local_url_format">Direct LAN fallback: %1$s</string>
     <string name="remote_offline_hint">Connect TV to Wi-Fi to activate phone remote URL.</string>
     <string name="remote_lockout_warning">Pairing locked after repeated wrong codes. Select Regenerate Code to unlock.</string>
+    <string name="login_step_verifying">Verifying YouTube Music account…</string>
+    <string name="login_phone_connected">Phone connected</string>
+    <string name="login_phone_waiting">Waiting for phone…</string>
+    <string name="nav_confirm_ok_hint">Press OK to open %1$s</string>
 </resources>
