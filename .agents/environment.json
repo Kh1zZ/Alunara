@@ -1,0 +1,3 @@
+{
+  "install": "if [ -n \"${ANDROID_HOME:-}\" ] && [ -x \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" ]; then yes | \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" --licenses >/dev/null 2>&1 || true; if [ ! -d \"$ANDROID_HOME/platforms/android-35\" ] || [ ! -d \"$ANDROID_HOME/build-tools/35.0.0\" ]; then \"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager\" --install \"platforms;android-35\" \"build-tools;35.0.0\" >/dev/null; fi; fi && chmod +x gradlew && ./gradlew :core:domain:test :core:music:test :core:lyrics:test :core:data:testDebugUnitTest :app:testDebugUnitTest --no-daemon"
+}
